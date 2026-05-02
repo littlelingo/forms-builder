@@ -1,0 +1,17 @@
+{
+  "name": "@form-builder/schema",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "generate": "json2ts -i schema/form-definition.schema.json -o src/generated.ts"
+  },
+  "devDependencies": {
+    "json-schema-to-typescript": "^15.0.0",
+    "typescript": "^5.6.3"
+  }
+}

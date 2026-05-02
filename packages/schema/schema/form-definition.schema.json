@@ -1,0 +1,359 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://form-builder.local/schema/form-definition.schema.json",
+  "title": "FormDefinition",
+  "type": "object",
+  "required": [
+    "id",
+    "title",
+    "documentClass",
+    "reviewStatus",
+    "sourcePriority",
+    "sourceConflicts",
+    "pages",
+    "issues",
+    "metadata"
+  ],
+  "properties": {
+    "id": { "type": "string" },
+    "title": { "type": "string" },
+    "documentClass": {
+      "type": "string",
+      "enum": [
+        "xfa_backed_fillable",
+        "acroform_only",
+        "born_digital_nonfillable",
+        "scanned_image_heavy",
+        "mixed"
+      ]
+    },
+    "reviewStatus": {
+      "type": "string",
+      "enum": ["draft", "needs_review", "reviewed", "accepted"]
+    },
+    "sourcePriority": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/sourcePriority" }
+    },
+    "sourceConflicts": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "pages": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/pageNode" }
+    },
+    "issues": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/extractionIssue" }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "sourcePriority": {
+      "type": "string",
+      "enum": [
+        "xfa_xml",
+        "widget_geometry",
+        "acroform",
+        "layout",
+        "ocr",
+        "heuristic",
+        "reviewer_override"
+      ]
+    },
+    "coordinates": {
+      "type": "object",
+      "required": ["page", "x", "y", "width", "height"],
+      "properties": {
+        "page": { "type": "integer", "minimum": 1 },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "evidenceAnchor": {
+      "type": "object",
+      "required": ["anchorId", "sourcePriority", "page", "snippet", "confidence"],
+      "properties": {
+        "anchorId": { "type": "string" },
+        "sourcePriority": { "$ref": "#/$defs/sourcePriority" },
+        "page": { "type": "integer", "minimum": 1 },
+        "snippet": { "type": "string" },
+        "bounds": { "$ref": "#/$defs/coordinates" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "notes": { "type": "string" }
+      }
+    },
+    "choiceOption": {
+      "type": "object",
+      "required": ["value", "label", "orderIndex", "selectedByDefault", "evidence"],
+      "properties": {
+        "value": { "type": "string" },
+        "label": { "type": "string" },
+        "orderIndex": { "type": "integer", "minimum": 0 },
+        "selectedByDefault": { "type": "boolean" },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidenceAnchor" }
+        }
+      }
+    },
+    "validationRule": {
+      "type": "object",
+      "required": ["ruleId", "ruleType", "message"],
+      "properties": {
+        "ruleId": { "type": "string" },
+        "ruleType": {
+          "type": "string",
+          "enum": ["required", "regex", "min", "max", "length", "custom"]
+        },
+        "message": { "type": "string" },
+        "value": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "number" },
+            { "type": "integer" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "conditionalRule": {
+      "type": "object",
+      "required": ["ruleId", "whenFieldId", "operator", "effect"],
+      "properties": {
+        "ruleId": { "type": "string" },
+        "whenFieldId": { "type": "string" },
+        "operator": {
+          "type": "string",
+          "enum": ["equals", "not_equals", "contains", "exists"]
+        },
+        "expectedValue": { "type": "string" },
+        "effect": {
+          "type": "string",
+          "enum": ["show", "hide", "require", "disable"]
+        }
+      }
+    },
+    "fieldNode": {
+      "type": "object",
+      "required": [
+        "id",
+        "stableKey",
+        "orderIndex",
+        "lineage",
+        "pageId",
+        "sectionId",
+        "semanticType",
+        "label",
+        "required",
+        "sourceCoordinates",
+        "evidence",
+        "confidence",
+        "sourcePriority",
+        "sourceConflicts",
+        "reviewStatus",
+        "options",
+        "validations",
+        "conditionals",
+        "rendererHints"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "stableKey": { "type": "string" },
+        "orderIndex": { "type": "integer", "minimum": 0 },
+        "lineage": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "pageId": { "type": "string" },
+        "sectionId": { "type": "string" },
+        "semanticType": {
+          "type": "string",
+          "enum": [
+            "text",
+            "textarea",
+            "select",
+            "radio",
+            "checkbox",
+            "date",
+            "number",
+            "phone",
+            "email",
+            "signature_attestation",
+            "repeatable_group",
+            "statement"
+          ]
+        },
+        "label": { "type": "string" },
+        "helpText": { "type": "string" },
+        "required": { "type": "boolean" },
+        "sourceCoordinates": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/coordinates" }
+        },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidenceAnchor" }
+        },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "sourcePriority": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/sourcePriority" }
+        },
+        "sourceConflicts": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "reviewStatus": {
+          "type": "string",
+          "enum": ["draft", "needs_review", "reviewed", "accepted"]
+        },
+        "options": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/choiceOption" }
+        },
+        "validations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/validationRule" }
+        },
+        "conditionals": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/conditionalRule" }
+        },
+        "rendererHints": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "sectionNode": {
+      "type": "object",
+      "required": ["id", "orderIndex", "title", "pageId", "lineage", "groups", "fields"],
+      "properties": {
+        "id": { "type": "string" },
+        "orderIndex": { "type": "integer", "minimum": 0 },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "pageId": { "type": "string" },
+        "lineage": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "groups": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/groupNode" }
+        },
+        "fields": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/fieldNode" }
+        }
+      }
+    },
+    "groupNode": {
+      "type": "object",
+      "required": [
+        "id",
+        "orderIndex",
+        "label",
+        "pageId",
+        "sectionId",
+        "lineage",
+        "sourceCoordinates",
+        "evidence",
+        "fields",
+        "rendererHints"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "orderIndex": { "type": "integer", "minimum": 0 },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "pageId": { "type": "string" },
+        "sectionId": { "type": "string" },
+        "lineage": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "sourceCoordinates": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/coordinates" }
+        },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidenceAnchor" }
+        },
+        "fields": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/fieldNode" }
+        },
+        "rendererHints": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "pageNode": {
+      "type": "object",
+      "required": ["id", "orderIndex", "label", "sections"],
+      "properties": {
+        "id": { "type": "string" },
+        "orderIndex": { "type": "integer", "minimum": 0 },
+        "label": { "type": "string" },
+        "sections": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/sectionNode" }
+        },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidenceAnchor" }
+        }
+      }
+    },
+    "extractionIssue": {
+      "type": "object",
+      "required": [
+        "code",
+        "severity",
+        "message",
+        "evidenceAnchorIds",
+        "confidenceBand"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "xfa_visual_mismatch",
+            "ambiguous_field_type",
+            "label_mismatch",
+            "duplicate_node",
+            "orphaned_node",
+            "page_flow_order_conflict",
+            "learned_heuristic_application",
+            "treatment_mapping_proposal"
+          ]
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["info", "warning", "error"]
+        },
+        "message": { "type": "string" },
+        "nodeId": { "type": "string" },
+        "evidenceAnchorIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "confidenceBand": {
+          "type": "string",
+          "enum": ["high", "medium", "low"]
+        },
+        "suggestedAction": { "type": "string" }
+      }
+    }
+  }
+}

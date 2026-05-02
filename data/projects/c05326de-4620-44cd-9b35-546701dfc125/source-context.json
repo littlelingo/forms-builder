@@ -1,0 +1,736 @@
+{
+  "conversionId": "5cbd7e58-c74b-45b9-8ea8-987ca866848e",
+  "filename": "10-0137A.pdf",
+  "documentClass": "xfa_backed_fillable",
+  "reviewStatus": "reviewed",
+  "confidence": 0.96,
+  "extractorPath": [
+    "catalog_inspection",
+    "xfa_xml",
+    "widget_geometry",
+    "layout_reconciliation"
+  ],
+  "notes": [
+    "Detected XFA packets in the AcroForm catalog; XFA-first extraction is appropriate."
+  ],
+  "issues": [
+    {
+      "code": "learned_heuristic_application",
+      "severity": "info",
+      "message": "Tabular page structure was detected and may imply grouped or repeatable semantics.",
+      "nodeId": null,
+      "evidenceAnchorIds": [],
+      "confidenceBand": "medium",
+      "suggestedAction": "Review table-heavy pages for repeatable groups before accepting the draft."
+    }
+  ],
+  "importedDraft": {
+    "id": "10-0137a-xfa-backed-fillable",
+    "title": "10 0137A",
+    "documentClass": "xfa_backed_fillable",
+    "reviewStatus": "reviewed",
+    "sourcePriority": [
+      "xfa_xml",
+      "widget_geometry"
+    ],
+    "sourceConflicts": [
+      "Layout text was used to supplement XFA-backed extraction evidence."
+    ],
+    "pages": [
+      {
+        "id": "page-2",
+        "orderIndex": 1,
+        "label": "WHAT YOU SHOULD KNOW ABOUT ADVANCE DIRECTIVES CONTINUED",
+        "sections": [
+          {
+            "id": "section-2-1",
+            "orderIndex": 0,
+            "title": "WHAT YOU SHOULD KNOW ABOUT ADVANCE DIRECTIVES CONTINUED",
+            "description": "Recovered from widget metadata with page text layered in for static content, labels, and review context.",
+            "pageId": "page-2",
+            "lineage": [
+              "page-2"
+            ],
+            "groups": [],
+            "fields": [
+              {
+                "id": "field-2-statement-0",
+                "stableKey": "10-0137a-2-statement-0",
+                "orderIndex": 0,
+                "lineage": [
+                  "page-2",
+                  "section-2-1"
+                ],
+                "pageId": "page-2",
+                "sectionId": "section-2-1",
+                "semanticType": "statement",
+                "label": "WHAT YOU SHOULD KNOW ABOUT ADVANCE DIRECTIVES CONTINUED",
+                "helpText": "Recovered from page text for reviewer triage.",
+                "required": false,
+                "sourceCoordinates": [
+                  {
+                    "page": 2,
+                    "x": 61.38999938964844,
+                    "y": 25.802993774414062,
+                    "width": 489.21595764160156,
+                    "height": 19.51599884033203
+                  }
+                ],
+                "evidence": [
+                  {
+                    "anchorId": "ev-2-what-you-should-know-about-advan",
+                    "sourcePriority": "xfa_xml",
+                    "page": 2,
+                    "snippet": "WHAT YOU SHOULD KNOW ABOUT ADVANCE DIRECTIVES CONTINUED",
+                    "bounds": {
+                      "page": 2,
+                      "x": 61.38999938964844,
+                      "y": 25.802993774414062,
+                      "width": 489.21595764160156,
+                      "height": 19.51599884033203
+                    },
+                    "confidence": 0.78,
+                    "notes": "Recovered from visible page text."
+                  }
+                ],
+                "confidence": 0.62,
+                "sourcePriority": [
+                  "xfa_xml"
+                ],
+                "sourceConflicts": [],
+                "reviewStatus": "needs_review",
+                "options": [],
+                "validations": [],
+                "conditionals": [],
+                "rendererHints": {
+                  "runtimePattern": "statement"
+                }
+              },
+              {
+                "id": "field-2-statement-1",
+                "stableKey": "10-0137a-2-statement-1",
+                "orderIndex": 1,
+                "lineage": [
+                  "page-2",
+                  "section-2-1"
+                ],
+                "pageId": "page-2",
+                "sectionId": "section-2-1",
+                "semanticType": "statement",
+                "label": "What should I do if I want to complete an advance directive?",
+                "helpText": "Recovered from page text for reviewer triage.",
+                "required": false,
+                "sourceCoordinates": [
+                  {
+                    "page": 2,
+                    "x": 36.0,
+                    "y": 54.8399772644043,
+                    "width": 285.6919860839844,
+                    "height": 14.66299819946289
+                  }
+                ],
+                "evidence": [
+                  {
+                    "anchorId": "ev-2-what-should-i-do-if-i-want-to-co",
+                    "sourcePriority": "xfa_xml",
+                    "page": 2,
+                    "snippet": "What should I do if I want to complete an advance directive?",
+                    "bounds": {
+                      "page": 2,
+                      "x": 36.0,
+                      "y": 54.8399772644043,
+                      "width": 285.6919860839844,
+                      "height": 14.66299819946289
+                    },
+                    "confidence": 0.78,
+                    "notes": "Recovered from visible page text."
+                  }
+                ],
+                "confidence": 0.62,
+                "sourcePriority": [
+                  "xfa_xml"
+                ],
+                "sourceConflicts": [],
+                "reviewStatus": "needs_review",
+                "options": [],
+                "validations": [],
+                "conditionals": [],
+                "rendererHints": {
+                  "runtimePattern": "statement"
+                }
+              },
+              {
+                "id": "field-2-statement-2",
+                "stableKey": "10-0137a-2-statement-2",
+                "orderIndex": 2,
+                "lineage": [
+                  "page-2",
+                  "section-2-1"
+                ],
+                "pageId": "page-2",
+                "sectionId": "section-2-1",
+                "semanticType": "statement",
+                "label": "You can fill out an advance directive form on your own or get help from a health care provider. This might be a social worker, your primary care doctor, or your mental health professional. You could also talk to your spiritual advisor or attorney. The VA advance directive is available for download here: https://www.ethics.va.gov/for_veterans.asp. Your health care team can also give you a copy of the VA advance or help you access other advance directive forms. If you'd like more information about advance directives, or you would like help filling out advance directive forms, please",
+                "helpText": "Recovered from page text for reviewer triage.",
+                "required": false,
+                "sourceCoordinates": [
+                  {
+                    "page": 2,
+                    "x": 36.0,
+                    "y": 71.24801635742188,
+                    "width": 537.8380737304688,
+                    "height": 106.85401916503906
+                  }
+                ],
+                "evidence": [
+                  {
+                    "anchorId": "ev-2-you-can-fill-out-an-advance-dire",
+                    "sourcePriority": "xfa_xml",
+                    "page": 2,
+                    "snippet": "You can fill out an advance directive form on your own or get help from a health care provider. This might be a social worker, your primary care doctor, or your mental health professional. You could also talk to your spiritual advisor or attorney. The VA advance directive is available for download here: https://www.ethics.va.gov/for_veterans.asp. Your health care team can also give you a copy of the VA advance or help you access other advance directive forms. If you'd like more information about advance directives, or you would like help filling out advance directive forms, please",
+                    "bounds": {
+                      "page": 2,
+                      "x": 36.0,
+                      "y": 71.24801635742188,
+                      "width": 537.8380737304688,
+                      "height": 106.85401916503906
+                    },
+                    "confidence": 0.78,
+                    "notes": "Recovered from visible page text."
+                  }
+                ],
+                "confidence": 0.62,
+                "sourcePriority": [
+                  "xfa_xml"
+                ],
+                "sourceConflicts": [],
+                "reviewStatus": "needs_review",
+                "options": [],
+                "validations": [],
+                "conditionals": [],
+                "rendererHints": {
+                  "runtimePattern": "statement"
+                }
+              },
+              {
+                "id": "field-2-additionalcontact-0-0",
+                "stableKey": "10-0137a-2-additionalcontact-0",
+                "orderIndex": 3,
+                "lineage": [
+                  "page-2",
+                  "section-2-1"
+                ],
+                "pageId": "page-2",
+                "sectionId": "section-2-1",
+                "semanticType": "text",
+                "label": "AdditionalContact",
+                "helpText": "AcroForm field type /Tx",
+                "required": true,
+                "sourceCoordinates": [
+                  {
+                    "page": 2,
+                    "x": 36.0,
+                    "y": 215.99699999999996,
+                    "width": 540.0,
+                    "height": 48.002000000000066
+                  }
+                ],
+                "evidence": [
+                  {
+                    "anchorId": "ev-2-0",
+                    "sourcePriority": "acroform",
+                    "page": 2,
+                    "snippet": "AdditionalContact",
+                    "bounds": {
+                      "page": 2,
+                      "x": 36.0,
+                      "y": 215.99699999999996,
+                      "width": 540.0,
+                      "height": 48.002000000000066
+                    },
+                    "confidence": 0.96,
+                    "notes": "Recovered from extraction adapter metadata."
+                  }
+                ],
+                "confidence": 0.96,
+                "sourcePriority": [
+                  "acroform",
+                  "widget_geometry"
+                ],
+                "sourceConflicts": [],
+                "reviewStatus": "needs_review",
+                "options": [],
+                "validations": [
+                  {
+                    "ruleId": "field-2-additionalcontact-0-0-required",
+                    "ruleType": "required",
+                    "message": "AdditionalContact is required pending review confirmation.",
+                    "value": null
+                  }
+                ],
+                "conditionals": [],
+                "rendererHints": {
+                  "uswdsComponent": "text-input"
+                }
+              },
+              {
+                "id": "field-2-statement-3",
+                "stableKey": "10-0137a-2-statement-3",
+                "orderIndex": 4,
+                "lineage": [
+                  "page-2",
+                  "section-2-1"
+                ],
+                "pageId": "page-2",
+                "sectionId": "section-2-1",
+                "semanticType": "statement",
+                "label": "What should I do with my completed advance directive?",
+                "helpText": "Recovered from page text for reviewer triage.",
+                "required": false,
+                "sourceCoordinates": [
+                  {
+                    "page": 2,
+                    "x": 36.0,
+                    "y": 276.8379821777344,
+                    "width": 264.0,
+                    "height": 14.66302490234375
+                  }
+                ],
+                "evidence": [
+                  {
+                    "anchorId": "ev-2-what-should-i-do-with-my-complet",
+                    "sourcePriority": "xfa_xml",
+                    "page": 2,
+                    "snippet": "What should I do with my completed advance directive?",
+                    "bounds": {
+                      "page": 2,
+                      "x": 36.0,
+                      "y": 276.8379821777344,
+                      "width": 264.0,
+                      "height": 14.66302490234375
+                    },
+                    "confidence": 0.78,
+                    "notes": "Recovered from visible page text."
+                  }
+                ],
+                "confidence": 0.62,
+                "sourcePriority": [
+                  "xfa_xml"
+                ],
+                "sourceConflicts": [],
+                "reviewStatus": "needs_review",
+                "options": [],
+                "validations": [],
+                "conditionals": [],
+                "rendererHints": {
+                  "runtimePattern": "statement"
+                }
+              },
+              {
+                "id": "field-2-statement-4",
+                "stableKey": "10-0137a-2-statement-4",
+                "orderIndex": 5,
+                "lineage": [
+                  "page-2",
+                  "section-2-1"
+                ],
+                "pageId": "page-2",
+                "sectionId": "section-2-1",
+                "semanticType": "statement",
+                "label": "If you have an advance directive, it's important to give a copy to your VA health care facility and to your Health Care",
+                "helpText": "Recovered from page text for reviewer triage.",
+                "required": false,
+                "sourceCoordinates": [
+                  {
+                    "page": 2,
+                    "x": 36.0,
+                    "y": 291.5489807128906,
+                    "width": 517.3410034179688,
+                    "height": 14.454010009765625
+                  }
+                ],
+                "evidence": [
+                  {
+                    "anchorId": "ev-2-if-you-have-an-advance-directive",
+                    "sourcePriority": "xfa_xml",
+                    "page": 2,
+                    "snippet": "If you have an advance directive, it's important to give a copy to your VA health care facility and to your Health Care",
+                    "bounds": {
+                      "page": 2,
+                      "x": 36.0,
+                      "y": 291.5489807128906,
+                      "width": 517.3410034179688,
+                      "height": 14.454010009765625
+                    },
+                    "confidence": 0.78,
+                    "notes": "Recovered from visible page text."
+                  }
+                ],
+                "confidence": 0.62,
+                "sourcePriority": [
+                  "xfa_xml"
+                ],
+                "sourceConflicts": [],
+                "reviewStatus": "needs_review",
+                "options": [],
+                "validations": [],
+                "conditionals": [],
+                "rendererHints": {
+                  "runtimePattern": "statement"
+                }
+              },
+              {
+                "id": "field-2-statement-5",
+                "stableKey": "10-0137a-2-statement-5",
+                "orderIndex": 6,
+                "lineage": [
+                  "page-2",
+                  "section-2-1"
+                ],
+                "pageId": "page-2",
+                "sectionId": "section-2-1",
+                "semanticType": "statement",
+                "label": "Agent.",
+                "helpText": "Recovered from page text for reviewer triage.",
+                "required": false,
+                "sourceCoordinates": [
+                  {
+                    "page": 2,
+                    "x": 36.0,
+                    "y": 304.7489929199219,
+                    "width": 29.634002685546875,
+                    "height": 14.454010009765625
+                  }
+                ],
+                "evidence": [
+                  {
+                    "anchorId": "ev-2-agent",
+                    "sourcePriority": "xfa_xml",
+                    "page": 2,
+                    "snippet": "Agent.",
+                    "bounds": {
+                      "page": 2,
+                      "x": 36.0,
+                      "y": 304.7489929199219,
+                      "width": 29.634002685546875,
+                      "height": 14.454010009765625
+                    },
+                    "confidence": 0.78,
+                    "notes": "Recovered from visible page text."
+                  }
+                ],
+                "confidence": 0.62,
+                "sourcePriority": [
+                  "xfa_xml"
+                ],
+                "sourceConflicts": [],
+                "reviewStatus": "needs_review",
+                "options": [],
+                "validations": [],
+                "conditionals": [],
+                "rendererHints": {
+                  "runtimePattern": "statement"
+                }
+              },
+              {
+                "id": "field-2-statement-6",
+                "stableKey": "10-0137a-2-statement-6",
+                "orderIndex": 7,
+                "lineage": [
+                  "page-2",
+                  "section-2-1"
+                ],
+                "pageId": "page-2",
+                "sectionId": "section-2-1",
+                "semanticType": "statement",
+                "label": "Can I cancel or change my advance directive?",
+                "helpText": "Recovered from page text for reviewer triage.",
+                "required": false,
+                "sourceCoordinates": [
+                  {
+                    "page": 2,
+                    "x": 36.0,
+                    "y": 330.8379821777344,
+                    "width": 215.39100646972656,
+                    "height": 14.66302490234375
+                  }
+                ],
+                "evidence": [
+                  {
+                    "anchorId": "ev-2-can-i-cancel-or-change-my-advanc",
+                    "sourcePriority": "xfa_xml",
+                    "page": 2,
+                    "snippet": "Can I cancel or change my advance directive?",
+                    "bounds": {
+                      "page": 2,
+                      "x": 36.0,
+                      "y": 330.8379821777344,
+                      "width": 215.39100646972656,
+                      "height": 14.66302490234375
+                    },
+                    "confidence": 0.78,
+                    "notes": "Recovered from visible page text."
+                  }
+                ],
+                "confidence": 0.62,
+                "sourcePriority": [
+                  "xfa_xml"
+                ],
+                "sourceConflicts": [],
+                "reviewStatus": "needs_review",
+                "options": [],
+                "validations": [],
+                "conditionals": [],
+                "rendererHints": {
+                  "runtimePattern": "statement"
+                }
+              },
+              {
+                "id": "field-2-statement-7",
+                "stableKey": "10-0137a-2-statement-7",
+                "orderIndex": 8,
+                "lineage": [
+                  "page-2",
+                  "section-2-1"
+                ],
+                "pageId": "page-2",
+                "sectionId": "section-2-1",
+                "semanticType": "statement",
+                "label": "Yes. You can change or cancel your advance directive at any time. If you change or cancel it, give a copy of the new advance directive to your VA health care facility and to your Health Care Agent.",
+                "helpText": "Recovered from page text for reviewer triage.",
+                "required": false,
+                "sourceCoordinates": [
+                  {
+                    "page": 2,
+                    "x": 36.0,
+                    "y": 348.447998046875,
+                    "width": 513.7881469726562,
+                    "height": 27.654022216796875
+                  }
+                ],
+                "evidence": [
+                  {
+                    "anchorId": "ev-2-yes-you-can-change-or-cancel-yo",
+                    "sourcePriority": "xfa_xml",
+                    "page": 2,
+                    "snippet": "Yes. You can change or cancel your advance directive at any time. If you change or cancel it, give a copy of the new advance directive to your VA health care facility and to your Health Care Agent.",
+                    "bounds": {
+                      "page": 2,
+                      "x": 36.0,
+                      "y": 348.447998046875,
+                      "width": 513.7881469726562,
+                      "height": 27.654022216796875
+                    },
+                    "confidence": 0.78,
+                    "notes": "Recovered from visible page text."
+                  }
+                ],
+                "confidence": 0.62,
+                "sourcePriority": [
+                  "xfa_xml"
+                ],
+                "sourceConflicts": [],
+                "reviewStatus": "needs_review",
+                "options": [],
+                "validations": [],
+                "conditionals": [],
+                "rendererHints": {
+                  "runtimePattern": "statement"
+                }
+              },
+              {
+                "id": "field-2-statement-9",
+                "stableKey": "10-0137a-2-statement-9",
+                "orderIndex": 9,
+                "lineage": [
+                  "page-2",
+                  "section-2-1"
+                ],
+                "pageId": "page-2",
+                "sectionId": "section-2-1",
+                "semanticType": "statement",
+                "label": "Ask your health care team to provide the policy to you, or go to https://www.ethics.va.gov/policy.asp. Whether or not you decide to fill out an advance directive, it's important to discuss your wishes with others. Talk to your Health Care Agent, your loved ones, and your health care team so they understand what is important to you, so that if you lose the ability to make health care decisions, everyone will have an understanding of your wishes.",
+                "helpText": "Recovered from page text for reviewer triage.",
+                "required": false,
+                "sourceCoordinates": [
+                  {
+                    "page": 2,
+                    "x": 35.9949951171875,
+                    "y": 406.6490173339844,
+                    "width": 538.6700439453125,
+                    "height": 67.25405883789062
+                  }
+                ],
+                "evidence": [
+                  {
+                    "anchorId": "ev-2-ask-your-health-care-team-to-pro",
+                    "sourcePriority": "xfa_xml",
+                    "page": 2,
+                    "snippet": "Ask your health care team to provide the policy to you, or go to https://www.ethics.va.gov/policy.asp. Whether or not you decide to fill out an advance directive, it's important to discuss your wishes with others. Talk to your Health Care Agent, your loved ones, and your health care team so they understand what is important to you, so that if you lose the ability to make health care decisions, everyone will have an understanding of your wishes.",
+                    "bounds": {
+                      "page": 2,
+                      "x": 35.9949951171875,
+                      "y": 406.6490173339844,
+                      "width": 538.6700439453125,
+                      "height": 67.25405883789062
+                    },
+                    "confidence": 0.78,
+                    "notes": "Recovered from visible page text."
+                  }
+                ],
+                "confidence": 0.62,
+                "sourcePriority": [
+                  "xfa_xml"
+                ],
+                "sourceConflicts": [],
+                "reviewStatus": "needs_review",
+                "options": [],
+                "validations": [],
+                "conditionals": [],
+                "rendererHints": {
+                  "runtimePattern": "statement"
+                }
+              },
+              {
+                "id": "field-2-statement-8",
+                "stableKey": "10-0137a-2-statement-8",
+                "orderIndex": 10,
+                "lineage": [
+                  "page-2",
+                  "section-2-1"
+                ],
+                "pageId": "page-2",
+                "sectionId": "section-2-1",
+                "semanticType": "statement",
+                "label": "Where can I find VA's policy on advance directives?",
+                "helpText": "Recovered from page text for reviewer triage.",
+                "required": false,
+                "sourceCoordinates": [
+                  {
+                    "page": 2,
+                    "x": 36.0,
+                    "y": 390.8389892578125,
+                    "width": 245.66299438476562,
+                    "height": 14.66302490234375
+                  }
+                ],
+                "evidence": [
+                  {
+                    "anchorId": "ev-2-where-can-i-find-va-s-policy-on",
+                    "sourcePriority": "xfa_xml",
+                    "page": 2,
+                    "snippet": "Where can I find VA's policy on advance directives?",
+                    "bounds": {
+                      "page": 2,
+                      "x": 36.0,
+                      "y": 390.8389892578125,
+                      "width": 245.66299438476562,
+                      "height": 14.66302490234375
+                    },
+                    "confidence": 0.78,
+                    "notes": "Recovered from visible page text."
+                  }
+                ],
+                "confidence": 0.62,
+                "sourcePriority": [
+                  "xfa_xml"
+                ],
+                "sourceConflicts": [],
+                "reviewStatus": "needs_review",
+                "options": [],
+                "validations": [],
+                "conditionals": [],
+                "rendererHints": {
+                  "runtimePattern": "statement"
+                }
+              }
+            ]
+          }
+        ],
+        "evidence": [
+          {
+            "anchorId": "ev-2-what-you-should-know-about-advan",
+            "sourcePriority": "layout",
+            "page": 2,
+            "snippet": "WHAT YOU SHOULD KNOW ABOUT ADVANCE DIRECTIVES CONTINUED",
+            "bounds": {
+              "page": 2,
+              "x": 61.38999938964844,
+              "y": 25.802993774414062,
+              "width": 489.21595764160156,
+              "height": 19.51599884033203
+            },
+            "confidence": 0.78,
+            "notes": "Recovered from visible page text."
+          },
+          {
+            "anchorId": "ev-2-what-should-i-do-if-i-want-to-co",
+            "sourcePriority": "layout",
+            "page": 2,
+            "snippet": "What should I do if I want to complete an advance directive?",
+            "bounds": {
+              "page": 2,
+              "x": 36.0,
+              "y": 54.8399772644043,
+              "width": 285.6919860839844,
+              "height": 14.66299819946289
+            },
+            "confidence": 0.78,
+            "notes": "Recovered from visible page text."
+          },
+          {
+            "anchorId": "ev-2-you-can-fill-out-an-advance-dire",
+            "sourcePriority": "layout",
+            "page": 2,
+            "snippet": "You can fill out an advance directive form on your own or get help from a health care provider. This might be a social",
+            "bounds": {
+              "page": 2,
+              "x": 36.0,
+              "y": 71.24801635742188,
+              "width": 519.9479370117188,
+              "height": 14.453994750976562
+            },
+            "confidence": 0.78,
+            "notes": "Recovered from visible page text."
+          },
+          {
+            "anchorId": "ev-2-worker-your-primary-care-doctor",
+            "sourcePriority": "layout",
+            "page": 2,
+            "snippet": "worker, your primary care doctor, or your mental health professional. You could also talk to your spiritual advisor or",
+            "bounds": {
+              "page": 2,
+              "x": 36.0,
+              "y": 84.44802856445312,
+              "width": 514.1621704101562,
+              "height": 14.453994750976562
+            },
+            "confidence": 0.78,
+            "notes": "Recovered from visible page text."
+          }
+        ]
+      }
+    ],
+    "issues": [
+      {
+        "code": "learned_heuristic_application",
+        "severity": "info",
+        "message": "Tabular page structure was detected and may imply grouped or repeatable semantics.",
+        "nodeId": null,
+        "evidenceAnchorIds": [],
+        "confidenceBand": "medium",
+        "suggestedAction": "Review table-heavy pages for repeatable groups before accepting the draft."
+      }
+    ],
+    "metadata": {
+      "phase": "phase-1",
+      "filename": "10-0137A.pdf",
+      "documentClass": "xfa_backed_fillable",
+      "classificationNotes": "Detected XFA packets in the AcroForm catalog; XFA-first extraction is appropriate.",
+      "adapterNotes": "fitz_text_lines=69 | acroform_fields=1 | xfa_hints=55 | table_hints=2 | page_regions=2",
+      "acroformFieldCount": "1",
+      "xfaHintCount": "55",
+      "textLineCount": "69"
+    }
+  }
+}

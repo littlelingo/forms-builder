@@ -1,0 +1,27 @@
+{
+  "name": "form-builder-platform",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "npm@10.8.2",
+  "workspaces": [
+    "apps/web",
+    "packages/schema",
+    "packages/runtime",
+    "packages/ui"
+  ],
+  "scripts": {
+    "dev": "./scripts/dev-stack.sh",
+    "dev:web": "./scripts/dev-web.sh",
+    "dev:api": "./scripts/dev-api.sh",
+    "stop": "./scripts/stop-stack.sh",
+    "stop:web": "./scripts/stop-web.sh",
+    "stop:api": "./scripts/stop-api.sh",
+    "build:web": "npm run build --workspace @form-builder/web",
+    "typecheck:web": "npm run typecheck --workspace @form-builder/web",
+    "test:runtime": "npm run test --workspace @form-builder/runtime",
+    "validate:corpus": "PYTHONPATH=apps/api/src ./.venv/bin/python3 scripts/validate_form_samples.py",
+    "build:schema": "npm run build --workspace @form-builder/schema",
+    "build:runtime": "npm run build --workspace @form-builder/runtime",
+    "generate:schema-types": "npm run generate --workspace @form-builder/schema"
+  }
+}

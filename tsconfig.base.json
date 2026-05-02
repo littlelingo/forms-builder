@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["DOM", "DOM.Iterable", "ES2022", "ESNext"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": false,
+    "resolveJsonModule": true,
+    "strict": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@form-builder/schema": ["packages/schema/src/index.ts"],
+      "@form-builder/runtime": ["packages/runtime/src/index.ts"],
+      "@form-builder/ui": ["packages/ui/src/index.ts"]
+    }
+  }
+}
