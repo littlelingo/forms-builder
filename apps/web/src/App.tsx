@@ -59,6 +59,7 @@ import {
   createSection,
   createStep,
   type DragPayload,
+  type DropTarget,
   getSelectionContext,
   refreshChoiceOptions,
 } from "./lib/authoring-utils";
@@ -68,7 +69,7 @@ type AppStage = "home" | "review" | "workspace";
 type ReviewPreviewMode = "overlay" | "pdf";
 type ReviewFlowMode = "new_project" | "resume_import";
 type WorkspaceLandingMode = "promoted_import" | "reopened_import";
-type InspectorTab = "properties" | "logic" | "events";
+type InspectorTab = "properties" | "logic" | "events" | "map";
 type BuilderFieldTypeOption = SemanticType | "action_button";
 
 interface RuntimeEditorScope {
@@ -106,6 +107,32 @@ interface RuntimePayloadEditorState {
   raw: string;
 }
 
+interface LogicMapConditionalEntry {
+  id: string;
+  title: string;
+  detail: string;
+  sourceSelection: AuthoringSelection;
+  ruleIndex: number;
+}
+
+interface LogicMapListenerEntry {
+  id: string;
+  scopeLabel: string;
+  eventName: string;
+  actionsSummary: string;
+  selection: AuthoringSelection | null;
+}
+
+interface LogicMapStepEntry {
+  id: string;
+  title: string;
+  selection: AuthoringSelection;
+  sectionCount: number;
+  fieldCount: number;
+  conditionalRules: LogicMapConditionalEntry[];
+  runtimeListeners: LogicMapListenerEntry[];
+}
+
 interface SourceReferenceMatchState {
   pageIds: Set<string>;
   sectionIds: Set<string>;
@@ -131,7 +158,15 @@ type WorkspaceTransitionRequest =
   | { kind: "open_project"; projectId: string; workspaceLandingMode?: WorkspaceLandingMode | null }
   | { kind: "go_home" }
   | { kind: "open_revision"; revisionId: string }
-  | { kind: "return_latest_revision" };
+  | { kind: "return_latest_revision" }
+  | { kind: "create_blank_project" }
+  | { kind: "open_json"; file: File; fileName: string }
+  | { kind: "upload_pdf"; file: File; fileName: string }
+  | { kind: "resume_import"; conversionId: string };
+
+type TransitionExecutionOptions = {
+  skipDirtyCheck?: boolean;
+};
 
 const builderFieldTypeOptions: Array<{ value: BuilderFieldTypeOption; label: string }> = [
   { value: "text", label: "Text" },
@@ -660,6 +695,17 @@ function EventsIcon() {
       <path d="M3 4.5h6M3 8h10M3 11.5h7" />
       <circle cx="11.75" cy="4.5" r="1.25" fill="currentColor" stroke="none" />
       <circle cx="13" cy="11.5" r="1.25" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function MapIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <circle cx="3.5" cy="4" r="1.5" />
+      <circle cx="12.5" cy="4" r="1.5" />
+      <circle cx="8" cy="12" r="1.5" />
+      <path d="M5 4h6M4.5 5.2l2.4 5.1M11.5 5.2l-2.4 5.1" />
     </svg>
   );
 }
@@ -1432,6 +1478,7 @@ export default function App() {
   const [localPreviewConversionId, setLocalPreviewConversionId] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [dragPayload, setDragPayload] = useState<DragPayload | null>(null);
+  const [activeDropTargetKey, setActiveDropTargetKey] = useState<string | null>(null);
   const [projectDirty, setProjectDirty] = useState(false);
   const [projectRevisions, setProjectRevisions] = useState<ProjectRevision[]>([]);
   const [isEditingDocumentTitle, setIsEditingDocumentTitle] = useState(false);
@@ -1504,6 +1551,20 @@ export default function App() {
       }
     };
   }, [localPreviewUrl]);
+
+  useEffect(() => {
+    if (stage !== "workspace" || !projectDirty) {
+      return;
+    }
+    function handleBeforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [projectDirty, stage]);
 
   useEffect(() => {
     if (!activeProjectId) {
@@ -1743,6 +1804,205 @@ export default function App() {
       ]),
     ]);
   }, [activeDocument]);
+  const logicMapData = useMemo(() => {
+    if (!activeDocument) {
+      return null;
+    }
+
+    const fieldLabelById = new Map(builderFieldOptions.map((option) => [option.id, option.label]));
+    const stepLabelById = new Map(builderStepOptions.map((option) => [option.id, option.label]));
+    const nodeLabelById = new Map(builderNodeOptions.map((option) => [option.id, option.label]));
+    const formatNodeLabel = (nodeId: unknown) => {
+      if (typeof nodeId !== "string" || !nodeId) {
+        return "target";
+      }
+      return nodeLabelById.get(nodeId) ?? stepLabelById.get(nodeId) ?? fieldLabelById.get(nodeId) ?? nodeId;
+    };
+    const formatActionSummary = (action: RuntimeActionDefinition) => {
+      switch (action.kind) {
+        case "go_to_next_step":
+          return "Go to next step";
+        case "go_to_previous_step":
+          return "Go to previous step";
+        case "go_to_step":
+          return `Go to ${formatNodeLabel(action.config.stepId ?? action.target?.nodeId)}`;
+        case "submit_form":
+          return "Submit form";
+        case "set_field_value":
+          return `Set ${formatNodeLabel(action.config.fieldId ?? action.target?.nodeId)} to ${JSON.stringify(action.config.value ?? "")}`;
+        case "clear_field_value":
+          return `Clear ${formatNodeLabel(action.config.fieldId ?? action.target?.nodeId)}`;
+        case "show_node":
+        case "hide_node":
+        case "enable_node":
+        case "disable_node":
+        case "mark_required":
+        case "mark_optional":
+          return `${formatLabel(action.kind)} ${formatNodeLabel(action.config.nodeId ?? action.target?.nodeId)}`;
+        case "emit_event":
+          return `Emit ${String(action.config.eventName ?? "custom.event")}`;
+        case "host_action":
+          return `Request ${String(action.config.handlerKey ?? "host action")}`;
+        default:
+          return formatLabel(action.kind);
+      }
+    };
+    const summarizeListenerActions = (actions: RuntimeActionDefinition[]) => {
+      if (!actions.length) {
+        return "No actions";
+      }
+      const visible = actions.slice(0, 3).map(formatActionSummary);
+      return actions.length > 3 ? `${visible.join(" -> ")} -> +${actions.length - 3} more` : visible.join(" -> ");
+    };
+    const describeRuleOperator = (rule: ConditionalRule) => {
+      if (rule.operator === "exists") {
+        return "has any value";
+      }
+      if (rule.operator === "not_equals") {
+        return `does not equal "${rule.expectedValue ?? ""}"`;
+      }
+      if (rule.operator === "contains") {
+        return `contains "${rule.expectedValue ?? ""}"`;
+      }
+      return `equals "${rule.expectedValue ?? ""}"`;
+    };
+    const describeRuleEffect = (rule: ConditionalRule) => {
+      switch (rule.effect) {
+        case "show":
+          return "show";
+        case "hide":
+          return "hide";
+        case "require":
+          return "require";
+        case "disable":
+          return "disable";
+        default:
+          return rule.effect;
+      }
+    };
+    const countStepFields = (step: AuthoringStep) =>
+      step.sections.reduce(
+        (total, section) =>
+          total + section.fields.length + section.groups.reduce((groupTotal, group) => groupTotal + group.fields.length, 0),
+        0,
+      );
+
+    const formListeners =
+      activeDocument.runtime?.formListeners.map<LogicMapListenerEntry>((listener) => ({
+        id: listener.id,
+        scopeLabel: "Form runtime",
+        eventName: listener.eventName,
+        actionsSummary: summarizeListenerActions(listener.actions),
+        selection: null,
+      })) ?? [];
+
+    const steps = activeDocument.steps.map<LogicMapStepEntry>((step) => {
+      const conditionalRules: LogicMapConditionalEntry[] = [];
+      const runtimeListeners: LogicMapListenerEntry[] = [];
+
+      if (step.runtime?.listeners.length) {
+        runtimeListeners.push(
+          ...step.runtime.listeners.map((listener) => ({
+            id: listener.id,
+            scopeLabel: `Step · ${step.title}`,
+            eventName: listener.eventName,
+            actionsSummary: summarizeListenerActions(listener.actions),
+            selection: { kind: "step", stepId: step.id } as AuthoringSelection,
+          })),
+        );
+      }
+
+      step.sections.forEach((section) => {
+        if (section.runtime?.listeners.length) {
+          runtimeListeners.push(
+            ...section.runtime.listeners.map((listener) => ({
+              id: listener.id,
+              scopeLabel: `Section · ${section.title}`,
+              eventName: listener.eventName,
+              actionsSummary: summarizeListenerActions(listener.actions),
+              selection: { kind: "section", stepId: step.id, sectionId: section.id } as AuthoringSelection,
+            })),
+          );
+        }
+
+        section.fields.forEach((field) => {
+          field.conditionals.forEach((rule, ruleIndex) => {
+            conditionalRules.push({
+              id: rule.ruleId,
+              title: `${field.label} reacts to ${fieldLabelById.get(rule.whenFieldId) ?? "another field"}`,
+              detail: `When ${fieldLabelById.get(rule.whenFieldId) ?? "that field"} ${describeRuleOperator(rule)}, ${describeRuleEffect(rule)} ${field.label}.`,
+              sourceSelection: { kind: "field", stepId: step.id, sectionId: section.id, fieldId: field.id },
+              ruleIndex,
+            });
+          });
+          if (field.runtime?.listeners.length) {
+            runtimeListeners.push(
+              ...field.runtime.listeners.map((listener) => ({
+                id: listener.id,
+                scopeLabel: `Field · ${field.label}`,
+                eventName: listener.eventName,
+                actionsSummary: summarizeListenerActions(listener.actions),
+                selection: { kind: "field", stepId: step.id, sectionId: section.id, fieldId: field.id } as AuthoringSelection,
+              })),
+            );
+          }
+        });
+
+        section.groups.forEach((group) => {
+          if (group.runtime?.listeners.length) {
+            runtimeListeners.push(
+              ...group.runtime.listeners.map((listener) => ({
+                id: listener.id,
+                scopeLabel: `Group · ${group.label}`,
+                eventName: listener.eventName,
+                actionsSummary: summarizeListenerActions(listener.actions),
+                selection: { kind: "group", stepId: step.id, sectionId: section.id, groupId: group.id } as AuthoringSelection,
+              })),
+            );
+          }
+          group.fields.forEach((field) => {
+            field.conditionals.forEach((rule, ruleIndex) => {
+              conditionalRules.push({
+                id: rule.ruleId,
+                title: `${field.label} reacts to ${fieldLabelById.get(rule.whenFieldId) ?? "another field"}`,
+                detail: `When ${fieldLabelById.get(rule.whenFieldId) ?? "that field"} ${describeRuleOperator(rule)}, ${describeRuleEffect(rule)} ${field.label}.`,
+                sourceSelection: { kind: "field", stepId: step.id, sectionId: section.id, groupId: group.id, fieldId: field.id },
+                ruleIndex,
+              });
+            });
+            if (field.runtime?.listeners.length) {
+              runtimeListeners.push(
+                ...field.runtime.listeners.map((listener) => ({
+                  id: listener.id,
+                  scopeLabel: `Field · ${field.label}`,
+                  eventName: listener.eventName,
+                  actionsSummary: summarizeListenerActions(listener.actions),
+                  selection: { kind: "field", stepId: step.id, sectionId: section.id, groupId: group.id, fieldId: field.id } as AuthoringSelection,
+                })),
+              );
+            }
+          });
+        });
+      });
+
+      return {
+        id: step.id,
+        title: step.title,
+        selection: { kind: "step", stepId: step.id },
+        sectionCount: step.sections.length,
+        fieldCount: countStepFields(step),
+        conditionalRules,
+        runtimeListeners,
+      };
+    });
+
+    return {
+      totalConditionals: steps.reduce((total, step) => total + step.conditionalRules.length, 0),
+      totalListeners: formListeners.length + steps.reduce((total, step) => total + step.runtimeListeners.length, 0),
+      formListeners,
+      steps,
+    };
+  }, [activeDocument, builderFieldOptions, builderNodeOptions, builderStepOptions]);
   const activeRuntimeScope: RuntimeEditorScope | null = useMemo(() => {
     if (!activeDocument) {
       return null;
@@ -2521,7 +2781,13 @@ export default function App() {
     return [];
   }, [activeRuntimeScope, activeBuilderField?.stableKey, builderFieldOptions, builderNodeOptions, selectedAuthoring]);
 
-  async function handleUpload(file: File) {
+  async function handleUpload(file: File, options?: TransitionExecutionOptions) {
+    if (!options?.skipDirtyCheck && stage === "workspace" && projectDirty && activeProjectDetail) {
+      setPendingWorkspaceTransition({ kind: "upload_pdf", file, fileName: file.name });
+      setErrorMessage(null);
+      setFlashMessage(null);
+      return;
+    }
     setSelectedFile(file);
     setErrorMessage(null);
     setFlashMessage(null);
@@ -2560,7 +2826,13 @@ export default function App() {
     }
   }
 
-  async function handleCreateBlankProject() {
+  async function handleCreateBlankProject(options?: TransitionExecutionOptions) {
+    if (!options?.skipDirtyCheck && stage === "workspace" && projectDirty && activeProjectDetail) {
+      setPendingWorkspaceTransition({ kind: "create_blank_project" });
+      setErrorMessage(null);
+      setFlashMessage(null);
+      return;
+    }
     setErrorMessage(null);
     setFlashMessage(null);
     setIsImportingJson(true);
@@ -2592,7 +2864,13 @@ export default function App() {
     }
   }
 
-  async function handleOpenJson(file: File) {
+  async function handleOpenJson(file: File, options?: TransitionExecutionOptions) {
+    if (!options?.skipDirtyCheck && stage === "workspace" && projectDirty && activeProjectDetail) {
+      setPendingWorkspaceTransition({ kind: "open_json", file, fileName: file.name });
+      setErrorMessage(null);
+      setFlashMessage(null);
+      return;
+    }
     setSelectedFile(file);
     setErrorMessage(null);
     setFlashMessage(null);
@@ -2769,6 +3047,27 @@ export default function App() {
       performOpenRevisionSnapshot(transition.revisionId);
       return;
     }
+    if (transition.kind === "create_blank_project") {
+      await handleCreateBlankProject({ skipDirtyCheck: true });
+      return;
+    }
+    if (transition.kind === "open_json") {
+      await handleOpenJson(transition.file, { skipDirtyCheck: true });
+      return;
+    }
+    if (transition.kind === "upload_pdf") {
+      await handleUpload(transition.file, { skipDirtyCheck: true });
+      return;
+    }
+    if (transition.kind === "resume_import") {
+      const conversion = conversions.find((candidate) => candidate.id === transition.conversionId);
+      if (conversion) {
+        handleResumeImport(conversion, { skipDirtyCheck: true });
+      } else {
+        setErrorMessage("Import session not found.");
+      }
+      return;
+    }
     await performReturnToLatestProjectRevision();
   }
 
@@ -2793,6 +3092,14 @@ export default function App() {
           ? "Project saved before switching workspaces."
           : pendingWorkspaceTransition.kind === "go_home"
             ? "Project saved before returning home."
+            : pendingWorkspaceTransition.kind === "create_blank_project"
+              ? "Project saved before creating the blank workspace."
+              : pendingWorkspaceTransition.kind === "open_json"
+                ? "Project saved before opening the JSON workspace."
+                : pendingWorkspaceTransition.kind === "upload_pdf"
+                  ? "Project saved before starting the PDF import."
+                  : pendingWorkspaceTransition.kind === "resume_import"
+                    ? "Project saved before resuming the import."
             : pendingWorkspaceTransition.kind === "open_revision"
               ? "Project saved before opening the revision snapshot."
               : "Project saved before reloading the latest revision.",
@@ -2833,7 +3140,13 @@ export default function App() {
     requestWorkspaceTransition({ kind: "return_latest_revision" });
   }
 
-  function handleResumeImport(conversion: ConversionRecord) {
+  function handleResumeImport(conversion: ConversionRecord, options?: TransitionExecutionOptions) {
+    if (!options?.skipDirtyCheck && stage === "workspace" && projectDirty && activeProjectDetail) {
+      setPendingWorkspaceTransition({ kind: "resume_import", conversionId: conversion.id });
+      setErrorMessage(null);
+      setFlashMessage(null);
+      return;
+    }
     setReviewFlowMode("resume_import");
     setActiveConversionId(conversion.id);
     setActiveProjectId(null);
@@ -3132,16 +3445,135 @@ export default function App() {
 
   function handleSelectionDragStart(payload: DragPayload) {
     setDragPayload(payload);
+    setActiveDropTargetKey(null);
   }
 
-  function handleDropTarget(event: DragEvent<HTMLElement>, target: Parameters<typeof applyDragMove>[2]) {
+  function clearDragInteraction() {
+    setDragPayload(null);
+    setActiveDropTargetKey(null);
+  }
+
+  function dropTargetKey(target: DropTarget): string {
+    switch (target.kind) {
+      case "step-list":
+        return `step:${target.index}`;
+      case "section-list":
+        return `section:${target.stepId}:${target.index}`;
+      case "group-list":
+        return `group:${target.stepId}:${target.sectionId}:${target.index}`;
+      case "field-list":
+        return `field:${target.stepId}:${target.sectionId}:${target.groupId ?? "section"}:${target.index}`;
+    }
+  }
+
+  function isCompatibleDropTarget(payload: DragPayload | null, target: DropTarget): boolean {
+    if (!payload) {
+      return false;
+    }
+    return (
+      (payload.kind === "step" && target.kind === "step-list") ||
+      (payload.kind === "section" && target.kind === "section-list") ||
+      (payload.kind === "group" && target.kind === "group-list") ||
+      (payload.kind === "field" && target.kind === "field-list")
+    );
+  }
+
+  function dragPayloadLabel(payload: DragPayload | null): string {
+    if (!payload) {
+      return "item";
+    }
+    switch (payload.kind) {
+      case "step":
+        return "step";
+      case "section":
+        return "section";
+      case "group":
+        return "group";
+      case "field":
+        return "field";
+    }
+  }
+
+  function handleDropZoneDragOver(event: DragEvent<HTMLElement>, target: DropTarget) {
     event.preventDefault();
-    if (!dragPayload) {
+    if (!isCompatibleDropTarget(dragPayload, target)) {
       return;
     }
+    setActiveDropTargetKey(dropTargetKey(target));
+  }
+
+  function handleDropZoneDragLeave(target: DropTarget) {
+    if (activeDropTargetKey === dropTargetKey(target)) {
+      setActiveDropTargetKey(null);
+    }
+  }
+
+  function handleDropTarget(event: DragEvent<HTMLElement>, target: DropTarget) {
+    event.preventDefault();
+    if (!dragPayload || !isCompatibleDropTarget(dragPayload, target)) {
+      return;
+    }
+    const payload = dragPayload;
     updateAuthoringDocument((document) => {
-      applyDragMove(document, dragPayload, target);
+      applyDragMove(document, payload, target);
     });
+    clearDragInteraction();
+  }
+
+  function renderDropMarker(target: DropTarget, options?: { gridSpan?: boolean; label?: string }) {
+    if (!dragPayload || !isCompatibleDropTarget(dragPayload, target)) {
+      return null;
+    }
+    const isActive = activeDropTargetKey === dropTargetKey(target);
+    return (
+      <div
+        key={dropTargetKey(target)}
+        onDragOver={(event) => handleDropZoneDragOver(event, target)}
+        onDragLeave={() => handleDropZoneDragLeave(target)}
+        onDrop={(event) => handleDropTarget(event, target)}
+        className={`${options?.gridSpan ? "md:col-span-2" : ""} rounded-[0.95rem] px-2 py-1.5`}
+      >
+        <div
+          className={`flex items-center gap-2 rounded-full border border-dashed px-3 py-1.5 transition ${
+            isActive ? "border-blue-400 bg-blue-50 text-blue-700" : "border-slate-300/80 bg-slate-50 text-slate-400"
+          }`}
+        >
+          <span className={`h-1.5 flex-1 rounded-full ${isActive ? "bg-blue-500" : "bg-slate-300"}`} />
+          <span className="text-[0.68rem] font-semibold uppercase tracking-[0.18em]">
+            {options?.label ?? `Insert ${dragPayloadLabel(dragPayload)} here`}
+          </span>
+          <span className={`h-1.5 flex-1 rounded-full ${isActive ? "bg-blue-500" : "bg-slate-300"}`} />
+        </div>
+      </div>
+    );
+  }
+
+  function renderEmptyDropZone(
+    target: DropTarget,
+    copy: { title: string; description: string; activeTitle?: string },
+    options?: { gridSpan?: boolean },
+  ) {
+    const compatible = isCompatibleDropTarget(dragPayload, target);
+    const isActive = compatible && activeDropTargetKey === dropTargetKey(target);
+    return (
+      <div
+        onDragOver={(event) => handleDropZoneDragOver(event, target)}
+        onDragLeave={() => handleDropZoneDragLeave(target)}
+        onDrop={(event) => handleDropTarget(event, target)}
+        className={`${options?.gridSpan ? "md:col-span-2" : ""} rounded-[1.2rem] border border-dashed px-4 py-4 transition ${
+          isActive
+            ? "border-blue-400 bg-blue-50/80 shadow-[0_14px_28px_rgba(37,99,235,0.10)]"
+            : compatible
+              ? "border-blue-200 bg-[#f8fbff]"
+              : "border-slate-200 bg-slate-50/80"
+        }`}
+      >
+        <p className={`text-sm font-semibold ${isActive ? "text-blue-700" : "text-slate-700"}`}>
+          {isActive ? copy.activeTitle ?? `Drop ${dragPayloadLabel(dragPayload)} here` : copy.title}
+        </p>
+        <p className="mt-1 text-sm leading-6 text-slate-500">{copy.description}</p>
+      </div>
+    );
   }
 
   function updateSelectedField(mutator: (field: AuthoringField) => void) {
@@ -3197,8 +3629,22 @@ export default function App() {
             fieldId: field.id,
           })
         }
-        onDragEnd={() => setDragPayload(null)}
-        onDragOver={(event) => event.preventDefault()}
+        onDragEnd={clearDragInteraction}
+        onDragOver={(event) => handleDropZoneDragOver(event, {
+          kind: "field-list",
+          stepId,
+          sectionId,
+          ...(groupId ? { groupId } : {}),
+          index: fieldIndex,
+        })}
+        onDragLeave={() =>
+          handleDropZoneDragLeave({
+            kind: "field-list",
+            stepId,
+            sectionId,
+            ...(groupId ? { groupId } : {}),
+            index: fieldIndex,
+          })}
         onDrop={(event) =>
           handleDropTarget(event, {
             kind: "field-list",
@@ -3302,6 +3748,10 @@ export default function App() {
     pendingWorkspaceTransition?.kind === "open_revision"
       ? projectRevisions.find((revision) => revision.id === pendingWorkspaceTransition.revisionId) ?? null
       : null;
+  const pendingWorkspaceTransitionConversion =
+    pendingWorkspaceTransition?.kind === "resume_import"
+      ? conversions.find((conversion) => conversion.id === pendingWorkspaceTransition.conversionId) ?? null
+      : null;
   const pendingWorkspaceTransitionCopy =
     pendingWorkspaceTransition?.kind === "open_project"
       ? pendingWorkspaceTransition.projectId === activeProjectId
@@ -3324,6 +3774,34 @@ export default function App() {
             saveLabel: "Save and go home",
             discardLabel: "Discard and go home",
           }
+        : pendingWorkspaceTransition?.kind === "create_blank_project"
+          ? {
+              title: "Start a blank project with unsaved changes?",
+              description: "Save before creating a new blank project, or discard the current local edits and replace this workspace with a fresh starter project.",
+              saveLabel: "Save and create blank",
+              discardLabel: "Discard and create blank",
+            }
+          : pendingWorkspaceTransition?.kind === "open_json"
+            ? {
+                title: "Open JSON with unsaved changes?",
+                description: `Save before opening ${pendingWorkspaceTransition.fileName}, or discard the current local edits and replace this workspace with that JSON document.`,
+                saveLabel: "Save and open JSON",
+                discardLabel: "Discard and open JSON",
+              }
+            : pendingWorkspaceTransition?.kind === "upload_pdf"
+              ? {
+                  title: "Import PDF with unsaved changes?",
+                  description: `Save before importing ${pendingWorkspaceTransition.fileName}, or discard the current local edits and move into the PDF intake flow.`,
+                  saveLabel: "Save and import PDF",
+                  discardLabel: "Discard and import PDF",
+                }
+              : pendingWorkspaceTransition?.kind === "resume_import"
+                ? {
+                    title: "Resume an import with unsaved changes?",
+                    description: `Save before resuming ${pendingWorkspaceTransitionConversion?.filename ?? "the selected import"}, or discard the current local edits and reopen that intake flow.`,
+                    saveLabel: "Save and resume import",
+                    discardLabel: "Discard and resume import",
+                  }
         : pendingWorkspaceTransition?.kind === "open_revision"
           ? {
               title: "Open a revision snapshot with unsaved changes?",
@@ -4079,39 +4557,43 @@ export default function App() {
               >
                 <div className="space-y-2 overflow-y-auto pr-1">
                   {activeDocument?.steps.map((step, stepIndex) => (
-                    <div
-                      key={step.id}
-                      draggable
-                      onDragStart={() => handleSelectionDragStart({ kind: "step", stepId: step.id })}
-                      onDragEnd={() => setDragPayload(null)}
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={(event) => handleDropTarget(event, { kind: "step-list", index: stepIndex })}
-                      className="min-w-0"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setSelectedAuthoring({ kind: "step", stepId: step.id })}
-                        className={`flex w-full min-w-0 items-start gap-3 rounded-[1rem] border px-2.5 py-2.5 text-left transition ${
-                          selectedAuthoring?.stepId === step.id
-                            ? "border-blue-300 bg-[#e8f0ff] shadow-[0_12px_24px_rgba(37,99,235,0.10)]"
-                            : "border-soft bg-white hover:border-slate-300"
-                        }`}
+                    <div key={step.id} className="space-y-2">
+                      {renderDropMarker({ kind: "step-list", index: stepIndex }, { label: "Insert step here" })}
+                      <div
+                        draggable
+                        onDragStart={() => handleSelectionDragStart({ kind: "step", stepId: step.id })}
+                        onDragEnd={clearDragInteraction}
+                        onDragOver={(event) => handleDropZoneDragOver(event, { kind: "step-list", index: stepIndex })}
+                        onDragLeave={() => handleDropZoneDragLeave({ kind: "step-list", index: stepIndex })}
+                        onDrop={(event) => handleDropTarget(event, { kind: "step-list", index: stepIndex })}
+                        className="min-w-0"
                       >
-                        <PageIcon />
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                            Step {stepIndex + 1}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedAuthoring({ kind: "step", stepId: step.id })}
+                          className={`flex w-full min-w-0 items-start gap-3 rounded-[1rem] border px-2.5 py-2.5 text-left transition ${
+                            selectedAuthoring?.stepId === step.id
+                              ? "border-blue-300 bg-[#e8f0ff] shadow-[0_12px_24px_rgba(37,99,235,0.10)]"
+                              : "border-soft bg-white hover:border-slate-300"
+                          }`}
+                        >
+                          <PageIcon />
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                              Step {stepIndex + 1}
+                            </span>
+                            <span className="mt-1 block truncate text-sm font-semibold text-slate-950">
+                              {step.title}
+                            </span>
+                            <span className="mt-1 block truncate text-xs text-slate-500">
+                              {step.sections.length} sections
+                            </span>
                           </span>
-                          <span className="mt-1 block truncate text-sm font-semibold text-slate-950">
-                            {step.title}
-                          </span>
-                          <span className="mt-1 block truncate text-xs text-slate-500">
-                            {step.sections.length} sections
-                          </span>
-                        </span>
-                      </button>
+                        </button>
+                      </div>
                     </div>
                   ))}
+                  {activeDocument?.steps?.length ? renderDropMarker({ kind: "step-list", index: activeDocument.steps.length }, { label: "Insert step at end" }) : null}
                 </div>
               </PanelCard>
 
@@ -4279,125 +4761,322 @@ export default function App() {
                       </div>
 
                       <div className="space-y-4">
-                        {activeStep.sections.map((section, sectionIndex) => (
-                          <section
-                            key={section.id}
-                            draggable
-                            onDragStart={() => handleSelectionDragStart({ kind: "section", stepId: activeStep.id, sectionId: section.id })}
-                            onDragEnd={() => setDragPayload(null)}
-                            onDragOver={(event) => event.preventDefault()}
-                            onDrop={(event) =>
-                              handleDropTarget(event, {
-                                kind: "section-list",
-                                stepId: activeStep.id,
-                                index: sectionIndex,
-                              })
-                            }
-                            onClick={() => setSelectedAuthoring({ kind: "section", stepId: activeStep.id, sectionId: section.id })}
-                            className={`cursor-pointer rounded-[1.45rem] border p-5 ${
-                              selectedAuthoring?.kind === "section" && selectedAuthoring.sectionId === section.id
-                                ? "border-blue-300 bg-[#f6f9ff]"
-                                : "border-soft bg-[#fbfcff]"
-                            }`}
-                          >
-                            <div className="flex flex-wrap items-start justify-between gap-3">
-                              <div>
-                                <h4 className="text-xl font-semibold text-slate-950">{section.title}</h4>
-                                {section.description ? (
-                                  <p className="mt-2 text-sm leading-6 text-slate-600">{section.description}</p>
-                                ) : null}
-                              </div>
-                              <div className="flex gap-2">
-                                <button type="button" title="Add group" aria-label="Add group" onClick={(event) => { event.stopPropagation(); handleAddGroupToSection(activeStep.id, section.id); }} className={iconButtonClass("primary")}>
-                                  <GroupIcon />
-                                </button>
-                                <button type="button" title="Add field" aria-label="Add field" onClick={(event) => { event.stopPropagation(); handleAddFieldToContainer(activeStep.id, section.id); }} className={iconButtonClass()}>
-                                  <FieldIcon />
-                                </button>
-                                <button type="button" title="Remove section" aria-label="Remove section" onClick={(event) => { event.stopPropagation(); handleRemoveSection(activeStep.id, section.id); }} className={iconButtonClass("danger")}>
-                                  <RemoveIcon />
-                                </button>
-                              </div>
-                            </div>
-
-                            <div className="mt-4 space-y-4">
-                              {section.groups.map((group, groupIndex) => (
-                                <div
-                                  key={group.id}
+                        {activeStep.sections.length
+                          ? activeStep.sections.map((section, sectionIndex) => (
+                              <div key={section.id} className="space-y-3">
+                                {renderDropMarker(
+                                  {
+                                    kind: "section-list",
+                                    stepId: activeStep.id,
+                                    index: sectionIndex,
+                                  },
+                                  { label: "Insert section here" },
+                                )}
+                                <section
                                   draggable
-                                  onDragStart={() => handleSelectionDragStart({ kind: "group", stepId: activeStep.id, sectionId: section.id, groupId: group.id })}
-                                  onDragEnd={() => setDragPayload(null)}
-                                  onDragOver={(event) => event.preventDefault()}
+                                  onDragStart={() => handleSelectionDragStart({ kind: "section", stepId: activeStep.id, sectionId: section.id })}
+                                  onDragEnd={clearDragInteraction}
+                                  onDragOver={(event) =>
+                                    handleDropZoneDragOver(event, {
+                                      kind: "section-list",
+                                      stepId: activeStep.id,
+                                      index: sectionIndex,
+                                    })}
+                                  onDragLeave={() =>
+                                    handleDropZoneDragLeave({
+                                      kind: "section-list",
+                                      stepId: activeStep.id,
+                                      index: sectionIndex,
+                                    })}
                                   onDrop={(event) =>
                                     handleDropTarget(event, {
-                                      kind: "group-list",
+                                      kind: "section-list",
                                       stepId: activeStep.id,
-                                      sectionId: section.id,
-                                      index: groupIndex,
-                                    })
-                                  }
-                                  onClick={() => setSelectedAuthoring({ kind: "group", stepId: activeStep.id, sectionId: section.id, groupId: group.id })}
-                                  className={`cursor-pointer rounded-[1.2rem] border p-4 ${
-                                    selectedAuthoring?.kind === "group" && selectedAuthoring.groupId === group.id
-                                      ? "border-blue-300 bg-white"
-                                      : "border-soft bg-white"
+                                      index: sectionIndex,
+                                    })}
+                                  onClick={() => setSelectedAuthoring({ kind: "section", stepId: activeStep.id, sectionId: section.id })}
+                                  className={`cursor-pointer rounded-[1.45rem] border p-5 ${
+                                    selectedAuthoring?.kind === "section" && selectedAuthoring.sectionId === section.id
+                                      ? "border-blue-300 bg-[#f6f9ff]"
+                                      : "border-soft bg-[#fbfcff]"
                                   }`}
                                 >
                                   <div className="flex flex-wrap items-start justify-between gap-3">
                                     <div>
-                                      <p className="text-sm font-semibold text-slate-950">{group.label}</p>
-                                      {group.description ? (
-                                        <p className="mt-1 text-sm leading-6 text-slate-600">{group.description}</p>
+                                      <h4 className="text-xl font-semibold text-slate-950">{section.title}</h4>
+                                      {section.description ? (
+                                        <p className="mt-2 text-sm leading-6 text-slate-600">{section.description}</p>
                                       ) : null}
                                     </div>
                                     <div className="flex gap-2">
-                                      <button type="button" title="Add field" aria-label="Add field" onClick={(event) => { event.stopPropagation(); handleAddFieldToContainer(activeStep.id, section.id, group.id); }} className={iconButtonClass("primary")}>
+                                      <button type="button" title="Add group" aria-label="Add group" onClick={(event) => { event.stopPropagation(); handleAddGroupToSection(activeStep.id, section.id); }} className={iconButtonClass("primary")}>
+                                        <GroupIcon />
+                                      </button>
+                                      <button type="button" title="Add field" aria-label="Add field" onClick={(event) => { event.stopPropagation(); handleAddFieldToContainer(activeStep.id, section.id); }} className={iconButtonClass()}>
                                         <FieldIcon />
                                       </button>
-                                      <button type="button" title="Remove group" aria-label="Remove group" onClick={(event) => { event.stopPropagation(); handleRemoveGroup(activeStep.id, section.id, group.id); }} className={iconButtonClass("danger")}>
+                                      <button type="button" title="Remove section" aria-label="Remove section" onClick={(event) => { event.stopPropagation(); handleRemoveSection(activeStep.id, section.id); }} className={iconButtonClass("danger")}>
                                         <RemoveIcon />
                                       </button>
                                     </div>
                                   </div>
-                                  <div
-                                    className="mt-4 grid gap-4 md:grid-cols-2"
-                                    onDragOver={(event) => event.preventDefault()}
-                                    onDrop={(event) =>
-                                      handleDropTarget(event, {
-                                        kind: "field-list",
-                                        stepId: activeStep.id,
-                                        sectionId: section.id,
-                                        groupId: group.id,
-                                        index: group.fields.length,
-                                      })
-                                    }
-                                  >
-                                  {group.fields.map((field, fieldIndex) =>
-                                    renderBuilderFieldCard(activeStep.id, section.id, field, fieldIndex, group.id),
-                                  )}
-                                  </div>
-                                </div>
-                              ))}
 
-                              <div
-                                className="grid gap-4 md:grid-cols-2"
-                                onDragOver={(event) => event.preventDefault()}
-                                onDrop={(event) =>
-                                  handleDropTarget(event, {
-                                    kind: "field-list",
-                                    stepId: activeStep.id,
-                                    sectionId: section.id,
-                                    index: section.fields.length,
-                                  })
-                                }
-                              >
-                                {section.fields.map((field, fieldIndex) =>
-                                  renderBuilderFieldCard(activeStep.id, section.id, field, fieldIndex),
-                                )}
+                                  <div className="mt-4 space-y-4">
+                                    {section.groups.length ? (
+                                      section.groups.map((group, groupIndex) => (
+                                        <div key={group.id} className="space-y-3">
+                                          {renderDropMarker(
+                                            {
+                                              kind: "group-list",
+                                              stepId: activeStep.id,
+                                              sectionId: section.id,
+                                              index: groupIndex,
+                                            },
+                                            { label: "Insert group here" },
+                                          )}
+                                          <div
+                                            draggable
+                                            onDragStart={() => handleSelectionDragStart({ kind: "group", stepId: activeStep.id, sectionId: section.id, groupId: group.id })}
+                                            onDragEnd={clearDragInteraction}
+                                            onDragOver={(event) =>
+                                              handleDropZoneDragOver(event, {
+                                                kind: "group-list",
+                                                stepId: activeStep.id,
+                                                sectionId: section.id,
+                                                index: groupIndex,
+                                              })}
+                                            onDragLeave={() =>
+                                              handleDropZoneDragLeave({
+                                                kind: "group-list",
+                                                stepId: activeStep.id,
+                                                sectionId: section.id,
+                                                index: groupIndex,
+                                              })}
+                                            onDrop={(event) =>
+                                              handleDropTarget(event, {
+                                                kind: "group-list",
+                                                stepId: activeStep.id,
+                                                sectionId: section.id,
+                                                index: groupIndex,
+                                              })
+                                            }
+                                            onClick={() => setSelectedAuthoring({ kind: "group", stepId: activeStep.id, sectionId: section.id, groupId: group.id })}
+                                            className={`cursor-pointer rounded-[1.2rem] border p-4 ${
+                                              selectedAuthoring?.kind === "group" && selectedAuthoring.groupId === group.id
+                                                ? "border-blue-300 bg-white"
+                                                : "border-soft bg-white"
+                                            }`}
+                                          >
+                                            <div className="flex flex-wrap items-start justify-between gap-3">
+                                              <div>
+                                                <p className="text-sm font-semibold text-slate-950">{group.label}</p>
+                                                {group.description ? (
+                                                  <p className="mt-1 text-sm leading-6 text-slate-600">{group.description}</p>
+                                                ) : null}
+                                              </div>
+                                              <div className="flex gap-2">
+                                                <button type="button" title="Add field" aria-label="Add field" onClick={(event) => { event.stopPropagation(); handleAddFieldToContainer(activeStep.id, section.id, group.id); }} className={iconButtonClass("primary")}>
+                                                  <FieldIcon />
+                                                </button>
+                                                <button type="button" title="Remove group" aria-label="Remove group" onClick={(event) => { event.stopPropagation(); handleRemoveGroup(activeStep.id, section.id, group.id); }} className={iconButtonClass("danger")}>
+                                                  <RemoveIcon />
+                                                </button>
+                                              </div>
+                                            </div>
+                                            <div
+                                              className="mt-4 grid gap-4 md:grid-cols-2"
+                                              onDragOver={(event) =>
+                                                handleDropZoneDragOver(event, {
+                                                  kind: "field-list",
+                                                  stepId: activeStep.id,
+                                                  sectionId: section.id,
+                                                  groupId: group.id,
+                                                  index: group.fields.length,
+                                                })}
+                                              onDragLeave={() =>
+                                                handleDropZoneDragLeave({
+                                                  kind: "field-list",
+                                                  stepId: activeStep.id,
+                                                  sectionId: section.id,
+                                                  groupId: group.id,
+                                                  index: group.fields.length,
+                                                })}
+                                              onDrop={(event) =>
+                                                handleDropTarget(event, {
+                                                  kind: "field-list",
+                                                  stepId: activeStep.id,
+                                                  sectionId: section.id,
+                                                  groupId: group.id,
+                                                  index: group.fields.length,
+                                                })
+                                              }
+                                            >
+                                              {group.fields.length
+                                                ? group.fields.map((field, fieldIndex) => (
+                                                    <div key={field.id} className="contents">
+                                                      {renderDropMarker(
+                                                        {
+                                                          kind: "field-list",
+                                                          stepId: activeStep.id,
+                                                          sectionId: section.id,
+                                                          groupId: group.id,
+                                                          index: fieldIndex,
+                                                        },
+                                                        { gridSpan: true, label: "Insert field here" },
+                                                      )}
+                                                      {renderBuilderFieldCard(activeStep.id, section.id, field, fieldIndex, group.id)}
+                                                    </div>
+                                                  ))
+                                                : renderEmptyDropZone(
+                                                    {
+                                                      kind: "field-list",
+                                                      stepId: activeStep.id,
+                                                      sectionId: section.id,
+                                                      groupId: group.id,
+                                                      index: 0,
+                                                    },
+                                                    {
+                                                      title: "No fields in this group yet",
+                                                      description: "Drop a field here or use Add field to start the grouped layout.",
+                                                      activeTitle: "Drop field into this group",
+                                                    },
+                                                    { gridSpan: true },
+                                                  )}
+                                              {group.fields.length
+                                                ? renderDropMarker(
+                                                    {
+                                                      kind: "field-list",
+                                                      stepId: activeStep.id,
+                                                      sectionId: section.id,
+                                                      groupId: group.id,
+                                                      index: group.fields.length,
+                                                    },
+                                                    { gridSpan: true, label: "Insert field at end" },
+                                                  )
+                                                : null}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ))
+                                    ) : (
+                                      renderEmptyDropZone(
+                                        {
+                                          kind: "group-list",
+                                          stepId: activeStep.id,
+                                          sectionId: section.id,
+                                          index: 0,
+                                        },
+                                        {
+                                          title: "No groups in this section yet",
+                                          description: "Drop a group here to create a grouped block, or use Add group when you want a fresh container.",
+                                          activeTitle: "Drop group into this section",
+                                        },
+                                      )
+                                    )}
+                                    {section.groups.length
+                                      ? renderDropMarker(
+                                          {
+                                            kind: "group-list",
+                                            stepId: activeStep.id,
+                                            sectionId: section.id,
+                                            index: section.groups.length,
+                                          },
+                                          { label: "Insert group at end" },
+                                        )
+                                      : null}
+
+                                    <div
+                                      className="grid gap-4 md:grid-cols-2"
+                                      onDragOver={(event) =>
+                                        handleDropZoneDragOver(event, {
+                                          kind: "field-list",
+                                          stepId: activeStep.id,
+                                          sectionId: section.id,
+                                          index: section.fields.length,
+                                        })}
+                                      onDragLeave={() =>
+                                        handleDropZoneDragLeave({
+                                          kind: "field-list",
+                                          stepId: activeStep.id,
+                                          sectionId: section.id,
+                                          index: section.fields.length,
+                                        })}
+                                      onDrop={(event) =>
+                                        handleDropTarget(event, {
+                                          kind: "field-list",
+                                          stepId: activeStep.id,
+                                          sectionId: section.id,
+                                          index: section.fields.length,
+                                        })
+                                      }
+                                    >
+                                      {section.fields.length
+                                        ? section.fields.map((field, fieldIndex) => (
+                                            <div key={field.id} className="contents">
+                                              {renderDropMarker(
+                                                {
+                                                  kind: "field-list",
+                                                  stepId: activeStep.id,
+                                                  sectionId: section.id,
+                                                  index: fieldIndex,
+                                                },
+                                                { gridSpan: true, label: "Insert field here" },
+                                              )}
+                                              {renderBuilderFieldCard(activeStep.id, section.id, field, fieldIndex)}
+                                            </div>
+                                          ))
+                                        : renderEmptyDropZone(
+                                            {
+                                              kind: "field-list",
+                                              stepId: activeStep.id,
+                                              sectionId: section.id,
+                                              index: 0,
+                                            },
+                                            {
+                                              title: "No standalone fields in this section",
+                                              description: "Drop a field here for direct section content, or use Add field to seed the layout.",
+                                              activeTitle: "Drop field into this section",
+                                            },
+                                            { gridSpan: true },
+                                          )}
+                                      {section.fields.length
+                                        ? renderDropMarker(
+                                            {
+                                              kind: "field-list",
+                                              stepId: activeStep.id,
+                                              sectionId: section.id,
+                                              index: section.fields.length,
+                                            },
+                                            { gridSpan: true, label: "Insert field at end" },
+                                          )
+                                        : null}
+                                    </div>
+                                  </div>
+                                </section>
                               </div>
-                            </div>
-                          </section>
-                        ))}
+                            ))
+                          : renderEmptyDropZone(
+                              {
+                                kind: "section-list",
+                                stepId: activeStep.id,
+                                index: 0,
+                              },
+                              {
+                                title: "No sections in this step yet",
+                                description: "Drop a section here or use Add section to give this step a clearer structure before you add fields.",
+                                activeTitle: "Drop section into this step",
+                              },
+                            )}
+                        {activeStep.sections.length
+                          ? renderDropMarker(
+                              {
+                                kind: "section-list",
+                                stepId: activeStep.id,
+                                index: activeStep.sections.length,
+                              },
+                              { label: "Insert section at end" },
+                            )
+                          : null}
                         <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.15rem] border border-soft bg-[#f8fbff] px-4 py-3">
                           <span className="text-sm text-slate-600">Runtime navigation preview</span>
                           <div className="flex gap-2">
@@ -4480,6 +5159,15 @@ export default function App() {
                       className={iconButtonClass(inspectorTab === "events" ? "primary" : "secondary")}
                     >
                       <EventsIcon />
+                    </button>
+                    <button
+                      type="button"
+                      title="Map"
+                      aria-label="Map"
+                      onClick={() => setInspectorTab("map")}
+                      className={iconButtonClass(inspectorTab === "map" ? "primary" : "secondary")}
+                    >
+                      <MapIcon />
                     </button>
                   </div>
                 }
@@ -4869,6 +5557,187 @@ export default function App() {
                         ) : (
                           <div className="app-muted-card p-4 text-sm text-slate-500">
                             Select a field to edit its branching and visibility rules.
+                          </div>
+                        )}
+                      </div>
+                    ) : inspectorTab === "map" ? (
+                      <div className="space-y-4">
+                        {logicMapData ? (
+                          <>
+                            <div className="rounded-[1.15rem] border border-soft bg-white p-4">
+                              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Flow map</p>
+                              <h4 className="mt-2 text-lg font-semibold text-slate-950">Document logic and runtime graph</h4>
+                              <p className="mt-2 text-sm leading-6 text-slate-600">
+                                Use this as the high-level map for branching rules and listener chains, then jump into the focused editor only when you need to change a specific rule or event.
+                              </p>
+                              <div className="mt-4 flex flex-wrap gap-2">
+                                <span className="app-pill">{logicMapData.steps.length} steps</span>
+                                <span className="app-pill">{logicMapData.totalConditionals} logic rules</span>
+                                <span className="app-pill">{logicMapData.totalListeners} runtime listeners</span>
+                              </div>
+                            </div>
+
+                            <div className="rounded-[1.15rem] border border-soft bg-white p-4">
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Form runtime</p>
+                                  <p className="mt-2 text-sm text-slate-700">
+                                    These listeners are global to the document and fire outside any single step or field.
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedAuthoring(null);
+                                    setInspectorTab("events");
+                                  }}
+                                  className={actionButtonClass("primary")}
+                                >
+                                  Open form events
+                                </button>
+                              </div>
+                              <div className="mt-4 space-y-3">
+                                {logicMapData.formListeners.length ? (
+                                  logicMapData.formListeners.map((listener) => (
+                                    <div key={listener.id} className="rounded-[1rem] border border-soft bg-slate-50 p-4">
+                                      <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{listener.scopeLabel}</p>
+                                          <p className="mt-2 font-semibold text-slate-950">When {formatLabel(listener.eventName)}</p>
+                                          <p className="mt-2 text-sm leading-6 text-slate-600">{listener.actionsSummary}</p>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setSelectedAuthoring(null);
+                                            setInspectorTab("events");
+                                          }}
+                                          className={actionButtonClass()}
+                                        >
+                                          Edit
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <div className="app-muted-card p-4 text-sm text-slate-500">
+                                    No form-level listeners yet. Use the Events editor when the document needs load, submit, or host-level behavior.
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="space-y-4">
+                              {logicMapData.steps.map((step) => (
+                                <div key={step.id} className="rounded-[1.15rem] border border-soft bg-white p-4">
+                                  <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div>
+                                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Step map</p>
+                                      <h4 className="mt-2 text-lg font-semibold text-slate-950">{step.title}</h4>
+                                      <div className="mt-2 flex flex-wrap gap-2">
+                                        <span className="app-pill">{step.sectionCount} sections</span>
+                                        <span className="app-pill">{step.fieldCount} fields</span>
+                                        <span className="app-pill">{step.conditionalRules.length} rules</span>
+                                        <span className="app-pill">{step.runtimeListeners.length} listeners</span>
+                                      </div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedAuthoring(step.selection)}
+                                      className={actionButtonClass()}
+                                    >
+                                      Focus step
+                                    </button>
+                                  </div>
+
+                                  <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                                    <div className="rounded-[1rem] border border-soft bg-slate-50 p-4">
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Path rules</p>
+                                          <p className="mt-2 text-sm text-slate-700">
+                                            Visibility and requirement logic authored on fields in this step.
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <div className="mt-4 space-y-3">
+                                        {step.conditionalRules.length ? (
+                                          step.conditionalRules.map((rule) => (
+                                            <div key={rule.id} className="rounded-[0.95rem] border border-soft bg-white p-4">
+                                              <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0">
+                                                  <p className="font-semibold text-slate-950">{rule.title}</p>
+                                                  <p className="mt-2 text-sm leading-6 text-slate-600">{rule.detail}</p>
+                                                </div>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setSelectedAuthoring(rule.sourceSelection);
+                                                    setInspectorTab("logic");
+                                                    setEditingRuleIndex(rule.ruleIndex);
+                                                  }}
+                                                  className={actionButtonClass()}
+                                                >
+                                                  Edit rule
+                                                </button>
+                                              </div>
+                                            </div>
+                                          ))
+                                        ) : (
+                                          <div className="app-muted-card p-4 text-sm text-slate-500">
+                                            No field logic rules in this step yet.
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    <div className="rounded-[1rem] border border-soft bg-slate-50 p-4">
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Runtime graph</p>
+                                          <p className="mt-2 text-sm text-slate-700">
+                                            Listener chains attached to the step and its descendant nodes.
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <div className="mt-4 space-y-3">
+                                        {step.runtimeListeners.length ? (
+                                          step.runtimeListeners.map((listener) => (
+                                            <div key={listener.id} className="rounded-[0.95rem] border border-soft bg-white p-4">
+                                              <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0">
+                                                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{listener.scopeLabel}</p>
+                                                  <p className="mt-2 font-semibold text-slate-950">When {formatLabel(listener.eventName)}</p>
+                                                  <p className="mt-2 text-sm leading-6 text-slate-600">{listener.actionsSummary}</p>
+                                                </div>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setSelectedAuthoring(listener.selection);
+                                                    setInspectorTab("events");
+                                                  }}
+                                                  className={actionButtonClass()}
+                                                >
+                                                  Edit events
+                                                </button>
+                                              </div>
+                                            </div>
+                                          ))
+                                        ) : (
+                                          <div className="app-muted-card p-4 text-sm text-slate-500">
+                                            No runtime listeners in this step yet.
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="app-muted-card p-4 text-sm text-slate-500">
+                            No logic map is available until a document is loaded.
                           </div>
                         )}
                       </div>

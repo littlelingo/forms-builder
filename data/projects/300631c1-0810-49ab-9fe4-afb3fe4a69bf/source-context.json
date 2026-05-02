@@ -1,0 +1,38 @@
+{
+  "conversionId": "json-import-d80023f2-d909-4d62-8048-4661e93d0b55",
+  "filename": "Va Form 10 10Ez.json",
+  "documentClass": "acroform_only",
+  "reviewStatus": "reviewed",
+  "confidence": 1.0,
+  "extractorPath": [
+    "json_import"
+  ],
+  "notes": [
+    "Loaded from authoring JSON."
+  ],
+  "issues": [],
+  "importedDraft": {
+    "id": "6fb6e56e-2f7c-42bd-ad3c-7e2d87db3dfd",
+    "title": "Va Form 10 10Ez",
+    "documentClass": "acroform_only",
+    "reviewStatus": "reviewed",
+    "sourcePriority": [],
+    "sourceConflicts": [],
+    "pages": [],
+    "issues": [],
+    "metadata": {
+      "phase": "phase-1",
+      "filename": "VA Form 10-10EZ.pdf",
+      "documentClass": "acroform_only",
+      "classificationNotes": "Detected AcroForm fields without XFA packets.",
+      "adapterNotes": "fitz_text_lines=437 | acroform_fields=105 | xfa_hints=0 | table_hints=10 | page_regions=57",
+      "acroformFieldCount": "105",
+      "xfaHintCount": "0",
+      "textLineCount": "437",
+      "sourceFilename": "VA Form 10-10EZ.pdf",
+      "sourceConversionId": "9852dc0c-3131-4f96-8c07-8b4251885a31",
+      "vaBaseline": "true",
+      "importSource": "json"
+    }
+  }
+}

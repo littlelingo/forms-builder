@@ -207,6 +207,9 @@
   - live pass on `http://127.0.0.1:5173/` validating reverse source-linking from the source-reference drawer back into authored selection, including section, group, and field clicks that retarget the inspector and keep the compare drawer open on the clean standard-port stack
   - live pass on `http://127.0.0.1:5173/` validating the new `History` workspace surface on a multi-revision project, including opening an older revision snapshot into the builder, showing the revision-view banner/state, and returning cleanly to the latest saved project head on the standard-port stack
   - live pass on `http://127.0.0.1:5173/` validating unsaved-change guardrails for the new workspace/history model, including discard/reload prompts when opening a revision snapshot, returning to the latest saved head, switching projects through `Open`, and returning home from the open-workspace shell
+  - live pass on `http://127.0.0.1:5173/` validating the remaining destructive-entry guardrails: dirty-workspace prompts plus successful discard transitions for `New > Blank form`, `Open > Open JSON`, `New > Import PDF`, and `Open > Recent imports > Resume import`; the lightweight browser `beforeunload` warning is now implemented for dirty workspace state, though it was not separately browser-automated in this turn
+  - live pass on `http://127.0.0.1:5173/` validating the second builder interaction pass on the standard-port stack: blank authoring now shows real drop-target empty states (`No groups in this section yet`, `No sections in this step yet`) instead of dead whitespace, and drag/drop affordances now include dedicated insertion-marker surfaces in the canvas/step strip rather than relying only on card bodies as implicit drop targets
+  - live pass on `http://127.0.0.1:5173/` validating the new inspector `Map` surface: whole-document counts for steps/rules/listeners, form-level runtime listener summaries, per-step path/runtime cards, and jump actions from the map into the form-level Events editor
 
 ## Known Gaps
 
@@ -214,12 +217,8 @@
 - Project persistence is file-backed and single-user oriented; there is no concurrency model, database storage, or shared workflow yet.
 - The new start/workspace shell is in place, but the import-review flow still needs a second pass:
   - review no longer carries the whole comparison burden, and source-reference compare is now bidirectional, but the imported/source surface still lacks richer spatial comparison affordances beyond list-based linking
-- The core project-management loop is much stronger now that revision history and unsaved-change prompts are in-workspace, but the destructive-entry coverage is still incomplete:
-  - `New`, `Open JSON`, `Import PDF`, and `Resume import` can still replace the current workspace without going through the same prompt
-  - browser/tab close still has no `beforeunload` guard for unsaved local edits
 - The builder still needs a second interaction pass:
-  - drag/drop is present, but it still needs richer empty-state drop zones and clearer insertion markers
-  - logic editing is now bounded and recoverable, but there is still no separate path-map or event graph visualization yet
+  - logic editing is now bounded and recoverable, and the new map surface exposes authored rules/listeners at a document level, but it still does not draw explicit visual edges or offer filtering once flows get larger
   - publish is now a workspace action instead of a stage, but the release model is still a status/storage surface rather than a full runtime/export pipeline
 - Provenance is retained, but field-level evidence is still lighter-weight in the builder than in the review stage.
 - Runtime behavior authoring is still shallow:
@@ -231,7 +230,7 @@
 
 ## Best Next
 
-- Extend the same unsaved-change guardrail flow to `New`, `Open JSON`, `Import PDF`, and `Resume import`, then add a lightweight browser `beforeunload` warning so every destructive workspace exit path is covered.
+- Deepen in-workspace source comparison from list-based linking into richer spatial compare affordances so authored nodes can be checked against the imported source with more visual precision.
 
 ## Product Direction Update
 

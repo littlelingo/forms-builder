@@ -1,0 +1,29 @@
+{
+  "conversionId": "json-import-487c6ef3-1a6f-405f-9ea0-0d7f0c84f6e3",
+  "filename": "Untitled form.json",
+  "documentClass": "born_digital_nonfillable",
+  "reviewStatus": "draft",
+  "confidence": 1.0,
+  "extractorPath": [
+    "json_import"
+  ],
+  "notes": [
+    "Loaded from authoring JSON."
+  ],
+  "issues": [],
+  "importedDraft": {
+    "id": "7a85bc0d-d82a-4770-9237-a279c52dba5a",
+    "title": "Untitled form",
+    "documentClass": "born_digital_nonfillable",
+    "reviewStatus": "reviewed",
+    "sourcePriority": [],
+    "sourceConflicts": [],
+    "pages": [],
+    "issues": [],
+    "metadata": {
+      "creationMode": "blank",
+      "createdIn": "builder",
+      "importSource": "json"
+    }
+  }
+}
