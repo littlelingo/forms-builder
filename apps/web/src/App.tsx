@@ -13,8 +13,10 @@ import type {
   ConditionalRule,
   Coordinates,
   FieldNode,
+  GroupNode,
   PageNode,
   ProjectStatus,
+  ProjectRevision,
   ReviewStatus,
   RuntimeActionDefinition,
   RuntimeActionKind,
@@ -23,6 +25,7 @@ import type {
   RuntimeEventDefinition,
   RuntimeListenerDefinition,
   RuntimeNodeBehavior,
+  RuntimeNodeState,
   RuntimePayloadMode,
   RuntimeSessionState,
   SemanticType,
@@ -61,8 +64,10 @@ import {
 } from "./lib/authoring-utils";
 import type { ConversionRecord, ProcessingStepStatus } from "./lib/types";
 
-type AppStage = "review" | "builder" | "publish";
+type AppStage = "home" | "review" | "workspace";
 type ReviewPreviewMode = "overlay" | "pdf";
+type ReviewFlowMode = "new_project" | "resume_import";
+type WorkspaceLandingMode = "promoted_import" | "reopened_import";
 type InspectorTab = "properties" | "logic" | "events";
 type BuilderFieldTypeOption = SemanticType | "action_button";
 
@@ -100,6 +105,33 @@ interface RuntimePayloadEditorState {
   mode: RuntimePayloadMode;
   raw: string;
 }
+
+interface SourceReferenceMatchState {
+  pageIds: Set<string>;
+  sectionIds: Set<string>;
+  groupIds: Set<string>;
+  fieldIds: Set<string>;
+  anchorIds: Set<string>;
+}
+
+interface SourceReferenceFocus extends SourceReferenceMatchState {
+  title: string;
+  kindLabel: string;
+}
+
+type SourceReferenceTargetKind = "page" | "section" | "group" | "field";
+
+interface OpenedRevisionView {
+  id: string;
+  note: string;
+  createdAt: string;
+}
+
+type WorkspaceTransitionRequest =
+  | { kind: "open_project"; projectId: string; workspaceLandingMode?: WorkspaceLandingMode | null }
+  | { kind: "go_home" }
+  | { kind: "open_revision"; revisionId: string }
+  | { kind: "return_latest_revision" };
 
 const builderFieldTypeOptions: Array<{ value: BuilderFieldTypeOption; label: string }> = [
   { value: "text", label: "Text" },
@@ -159,6 +191,25 @@ function createRuntimeDocumentBehavior(): RuntimeDocumentBehavior {
       example: {},
       notes: [],
     },
+  };
+}
+
+function createBlankAuthoringDocument(): AuthoringDocument {
+  return {
+    id: crypto.randomUUID(),
+    title: "Untitled form",
+    documentClass: "born_digital_nonfillable",
+    reviewStatus: "draft",
+    targetRuntime: "va_web_form",
+    visualBaseline: "va.gov",
+    sourcePriority: [],
+    sourceConflicts: [],
+    steps: [createStep(1)],
+    metadata: {
+      creationMode: "blank",
+      createdIn: "builder",
+    },
+    runtime: createRuntimeDocumentBehavior(),
   };
 }
 
@@ -439,6 +490,30 @@ function summarizeAuthoringStep(step: AuthoringStep): StepSummary {
   };
 }
 
+function summarizeAuthoringDocument(document: AuthoringDocument): StepSummary & { stepCount: number; sectionCount: number } {
+  return document.steps.reduce<StepSummary & { stepCount: number; sectionCount: number }>(
+    (summary, step) => {
+      const stepSummary = summarizeAuthoringStep(step);
+      return {
+        stepCount: summary.stepCount + 1,
+        sectionCount: summary.sectionCount + step.sections.length,
+        fieldCount: summary.fieldCount + stepSummary.fieldCount,
+        statementCount: summary.statementCount + stepSummary.statementCount,
+        interactiveCount: summary.interactiveCount + stepSummary.interactiveCount,
+        longLabelCount: summary.longLabelCount + stepSummary.longLabelCount,
+      };
+    },
+    {
+      stepCount: 0,
+      sectionCount: 0,
+      fieldCount: 0,
+      statementCount: 0,
+      interactiveCount: 0,
+      longLabelCount: 0,
+    },
+  );
+}
+
 function defaultRuntimeFieldValue(field: AuthoringField): unknown {
   if (field.rendererHints.component === "button" || field.semanticType === "statement") {
     return undefined;
@@ -476,12 +551,6 @@ function guidanceForStep(step: AuthoringStep | null): string {
     return "Some imported labels are still too long for a clean web form. Tighten the wording and move overflow into help text.";
   }
   return "This step is in a good place for detailed shaping. Reorder fields, refine labels, and add logic where the web flow should branch.";
-}
-
-function stageButtonClass(active: boolean): string {
-  return active
-    ? "inline-flex h-9 items-center rounded-lg border border-blue-200 bg-blue-50 px-3.5 text-sm font-medium text-blue-700 shadow-sm"
-    : "inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-950";
 }
 
 function subtleButtonClass(active: boolean): string {
@@ -665,6 +734,271 @@ function fieldPreview(field: AuthoringField) {
   );
 }
 
+function defaultPreviewRuntimeValue(field: AuthoringField): unknown {
+  if (field.rendererHints.component === "button" || field.semanticType === "statement") {
+    return undefined;
+  }
+  switch (field.semanticType) {
+    case "select":
+    case "radio":
+      return "";
+    case "checkbox":
+      return [];
+    default:
+      return "";
+  }
+}
+
+function runtimeFieldValue(field: AuthoringField, sessionState: RuntimeSessionState | null): unknown {
+  if (!sessionState) {
+    return defaultPreviewRuntimeValue(field);
+  }
+  const currentValue = sessionState.values[field.id];
+  return currentValue !== undefined ? currentValue : defaultPreviewRuntimeValue(field);
+}
+
+function runtimeFieldError(field: AuthoringField, sessionState: RuntimeSessionState | null): string | null {
+  if (!sessionState) {
+    return null;
+  }
+  const validationMessage = sessionState.validation.errors.find((error) => error.fieldId === field.id || error.nodeId === field.id)?.message;
+  if (validationMessage) {
+    return validationMessage;
+  }
+  return sessionState.submit.fieldErrors?.[field.id] ?? null;
+}
+
+function runtimeTextInputType(field: AuthoringField): string {
+  switch (field.semanticType) {
+    case "email":
+      return "email";
+    case "phone":
+      return "tel";
+    case "date":
+      return "date";
+    case "number":
+      return "number";
+    default:
+      return "text";
+  }
+}
+
+function checkboxRuntimeValues(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry));
+  }
+  if (typeof value === "string" && value.length > 0) {
+    return [value];
+  }
+  return [];
+}
+
+interface RuntimeFieldPreviewProps {
+  field: AuthoringField;
+  value: unknown;
+  nodeState: RuntimeNodeState | null;
+  errorMessage: string | null;
+  onValueChange: (value: unknown) => void;
+  onButtonClick: () => void;
+}
+
+function RuntimeFieldPreview({
+  field,
+  value,
+  nodeState,
+  errorMessage,
+  onValueChange,
+  onButtonClick,
+}: RuntimeFieldPreviewProps) {
+  const isActionButton = field.rendererHints.component === "button";
+  const isEnabled = nodeState?.enabled ?? true;
+  const isVisible = nodeState?.visible ?? true;
+  const isRequired = nodeState?.required ?? field.required;
+  const requiredBadge = isRequired ? <span className="app-pill border-red-200 bg-rose-50 text-rose-700">Required</span> : null;
+
+  if (!isVisible) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm font-semibold text-slate-950">{field.label}</div>
+          <span className="app-pill">Hidden</span>
+        </div>
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-100 px-4 py-3 text-sm text-slate-500">
+          Hidden by the current runtime state.
+        </div>
+      </div>
+    );
+  }
+
+  if (isActionButton) {
+    const behavior = getButtonBehaviorSummary(field);
+    const isPrimary = behavior.action === "next_step" || behavior.action === "submit";
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-sm font-semibold text-slate-950">{field.label}</div>
+          <span className="app-pill">{formatLabel(behavior.action)}</span>
+        </div>
+        <button
+          type="button"
+          disabled={!isEnabled}
+          onClick={(event) => {
+            event.stopPropagation();
+            onButtonClick();
+          }}
+          className={actionButtonClass(isPrimary ? "primary" : "secondary")}
+        >
+          {field.label}
+        </button>
+      </div>
+    );
+  }
+
+  if (field.semanticType === "statement") {
+    return (
+      <div className="rounded-[1rem] border border-soft bg-[#eff4fb] px-4 py-3 text-sm leading-6 text-slate-700">
+        {field.label}
+      </div>
+    );
+  }
+
+  if (field.semanticType === "radio" || field.semanticType === "checkbox") {
+    const selectedValues = checkboxRuntimeValues(value);
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm font-semibold text-slate-950">{field.label}</div>
+          <div className="flex items-center gap-2">
+            {!isEnabled ? <span className="app-pill">Disabled</span> : null}
+            {requiredBadge}
+          </div>
+        </div>
+        <div className="grid gap-2">
+          {field.options.length ? (
+            field.options.map((option) => {
+              const checked =
+                field.semanticType === "radio"
+                  ? String(value ?? "") === option.value
+                  : selectedValues.includes(option.value);
+              return (
+                <label
+                  key={option.value}
+                  className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm ${
+                    checked ? "border-blue-300 bg-blue-50" : "border-soft bg-white"
+                  } ${!isEnabled ? "opacity-60" : ""}`}
+                >
+                  <input
+                    type={field.semanticType}
+                    name={`runtime-preview-${field.id}`}
+                    checked={checked}
+                    disabled={!isEnabled}
+                    onChange={(event) => {
+                      if (field.semanticType === "radio") {
+                        onValueChange(event.target.value);
+                        return;
+                      }
+                      const nextValues = event.target.checked
+                        ? [...selectedValues, option.value]
+                        : selectedValues.filter((entry) => entry !== option.value);
+                      onValueChange(nextValues);
+                    }}
+                    value={option.value}
+                    className="h-4 w-4"
+                  />
+                  <span className="text-slate-700">{option.label}</span>
+                </label>
+              );
+            })
+          ) : (
+            <label className={`flex items-center gap-3 rounded-2xl border border-soft bg-white px-4 py-3 text-sm ${!isEnabled ? "opacity-60" : ""}`}>
+              <input
+                type="checkbox"
+                checked={Boolean(value)}
+                disabled={!isEnabled}
+                onChange={(event) => onValueChange(event.target.checked)}
+                className="h-4 w-4"
+              />
+              <span className="text-slate-700">{field.label}</span>
+            </label>
+          )}
+        </div>
+        {errorMessage ? <p className="text-sm text-rose-700">{errorMessage}</p> : null}
+      </div>
+    );
+  }
+
+  if (field.semanticType === "select") {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm font-semibold text-slate-950">{field.label}</div>
+          <div className="flex items-center gap-2">
+            {!isEnabled ? <span className="app-pill">Disabled</span> : null}
+            {requiredBadge}
+          </div>
+        </div>
+        <select
+          value={typeof value === "string" ? value : ""}
+          disabled={!isEnabled}
+          onChange={(event) => onValueChange(event.target.value)}
+          className="w-full rounded-2xl border border-soft bg-white px-4 py-3 text-sm text-slate-700"
+        >
+          <option value="">{field.options.length ? "Choose an option" : "No options yet"}</option>
+          {field.options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        {errorMessage ? <p className="text-sm text-rose-700">{errorMessage}</p> : null}
+      </div>
+    );
+  }
+
+  if (field.semanticType === "textarea") {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm font-semibold text-slate-950">{field.label}</div>
+          <div className="flex items-center gap-2">
+            {!isEnabled ? <span className="app-pill">Disabled</span> : null}
+            {requiredBadge}
+          </div>
+        </div>
+        <textarea
+          value={typeof value === "string" ? value : ""}
+          disabled={!isEnabled}
+          placeholder={field.helpText || "Response field"}
+          onChange={(event) => onValueChange(event.target.value)}
+          className="min-h-[7.5rem] w-full rounded-2xl border border-soft bg-white px-4 py-3 text-sm text-slate-700 placeholder:text-slate-400"
+        />
+        {errorMessage ? <p className="text-sm text-rose-700">{errorMessage}</p> : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm font-semibold text-slate-950">{field.label}</div>
+        <div className="flex items-center gap-2">
+          {!isEnabled ? <span className="app-pill">Disabled</span> : null}
+          {requiredBadge}
+        </div>
+      </div>
+      <input
+        type={runtimeTextInputType(field)}
+        value={typeof value === "string" ? value : value === undefined || value === null ? "" : String(value)}
+        disabled={!isEnabled}
+        placeholder={field.helpText || "Response field"}
+        onChange={(event) => onValueChange(event.target.value)}
+        className="w-full rounded-2xl border border-soft bg-white px-4 py-3 text-sm text-slate-700 placeholder:text-slate-400"
+      />
+      {errorMessage ? <p className="text-sm text-rose-700">{errorMessage}</p> : null}
+    </div>
+  );
+}
+
 function overlayTone(field: FieldNode, selected: boolean): string {
   if (selected) {
     return "fill-blue-400/30 stroke-[#2563eb]";
@@ -693,6 +1027,303 @@ function orderedReviewSectionFields(section: SectionNode): FieldNode[] {
   ].sort((left, right) => left.orderIndex - right.orderIndex || (left.kind === "field" ? -1 : 1));
 
   return orderedItems.flatMap((item) => item.fields);
+}
+
+function createSourceReferenceMatchState(): SourceReferenceMatchState {
+  return {
+    pageIds: new Set<string>(),
+    sectionIds: new Set<string>(),
+    groupIds: new Set<string>(),
+    fieldIds: new Set<string>(),
+    anchorIds: new Set<string>(),
+  };
+}
+
+function addSourceMatchIds(target: Set<string>, values: string[]): void {
+  for (const value of values) {
+    if (value) {
+      target.add(value);
+    }
+  }
+}
+
+function collectEvidenceAnchorIds(evidence?: Array<{ anchorId: string }>): string[] {
+  return evidence?.map((anchor) => anchor.anchorId) ?? [];
+}
+
+function mergeSourceReferenceMatchState(target: SourceReferenceMatchState, source: SourceReferenceMatchState): void {
+  addSourceMatchIds(target.pageIds, [...source.pageIds]);
+  addSourceMatchIds(target.sectionIds, [...source.sectionIds]);
+  addSourceMatchIds(target.groupIds, [...source.groupIds]);
+  addSourceMatchIds(target.fieldIds, [...source.fieldIds]);
+  addSourceMatchIds(target.anchorIds, [...source.anchorIds]);
+}
+
+function collectFieldSourceReferenceMatchState(field: AuthoringField): SourceReferenceMatchState {
+  const matches = createSourceReferenceMatchState();
+  addSourceMatchIds(matches.fieldIds, field.sourceFieldIds);
+  addSourceMatchIds(matches.anchorIds, field.provenanceAnchorIds);
+  return matches;
+}
+
+function collectGroupSourceReferenceMatchState(group: AuthoringGroup): SourceReferenceMatchState {
+  const matches = createSourceReferenceMatchState();
+  addSourceMatchIds(matches.groupIds, group.sourceGroupIds);
+  addSourceMatchIds(matches.anchorIds, group.provenanceAnchorIds);
+  for (const field of group.fields) {
+    mergeSourceReferenceMatchState(matches, collectFieldSourceReferenceMatchState(field));
+  }
+  return matches;
+}
+
+function collectSectionSourceReferenceMatchState(section: AuthoringSection): SourceReferenceMatchState {
+  const matches = createSourceReferenceMatchState();
+  addSourceMatchIds(matches.sectionIds, section.sourceSectionIds);
+  addSourceMatchIds(matches.anchorIds, section.provenanceAnchorIds);
+  for (const field of section.fields) {
+    mergeSourceReferenceMatchState(matches, collectFieldSourceReferenceMatchState(field));
+  }
+  for (const group of section.groups) {
+    mergeSourceReferenceMatchState(matches, collectGroupSourceReferenceMatchState(group));
+  }
+  return matches;
+}
+
+function collectStepSourceReferenceMatchState(step: AuthoringStep): SourceReferenceMatchState {
+  const matches = createSourceReferenceMatchState();
+  addSourceMatchIds(matches.pageIds, step.sourcePageIds);
+  addSourceMatchIds(matches.anchorIds, step.provenanceAnchorIds);
+  for (const section of step.sections) {
+    mergeSourceReferenceMatchState(matches, collectSectionSourceReferenceMatchState(section));
+  }
+  return matches;
+}
+
+function sourceFieldMatchesFocus(field: FieldNode, focus: SourceReferenceFocus | null): boolean {
+  if (!focus) {
+    return false;
+  }
+  return (
+    focus.fieldIds.has(field.id) ||
+    field.evidence.some((anchor) => focus.anchorIds.has(anchor.anchorId))
+  );
+}
+
+function sourceGroupMatchesFocus(group: GroupNode, focus: SourceReferenceFocus | null): boolean {
+  if (!focus) {
+    return false;
+  }
+  return (
+    focus.groupIds.has(group.id) ||
+    group.evidence.some((anchor) => focus.anchorIds.has(anchor.anchorId)) ||
+    group.fields.some((field) => sourceFieldMatchesFocus(field, focus))
+  );
+}
+
+function sourceSectionMatchesFocus(section: SectionNode, focus: SourceReferenceFocus | null): boolean {
+  if (!focus) {
+    return false;
+  }
+  return (
+    focus.sectionIds.has(section.id) ||
+    orderedReviewSectionFields(section).some((field) => sourceFieldMatchesFocus(field, focus)) ||
+    section.groups.some((group) => sourceGroupMatchesFocus(group, focus))
+  );
+}
+
+function sourcePageMatchesFocus(page: PageNode, focus: SourceReferenceFocus | null): boolean {
+  if (!focus) {
+    return false;
+  }
+  return (
+    focus.pageIds.has(page.id) ||
+    page.evidence?.some((anchor) => focus.anchorIds.has(anchor.anchorId)) === true ||
+    page.sections.some((section) => sourceSectionMatchesFocus(section, focus))
+  );
+}
+
+function countSourceFieldsOnPage(page: PageNode): number {
+  return page.sections.reduce(
+    (count, section) =>
+      count +
+      section.fields.length +
+      section.groups.reduce((groupCount, group) => groupCount + group.fields.length, 0),
+    0,
+  );
+}
+
+function collectImportedFieldSourceReferenceMatchState(field: FieldNode): SourceReferenceMatchState {
+  const matches = createSourceReferenceMatchState();
+  addSourceMatchIds(matches.pageIds, [field.pageId]);
+  addSourceMatchIds(matches.sectionIds, [field.sectionId]);
+  addSourceMatchIds(matches.fieldIds, [field.id]);
+  addSourceMatchIds(matches.anchorIds, collectEvidenceAnchorIds(field.evidence));
+  return matches;
+}
+
+function collectImportedGroupSourceReferenceMatchState(group: GroupNode): SourceReferenceMatchState {
+  const matches = createSourceReferenceMatchState();
+  addSourceMatchIds(matches.pageIds, [group.pageId]);
+  addSourceMatchIds(matches.sectionIds, [group.sectionId]);
+  addSourceMatchIds(matches.groupIds, [group.id]);
+  addSourceMatchIds(matches.anchorIds, collectEvidenceAnchorIds(group.evidence));
+  for (const field of group.fields) {
+    mergeSourceReferenceMatchState(matches, collectImportedFieldSourceReferenceMatchState(field));
+  }
+  return matches;
+}
+
+function collectImportedSectionSourceReferenceMatchState(section: SectionNode): SourceReferenceMatchState {
+  const matches = createSourceReferenceMatchState();
+  addSourceMatchIds(matches.pageIds, [section.pageId]);
+  addSourceMatchIds(matches.sectionIds, [section.id]);
+  for (const field of section.fields) {
+    mergeSourceReferenceMatchState(matches, collectImportedFieldSourceReferenceMatchState(field));
+  }
+  for (const group of section.groups) {
+    mergeSourceReferenceMatchState(matches, collectImportedGroupSourceReferenceMatchState(group));
+  }
+  return matches;
+}
+
+function collectImportedPageSourceReferenceMatchState(page: PageNode): SourceReferenceMatchState {
+  const matches = createSourceReferenceMatchState();
+  addSourceMatchIds(matches.pageIds, [page.id]);
+  addSourceMatchIds(matches.anchorIds, collectEvidenceAnchorIds(page.evidence));
+  for (const section of page.sections) {
+    mergeSourceReferenceMatchState(matches, collectImportedSectionSourceReferenceMatchState(section));
+  }
+  return matches;
+}
+
+function hasSourceMatch(values: string[] | undefined, target: Set<string>): boolean {
+  return values?.some((value) => target.has(value)) ?? false;
+}
+
+function authoringSelectionsEqual(left: AuthoringSelection | null, right: AuthoringSelection | null): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right || left.kind !== right.kind || left.stepId !== right.stepId) {
+    return false;
+  }
+  if (left.kind === "step" && right.kind === "step") {
+    return true;
+  }
+  if (left.kind === "section" && right.kind === "section") {
+    return left.sectionId === right.sectionId;
+  }
+  if (left.kind === "group" && right.kind === "group") {
+    return left.sectionId === right.sectionId && left.groupId === right.groupId;
+  }
+  if (left.kind === "field" && right.kind === "field") {
+    return left.sectionId === right.sectionId && left.groupId === right.groupId && left.fieldId === right.fieldId;
+  }
+  return false;
+}
+
+function authoringStepDirectlyMatchesSourceState(step: AuthoringStep, matches: SourceReferenceMatchState): boolean {
+  return hasSourceMatch(step.sourcePageIds, matches.pageIds) || hasSourceMatch(step.provenanceAnchorIds, matches.anchorIds);
+}
+
+function authoringSectionDirectlyMatchesSourceState(section: AuthoringSection, matches: SourceReferenceMatchState): boolean {
+  return hasSourceMatch(section.sourceSectionIds, matches.sectionIds) || hasSourceMatch(section.provenanceAnchorIds, matches.anchorIds);
+}
+
+function authoringGroupDirectlyMatchesSourceState(group: AuthoringGroup, matches: SourceReferenceMatchState): boolean {
+  return hasSourceMatch(group.sourceGroupIds, matches.groupIds) || hasSourceMatch(group.provenanceAnchorIds, matches.anchorIds);
+}
+
+function authoringFieldDirectlyMatchesSourceState(field: AuthoringField, matches: SourceReferenceMatchState): boolean {
+  return hasSourceMatch(field.sourceFieldIds, matches.fieldIds) || hasSourceMatch(field.provenanceAnchorIds, matches.anchorIds);
+}
+
+function findDirectStepSelectionFromSourceState(document: AuthoringDocument, matches: SourceReferenceMatchState): AuthoringSelection | null {
+  for (const step of document.steps) {
+    if (authoringStepDirectlyMatchesSourceState(step, matches)) {
+      return { kind: "step", stepId: step.id };
+    }
+  }
+  return null;
+}
+
+function findDirectSectionSelectionFromSourceState(document: AuthoringDocument, matches: SourceReferenceMatchState): AuthoringSelection | null {
+  for (const step of document.steps) {
+    for (const section of step.sections) {
+      if (authoringSectionDirectlyMatchesSourceState(section, matches)) {
+        return { kind: "section", stepId: step.id, sectionId: section.id };
+      }
+    }
+  }
+  return null;
+}
+
+function findDirectGroupSelectionFromSourceState(document: AuthoringDocument, matches: SourceReferenceMatchState): AuthoringSelection | null {
+  for (const step of document.steps) {
+    for (const section of step.sections) {
+      for (const group of section.groups) {
+        if (authoringGroupDirectlyMatchesSourceState(group, matches)) {
+          return { kind: "group", stepId: step.id, sectionId: section.id, groupId: group.id };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function findDirectFieldSelectionFromSourceState(document: AuthoringDocument, matches: SourceReferenceMatchState): AuthoringSelection | null {
+  for (const step of document.steps) {
+    for (const section of step.sections) {
+      for (const field of section.fields) {
+        if (authoringFieldDirectlyMatchesSourceState(field, matches)) {
+          return { kind: "field", stepId: step.id, sectionId: section.id, fieldId: field.id };
+        }
+      }
+      for (const group of section.groups) {
+        for (const field of group.fields) {
+          if (authoringFieldDirectlyMatchesSourceState(field, matches)) {
+            return { kind: "field", stepId: step.id, sectionId: section.id, groupId: group.id, fieldId: field.id };
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function resolveAuthoringSelectionFromSourceReference(
+  document: AuthoringDocument,
+  matches: SourceReferenceMatchState,
+  preferredKinds: AuthoringSelection["kind"][],
+): AuthoringSelection | null {
+  for (const preferredKind of preferredKinds) {
+    if (preferredKind === "step") {
+      const selection = findDirectStepSelectionFromSourceState(document, matches);
+      if (selection) {
+        return selection;
+      }
+      continue;
+    }
+    if (preferredKind === "section") {
+      const selection = findDirectSectionSelectionFromSourceState(document, matches);
+      if (selection) {
+        return selection;
+      }
+      continue;
+    }
+    if (preferredKind === "group") {
+      const selection = findDirectGroupSelectionFromSourceState(document, matches);
+      if (selection) {
+        return selection;
+      }
+      continue;
+    }
+    const selection = findDirectFieldSelectionFromSourceState(document, matches);
+    if (selection) {
+      return selection;
+    }
+  }
+  return null;
 }
 
 function primaryPageHeading(page: PageNode): string {
@@ -782,8 +1413,9 @@ export default function App() {
   const runtimeSessionInputRef = useRef<HTMLInputElement | null>(null);
   const runtimeEngineRef = useRef(createRuntimeEngine());
   const runtimeSessionRef = useRef<RuntimeSessionState | null>(null);
-  const [stage, setStage] = useState<AppStage>("review");
+  const [stage, setStage] = useState<AppStage>("home");
   const [reviewPreviewMode, setReviewPreviewMode] = useState<ReviewPreviewMode>("overlay");
+  const [reviewFlowMode, setReviewFlowMode] = useState<ReviewFlowMode>("new_project");
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("properties");
   const [sourceDrawerOpen, setSourceDrawerOpen] = useState(false);
   const [inspectorWide, setInspectorWide] = useState(true);
@@ -801,10 +1433,18 @@ export default function App() {
   const [dragActive, setDragActive] = useState(false);
   const [dragPayload, setDragPayload] = useState<DragPayload | null>(null);
   const [projectDirty, setProjectDirty] = useState(false);
-  const [projectRevisions, setProjectRevisions] = useState<Array<{ id: string; note: string; createdAt: string }>>([]);
+  const [projectRevisions, setProjectRevisions] = useState<ProjectRevision[]>([]);
   const [isEditingDocumentTitle, setIsEditingDocumentTitle] = useState(false);
   const [editingRuleIndex, setEditingRuleIndex] = useState<number | null>(null);
   const [runtimeToolsOpen, setRuntimeToolsOpen] = useState(false);
+  const [newProjectDialogOpen, setNewProjectDialogOpen] = useState(false);
+  const [openProjectDialogOpen, setOpenProjectDialogOpen] = useState(false);
+  const [projectDetailsOpen, setProjectDetailsOpen] = useState(false);
+  const [revisionHistoryOpen, setRevisionHistoryOpen] = useState(false);
+  const [sourceReferenceFilterMode, setSourceReferenceFilterMode] = useState<"all" | "matches">("all");
+  const [workspaceLandingMode, setWorkspaceLandingMode] = useState<WorkspaceLandingMode | null>(null);
+  const [openedRevisionView, setOpenedRevisionView] = useState<OpenedRevisionView | null>(null);
+  const [pendingWorkspaceTransition, setPendingWorkspaceTransition] = useState<WorkspaceTransitionRequest | null>(null);
   const [runtimePayloadEditors, setRuntimePayloadEditors] = useState<Record<string, RuntimePayloadEditorState>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingProject, setIsLoadingProject] = useState(false);
@@ -814,6 +1454,8 @@ export default function App() {
   const [isPromoting, setIsPromoting] = useState(false);
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [isPublishingProject, setIsPublishingProject] = useState(false);
+  const [isLoadingRevisionWorkspace, setIsLoadingRevisionWorkspace] = useState(false);
+  const [isResolvingWorkspaceTransition, setIsResolvingWorkspaceTransition] = useState(false);
   const [isClearingHistory, setIsClearingHistory] = useState(false);
   const [flashMessage, setFlashMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -836,16 +1478,7 @@ export default function App() {
           setConversions(records);
           setProjects(projectRecords);
           setActiveConversionId((current) => current ?? records[0]?.id ?? null);
-          if (records[0]) {
-            setActiveProjectId(null);
-            setActiveProjectDetail(null);
-            setProjectRevisions([]);
-            setSelectedAuthoring(null);
-            setStage("review");
-          } else if (projectRecords[0]) {
-            setActiveProjectId((current) => current ?? projectRecords[0]?.id ?? null);
-            setStage("builder");
-          }
+          setActiveProjectId((current) => current ?? projectRecords[0]?.id ?? null);
         });
       } catch (error) {
         if (!cancelled) {
@@ -876,6 +1509,7 @@ export default function App() {
     if (!activeProjectId) {
       setActiveProjectDetail(null);
       setProjectRevisions([]);
+      setOpenedRevisionView(null);
       return;
     }
     let cancelled = false;
@@ -892,13 +1526,8 @@ export default function App() {
         }
         startTransition(() => {
           setActiveProjectDetail(detail);
-          setProjectRevisions(
-            revisions.map((revision) => ({
-              id: revision.id,
-              note: revision.note,
-              createdAt: revision.createdAt,
-            })),
-          );
+          setProjectRevisions(revisions);
+          setOpenedRevisionView(null);
           setSelectedAuthoring((current) =>
             current ?? (detail.document.steps[0] ? { kind: "step", stepId: detail.document.steps[0].id } : null),
           );
@@ -969,6 +1598,9 @@ export default function App() {
 
   const activeReviewField =
     selectedFieldId ? activeReviewFields.find((field) => field.id === selectedFieldId) ?? null : null;
+  const reviewIssueCount = activeConversion?.issues.length ?? 0;
+  const reviewReadyToPromote = Boolean(activeConversion && activeConversion.reviewStatus !== "needs_review");
+  const activeReviewFieldConfidence = activeReviewField ? Math.round(activeReviewField.confidence * 100) : null;
   const reviewPageDimensions = useMemo(() => {
     const coordinates = activeReviewFields.flatMap((field) => overlayRects(field));
     return {
@@ -992,6 +1624,8 @@ export default function App() {
 
   const activeDocument = activeProjectDetail?.document ?? null;
   const sourceContextDraft = activeProjectDetail?.sourceContext.importedDraft ?? null;
+  const isJsonImportedProject = activeProjectDetail?.sourceContext.extractorPath[0] === "json_import";
+  const isPdfBackedProject = Boolean(activeProjectDetail && sourceContextDraft?.pages.length && !isJsonImportedProject);
   const builderSelection = activeDocument ? getSelectionContext(activeDocument, selectedAuthoring) : null;
   const runtimeStepId = runtimeSessionState?.currentStepId ?? null;
   const runtimeActiveStep =
@@ -1001,7 +1635,73 @@ export default function App() {
   const activeGroup = builderSelection?.group ?? null;
   const activeBuilderField = builderSelection?.field ?? null;
   const activeStepSummary = activeStep ? summarizeAuthoringStep(activeStep) : null;
+  const activeDocumentSummary = activeDocument ? summarizeAuthoringDocument(activeDocument) : null;
   const activeStepIndex = activeDocument && activeStep ? activeDocument.steps.findIndex((step) => step.id === activeStep.id) : -1;
+  const activeStepSourcePageIds = new Set(activeStep?.sourcePageIds ?? []);
+  const sourceReferenceFocus = useMemo<SourceReferenceFocus | null>(() => {
+    if (!isPdfBackedProject || !activeStep) {
+      return null;
+    }
+    if (selectedAuthoring?.kind === "field" && activeBuilderField) {
+      return {
+        title: activeBuilderField.label,
+        kindLabel: "Field",
+        ...collectFieldSourceReferenceMatchState(activeBuilderField),
+      };
+    }
+    if (selectedAuthoring?.kind === "group" && activeGroup) {
+      return {
+        title: activeGroup.label,
+        kindLabel: "Group",
+        ...collectGroupSourceReferenceMatchState(activeGroup),
+      };
+    }
+    if (selectedAuthoring?.kind === "section" && activeSection) {
+      return {
+        title: activeSection.title,
+        kindLabel: "Section",
+        ...collectSectionSourceReferenceMatchState(activeSection),
+      };
+    }
+    return {
+      title: activeStep.title,
+      kindLabel: "Step",
+      ...collectStepSourceReferenceMatchState(activeStep),
+    };
+  }, [activeBuilderField, activeGroup, activeSection, activeStep, isPdfBackedProject, selectedAuthoring]);
+  const sourceReferenceFocusHasMatches = Boolean(
+    sourceReferenceFocus &&
+      (sourceReferenceFocus.pageIds.size > 0 ||
+        sourceReferenceFocus.sectionIds.size > 0 ||
+        sourceReferenceFocus.groupIds.size > 0 ||
+        sourceReferenceFocus.fieldIds.size > 0 ||
+        sourceReferenceFocus.anchorIds.size > 0),
+  );
+  const sourceReferenceVisiblePages = sourceContextDraft?.pages.filter((page) =>
+    sourceReferenceFilterMode === "all" || !sourceReferenceFocusHasMatches
+      ? true
+      : sourcePageMatchesFocus(page, sourceReferenceFocus),
+  ) ?? [];
+  const importedSourcePageCount = sourceContextDraft?.pages.length ?? 0;
+  const importedSourceSectionCount = sourceContextDraft?.pages.reduce((count, page) => count + page.sections.length, 0) ?? 0;
+  const importedSourceFieldCount =
+    sourceContextDraft?.pages.reduce(
+      (count, page) =>
+        count +
+        page.sections.reduce(
+          (sectionCount, section) =>
+            sectionCount + section.fields.length + section.groups.reduce((groupCount, group) => groupCount + group.fields.length, 0),
+          0,
+        ),
+      0,
+    ) ?? 0;
+  const workspaceSourceButtonLabel = isPdfBackedProject
+    ? sourceDrawerOpen
+      ? "Hide source reference"
+      : "Open source reference"
+    : sourceDrawerOpen
+      ? "Hide source context"
+      : "Show source context";
   const projectArtifactPaths = activeProjectDetail
     ? {
         project: `data/projects/${activeProjectDetail.project.id}/project.json`,
@@ -1261,6 +1961,57 @@ export default function App() {
     }
   }
 
+  function openSourceReference(mode: "all" | "matches" = "all") {
+    setSourceReferenceFilterMode(mode);
+    setSourceDrawerOpen(true);
+    setWorkspaceLandingMode(null);
+  }
+
+  function resolveSelectionForSourceTarget(
+    targetKind: SourceReferenceTargetKind,
+    page: PageNode,
+    section?: SectionNode,
+    group?: GroupNode,
+    field?: FieldNode,
+  ): AuthoringSelection | null {
+    if (!activeDocument) {
+      return null;
+    }
+    const matches =
+      targetKind === "field" && field
+        ? collectImportedFieldSourceReferenceMatchState(field)
+        : targetKind === "group" && group
+          ? collectImportedGroupSourceReferenceMatchState(group)
+          : targetKind === "section" && section
+            ? collectImportedSectionSourceReferenceMatchState(section)
+            : collectImportedPageSourceReferenceMatchState(page);
+    const preferredKinds: AuthoringSelection["kind"][] =
+      targetKind === "field"
+        ? ["field", "group", "section", "step"]
+        : targetKind === "group"
+          ? ["group", "field", "section", "step"]
+          : targetKind === "section"
+            ? ["section", "group", "field", "step"]
+            : ["step", "section", "group", "field"];
+    return resolveAuthoringSelectionFromSourceReference(activeDocument, matches, preferredKinds);
+  }
+
+  function focusAuthoringSelectionFromSource(
+    targetKind: SourceReferenceTargetKind,
+    page: PageNode,
+    section?: SectionNode,
+    group?: GroupNode,
+    field?: FieldNode,
+  ) {
+    const nextSelection = resolveSelectionForSourceTarget(targetKind, page, section, group, field);
+    if (!nextSelection) {
+      return;
+    }
+    setSelectedAuthoring(nextSelection);
+    setWorkspaceLandingMode(null);
+    setSourceDrawerOpen(true);
+  }
+
   function applyProjectDetail(detail: AuthoringProjectDetail) {
     startTransition(() => {
       setActiveProjectDetail(detail);
@@ -1307,6 +2058,60 @@ export default function App() {
     const nextState = runtimeEngineRef.current.dispatch(event);
     runtimeSessionRef.current = nextState;
     setRuntimeSessionState(nextState);
+  }
+
+  function handleRuntimeFieldValueChange(field: AuthoringField, nextValue: unknown) {
+    if (!activeDocument) {
+      return;
+    }
+    const shouldRevalidate =
+      runtimeSessionRef.current !== null &&
+      (!runtimeSessionRef.current.validation.valid || runtimeSessionRef.current.submit.status !== "idle");
+
+    let nextState = runtimeEngineRef.current.dispatch({
+      type: "field.change",
+      version: "1.0",
+      source: {
+        runtimeId: "builder-preview",
+        formId: activeDocument.id,
+        projectId: activeProjectDetail?.project.id ?? null,
+        nodeId: field.id,
+        nodeType: "field",
+      },
+      payload: {
+        fieldId: field.id,
+        nextValue,
+      },
+      correlationId: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+    });
+
+    if (shouldRevalidate) {
+      runtimeEngineRef.current.validate();
+      nextState = runtimeEngineRef.current.getState();
+      if (nextState.submit.status !== "idle") {
+        nextState = runtimeEngineRef.current.setState({
+          submit: {
+            status: "idle",
+            lastCorrelationId: null,
+            message: null,
+            fieldErrors: null,
+          },
+        });
+      }
+      if (nextState.validation.valid) {
+        setErrorMessage((current) =>
+          current === "Complete the required fields in this runtime preview before submitting." ? null : current,
+        );
+      }
+    }
+
+    runtimeSessionRef.current = nextState;
+    setRuntimeSessionState(nextState);
+  }
+
+  function runtimeNodeStateForField(field: AuthoringField): RuntimeNodeState | null {
+    return runtimeSessionState?.nodes[field.id] ?? null;
   }
 
   function handleRuntimeButtonClick(field: AuthoringField) {
@@ -1721,6 +2526,8 @@ export default function App() {
     setErrorMessage(null);
     setFlashMessage(null);
     setIsUploading(true);
+    setReviewFlowMode("new_project");
+    setNewProjectDialogOpen(false);
     if (localPreviewUrl) {
       URL.revokeObjectURL(localPreviewUrl);
     }
@@ -1739,6 +2546,7 @@ export default function App() {
         setActiveProjectId(null);
         setActiveProjectDetail(null);
         setProjectRevisions([]);
+        setOpenedRevisionView(null);
         setSelectedAuthoring(null);
         setSelectedPageId(record.draft?.pages[0]?.id ?? null);
         setLocalPreviewConversionId(record.id);
@@ -1752,11 +2560,46 @@ export default function App() {
     }
   }
 
+  async function handleCreateBlankProject() {
+    setErrorMessage(null);
+    setFlashMessage(null);
+    setIsImportingJson(true);
+    setNewProjectDialogOpen(false);
+    setWorkspaceLandingMode(null);
+    try {
+      const detail = await importProjectDocument(createBlankAuthoringDocument());
+      applyProjectDetail(detail);
+      setProjectDirty(false);
+      setOpenedRevisionView(null);
+      setActiveConversionId(null);
+      setSelectedPageId(null);
+      setSelectedAuthoring(detail.document.steps[0] ? { kind: "step", stepId: detail.document.steps[0].id } : null);
+      setStage("workspace");
+      setSourceReferenceFilterMode("all");
+      setSourceDrawerOpen(false);
+      setProjectDetailsOpen(false);
+      setRevisionHistoryOpen(false);
+      if (localPreviewUrl) {
+        URL.revokeObjectURL(localPreviewUrl);
+        setLocalPreviewUrl(null);
+        setLocalPreviewConversionId(null);
+      }
+      setMessage("Blank project created.");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to create a blank project.");
+    } finally {
+      setIsImportingJson(false);
+    }
+  }
+
   async function handleOpenJson(file: File) {
     setSelectedFile(file);
     setErrorMessage(null);
     setFlashMessage(null);
     setIsImportingJson(true);
+    setNewProjectDialogOpen(false);
+    setOpenProjectDialogOpen(false);
+    setWorkspaceLandingMode(null);
     try {
       const parsed = JSON.parse(await file.text()) as unknown;
       const document = importedDocumentFromPayload(parsed);
@@ -1766,22 +2609,265 @@ export default function App() {
       const detail = await importProjectDocument(document);
       applyProjectDetail(detail);
       setProjectDirty(false);
+      setOpenedRevisionView(null);
       setActiveConversionId(null);
       setSelectedPageId(null);
       setSelectedAuthoring(detail.document.steps[0] ? { kind: "step", stepId: detail.document.steps[0].id } : null);
-      setStage("builder");
+      setStage("workspace");
+      setSourceReferenceFilterMode("all");
       setSourceDrawerOpen(false);
+      setProjectDetailsOpen(false);
+      setRevisionHistoryOpen(false);
       if (localPreviewUrl) {
         URL.revokeObjectURL(localPreviewUrl);
         setLocalPreviewUrl(null);
         setLocalPreviewConversionId(null);
       }
-      setMessage("JSON opened directly in the builder.");
+      setMessage("JSON opened directly in the workspace.");
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "JSON import failed.");
     } finally {
       setIsImportingJson(false);
     }
+  }
+
+  async function saveActiveProject(options?: { successMessage?: string }): Promise<boolean> {
+    if (!activeProjectDetail) {
+      return false;
+    }
+    if (!projectDirty) {
+      return true;
+    }
+    setIsSavingProject(true);
+    try {
+      const detail = await saveProjectDocument(activeProjectDetail.project.id, activeProjectDetail.document);
+      applyProjectDetail(detail);
+      const revisions = await listProjectRevisions(detail.project.id);
+      setProjectRevisions(revisions);
+      setProjectDirty(false);
+      setOpenedRevisionView(null);
+      if (options?.successMessage) {
+        setMessage(options.successMessage);
+      }
+      return true;
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to save project.");
+      return false;
+    } finally {
+      setIsSavingProject(false);
+    }
+  }
+
+  async function performReturnToLatestProjectRevision() {
+    if (!activeProjectId) {
+      return;
+    }
+    setIsLoadingRevisionWorkspace(true);
+    try {
+      const [detail, revisions] = await Promise.all([
+        getProject(activeProjectId),
+        listProjectRevisions(activeProjectId),
+      ]);
+      applyProjectDetail(detail);
+      setProjectRevisions(revisions);
+      setOpenedRevisionView(null);
+      setProjectDirty(false);
+      setSelectedAuthoring(detail.document.steps[0] ? { kind: "step", stepId: detail.document.steps[0].id } : null);
+      setRevisionHistoryOpen(false);
+      setProjectDetailsOpen(false);
+      setOpenProjectDialogOpen(false);
+      setWorkspaceLandingMode(null);
+      setMessage("Returned to the latest saved project revision.");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to reload the latest project revision.");
+    } finally {
+      setIsLoadingRevisionWorkspace(false);
+    }
+  }
+
+  function performOpenRevisionSnapshot(revisionId: string) {
+    if (!activeProjectDetail) {
+      return;
+    }
+    const revision = projectRevisions.find((candidate) => candidate.id === revisionId);
+    if (!revision) {
+      setErrorMessage("Revision snapshot not found.");
+      return;
+    }
+    startTransition(() => {
+      setActiveProjectDetail({
+        ...activeProjectDetail,
+        document: cloneDocument(revision.document),
+        project: {
+          ...activeProjectDetail.project,
+          name: revision.document.title,
+        },
+      });
+      setSelectedAuthoring(revision.document.steps[0] ? { kind: "step", stepId: revision.document.steps[0].id } : null);
+      setWorkspaceLandingMode(null);
+      setOpenedRevisionView({
+        id: revision.id,
+        note: revision.note,
+        createdAt: revision.createdAt,
+      });
+    });
+    setProjectDirty(true);
+    setRevisionHistoryOpen(false);
+    setProjectDetailsOpen(false);
+    setMessage(`Opened revision snapshot from ${new Date(revision.createdAt).toLocaleString()}. Save to restore it as the current project document.`);
+  }
+
+  function performOpenProject(projectId: string, options?: { workspaceLandingMode?: WorkspaceLandingMode | null }) {
+    if (projectId === activeProjectId) {
+      setOpenProjectDialogOpen(false);
+      setProjectDetailsOpen(false);
+      setRevisionHistoryOpen(false);
+      setWorkspaceLandingMode(options?.workspaceLandingMode ?? null);
+      setStage("workspace");
+      void performReturnToLatestProjectRevision();
+      return;
+    }
+    setActiveProjectId(projectId);
+    setActiveConversionId(null);
+    setSelectedPageId(null);
+    setSelectedFieldId(null);
+    setSelectedAuthoring(null);
+    setSourceReferenceFilterMode("all");
+    setSourceDrawerOpen(false);
+    setOpenProjectDialogOpen(false);
+    setProjectDetailsOpen(false);
+    setRevisionHistoryOpen(false);
+    setWorkspaceLandingMode(options?.workspaceLandingMode ?? null);
+    setOpenedRevisionView(null);
+    setStage("workspace");
+    setErrorMessage(null);
+    setFlashMessage(null);
+  }
+
+  function performReturnHomeFromWorkspace() {
+    setOpenProjectDialogOpen(false);
+    setProjectDetailsOpen(false);
+    setRevisionHistoryOpen(false);
+    setSourceDrawerOpen(false);
+    setWorkspaceLandingMode(null);
+    setOpenedRevisionView(null);
+    setStage("home");
+    setErrorMessage(null);
+    setFlashMessage(null);
+  }
+
+  async function executeWorkspaceTransition(transition: WorkspaceTransitionRequest): Promise<void> {
+    if (transition.kind === "open_project") {
+      performOpenProject(transition.projectId, { workspaceLandingMode: transition.workspaceLandingMode ?? null });
+      return;
+    }
+    if (transition.kind === "go_home") {
+      performReturnHomeFromWorkspace();
+      return;
+    }
+    if (transition.kind === "open_revision") {
+      performOpenRevisionSnapshot(transition.revisionId);
+      return;
+    }
+    await performReturnToLatestProjectRevision();
+  }
+
+  function requestWorkspaceTransition(transition: WorkspaceTransitionRequest) {
+    if (stage === "workspace" && projectDirty && activeProjectDetail) {
+      setPendingWorkspaceTransition(transition);
+      setErrorMessage(null);
+      setFlashMessage(null);
+      return;
+    }
+    void executeWorkspaceTransition(transition);
+  }
+
+  async function handleConfirmWorkspaceTransitionSave() {
+    if (!pendingWorkspaceTransition) {
+      return;
+    }
+    setIsResolvingWorkspaceTransition(true);
+    const saved = await saveActiveProject({
+      successMessage:
+        pendingWorkspaceTransition.kind === "open_project"
+          ? "Project saved before switching workspaces."
+          : pendingWorkspaceTransition.kind === "go_home"
+            ? "Project saved before returning home."
+            : pendingWorkspaceTransition.kind === "open_revision"
+              ? "Project saved before opening the revision snapshot."
+              : "Project saved before reloading the latest revision.",
+    });
+    if (saved) {
+      const transition = pendingWorkspaceTransition;
+      setPendingWorkspaceTransition(null);
+      await executeWorkspaceTransition(transition);
+    }
+    setIsResolvingWorkspaceTransition(false);
+  }
+
+  async function handleConfirmWorkspaceTransitionDiscard() {
+    if (!pendingWorkspaceTransition) {
+      return;
+    }
+    setIsResolvingWorkspaceTransition(true);
+    const transition = pendingWorkspaceTransition;
+    setPendingWorkspaceTransition(null);
+    setProjectDirty(false);
+    await executeWorkspaceTransition(transition);
+    setIsResolvingWorkspaceTransition(false);
+  }
+
+  function handleOpenRevisionSnapshot(revisionId: string) {
+    requestWorkspaceTransition({ kind: "open_revision", revisionId });
+  }
+
+  function handleOpenProject(projectId: string, options?: { workspaceLandingMode?: WorkspaceLandingMode | null }) {
+    requestWorkspaceTransition({
+      kind: "open_project",
+      projectId,
+      workspaceLandingMode: options?.workspaceLandingMode ?? null,
+    });
+  }
+
+  function handleReturnToLatestProjectRevision() {
+    requestWorkspaceTransition({ kind: "return_latest_revision" });
+  }
+
+  function handleResumeImport(conversion: ConversionRecord) {
+    setReviewFlowMode("resume_import");
+    setActiveConversionId(conversion.id);
+    setActiveProjectId(null);
+    setActiveProjectDetail(null);
+    setProjectRevisions([]);
+    setSelectedPageId(conversion.draft?.pages[0]?.id ?? null);
+    setSelectedFieldId(null);
+    setSelectedAuthoring(null);
+    setSourceReferenceFilterMode("all");
+    setSourceDrawerOpen(false);
+    setOpenProjectDialogOpen(false);
+    setProjectDetailsOpen(false);
+    setRevisionHistoryOpen(false);
+    setWorkspaceLandingMode(null);
+    setOpenedRevisionView(null);
+    setStage("review");
+    setErrorMessage(null);
+    setFlashMessage(null);
+  }
+
+  function handleReturnHomeFromReview() {
+    setStage("home");
+    setSelectedPageId(null);
+    setSelectedFieldId(null);
+    setSourceReferenceFilterMode("all");
+    setWorkspaceLandingMode(null);
+    setRevisionHistoryOpen(false);
+    setOpenedRevisionView(null);
+    setErrorMessage(null);
+    setFlashMessage(null);
+  }
+
+  function handleReturnHomeFromWorkspace() {
+    requestWorkspaceTransition({ kind: "go_home" });
   }
 
   async function handleReviewUpdate(reviewStatus: ReviewStatus) {
@@ -1807,10 +2893,8 @@ export default function App() {
       return;
     }
     if (matchedProjectForActiveConversion) {
-      setActiveProjectId(matchedProjectForActiveConversion.id);
-      setStage("builder");
-      setSourceDrawerOpen(false);
-      setMessage("Opened the existing builder project for this conversion.");
+      handleOpenProject(matchedProjectForActiveConversion.id, { workspaceLandingMode: "reopened_import" });
+      setMessage("Opened the existing project workspace for this import.");
       return;
     }
     setIsPromoting(true);
@@ -1819,9 +2903,14 @@ export default function App() {
       applyProjectDetail(detail);
       setSelectedAuthoring(detail.document.steps[0] ? { kind: "step", stepId: detail.document.steps[0].id } : null);
       setProjectDirty(false);
-      setStage("builder");
+      setOpenedRevisionView(null);
+      setStage("workspace");
+      setSourceReferenceFilterMode("all");
       setSourceDrawerOpen(false);
-      setMessage("Review complete. The draft is now a project you can reshape into a VA-style web flow.");
+      setProjectDetailsOpen(false);
+      setRevisionHistoryOpen(false);
+      setWorkspaceLandingMode("promoted_import");
+      setMessage("Review complete. The project workspace is ready, and the imported PDF reference is now available from inside the builder.");
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to promote project.");
     } finally {
@@ -1837,24 +2926,11 @@ export default function App() {
       setMessage("Project is already saved.");
       return;
     }
-    setIsSavingProject(true);
-    try {
-      const detail = await saveProjectDocument(activeProjectDetail.project.id, activeProjectDetail.document);
-      applyProjectDetail(detail);
-      const revisions = await listProjectRevisions(detail.project.id);
-      setProjectRevisions(
-        revisions.map((revision) => ({
-          id: revision.id,
-          note: revision.note,
-          createdAt: revision.createdAt,
-        })),
-      );
-      setProjectDirty(false);
-      setMessage("Project saved.");
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to save project.");
-    } finally {
-      setIsSavingProject(false);
+    const saved = await saveActiveProject({
+      successMessage: openedRevisionView ? "Revision snapshot restored as the current project document." : "Project saved.",
+    });
+    if (!saved) {
+      return;
     }
   }
 
@@ -1869,19 +2945,14 @@ export default function App() {
         detail = await saveProjectDocument(activeProjectDetail.project.id, activeProjectDetail.document);
         applyProjectDetail(detail);
         const revisions = await listProjectRevisions(detail.project.id);
-        setProjectRevisions(
-          revisions.map((revision) => ({
-            id: revision.id,
-            note: revision.note,
-            createdAt: revision.createdAt,
-          })),
-        );
+        setProjectRevisions(revisions);
         setProjectDirty(false);
+        setOpenedRevisionView(null);
       }
       const nextStatus: ProjectStatus = detail.project.status === "published" ? "draft" : "published";
       const updatedDetail = await patchProject(detail.project.id, { status: nextStatus });
       applyProjectDetail(updatedDetail);
-      setStage("publish");
+      setProjectDetailsOpen(true);
       setMessage(nextStatus === "published" ? "Project marked published." : "Project returned to draft.");
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to update publish state.");
@@ -2092,6 +3163,69 @@ export default function App() {
     });
   }
 
+  function renderBuilderFieldCard(stepId: string, sectionId: string, field: AuthoringField, fieldIndex: number, groupId?: string) {
+    const selection: AuthoringSelection = {
+      kind: "field",
+      stepId,
+      sectionId,
+      ...(groupId ? { groupId } : {}),
+      fieldId: field.id,
+    };
+    const isSelected = selectedAuthoring?.kind === "field" && selectedAuthoring.fieldId === field.id;
+    const fieldState = runtimeNodeStateForField(field);
+    const isVisible = fieldState?.visible ?? true;
+    const isRequired = fieldState?.required ?? field.required;
+    const fieldTone =
+      isSelected
+        ? "border-blue-300 bg-[#e8f0ff]"
+        : !isVisible
+          ? "border-slate-200 bg-slate-100/70"
+          : isRequired
+            ? "border-rose-300 bg-rose-50/60"
+            : "border-soft bg-slate-50";
+
+    return (
+      <div
+        key={field.id}
+        draggable
+        onDragStart={() =>
+          handleSelectionDragStart({
+            kind: "field",
+            stepId,
+            sectionId,
+            ...(groupId ? { groupId } : {}),
+            fieldId: field.id,
+          })
+        }
+        onDragEnd={() => setDragPayload(null)}
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) =>
+          handleDropTarget(event, {
+            kind: "field-list",
+            stepId,
+            sectionId,
+            ...(groupId ? { groupId } : {}),
+            index: fieldIndex,
+          })
+        }
+        onClick={(event) => {
+          event.stopPropagation();
+          setSelectedAuthoring(selection);
+        }}
+        className={`rounded-[1.1rem] border p-4 text-left ${fieldTone}`}
+      >
+        <RuntimeFieldPreview
+          field={field}
+          value={runtimeFieldValue(field, runtimeSessionState)}
+          nodeState={fieldState}
+          errorMessage={runtimeFieldError(field, runtimeSessionState)}
+          onValueChange={(nextValue) => handleRuntimeFieldValueChange(field, nextValue)}
+          onButtonClick={() => handleRuntimeButtonClick(field)}
+        />
+      </div>
+    );
+  }
+
   function updateConditionalRule(index: number, mutate: (rule: ConditionalRule) => void) {
     updateSelectedField((field) => {
       if (!field.conditionals[index]) {
@@ -2122,12 +3256,89 @@ export default function App() {
     setEditingRuleIndex((current) => (current === index ? null : current !== null && current > index ? current - 1 : current));
   }
 
-  const workspaceTitle = activeProjectDetail?.project.name ?? activeConversion?.filename ?? selectedFile?.name ?? "No file loaded";
+  const workspaceTitle =
+    stage === "home"
+      ? "Project Home"
+      : activeProjectDetail?.project.name ?? activeConversion?.filename ?? selectedFile?.name ?? "No file loaded";
   const workspaceStatus = activeProjectDetail
     ? formatLabel(activeProjectDetail.project.status)
     : activeConversion
       ? formatLabel(activeConversion.reviewStatus)
-      : "Idle";
+      : "Ready";
+  const shellStatus =
+    stage === "home"
+      ? "Ready"
+      : workspaceStatus;
+  const shellStatusTone =
+    stage === "home"
+      ? "neutral"
+      : activeProjectDetail
+        ? badgeToneFromProjectStatus(activeProjectDetail.project.status)
+        : activeConversion
+          ? badgeToneFromReview(activeConversion.reviewStatus)
+          : "neutral";
+  const workspaceSummary =
+    stage === "home"
+      ? "Start with a new form or open an existing project, then work inside one persistent builder workspace."
+      : stage === "review"
+        ? "Review PDF-backed imports against the source before turning them into a durable project."
+        : openedRevisionView
+          ? `Viewing the saved revision from ${new Date(openedRevisionView.createdAt).toLocaleString()}. Return to the latest project head or save this snapshot forward as the new current document.`
+        : isPdfBackedProject && workspaceLandingMode === "promoted_import"
+          ? "Project created from the reviewed PDF. Continue authoring here, and open the imported source reference only when you need to compare against the original paper structure."
+          : isPdfBackedProject && workspaceLandingMode === "reopened_import"
+            ? "This PDF-backed project is already durable. Keep editing in the workspace and pull the imported source reference back in only when it helps."
+        : "Work inside the project workspace. Save, publish, inspect source context, and shape the runtime flow without switching stages.";
+  const reviewFlowTitle = reviewFlowMode === "new_project" ? "Create a new project from PDF" : "Resume PDF import review";
+  const reviewFlowSummary =
+    reviewFlowMode === "new_project"
+      ? "This is step two of project creation: inspect the extracted structure, confirm the mapping against the source, then create the project workspace."
+      : "Resume an earlier PDF intake, finish the review decisions, and create or reopen the associated project workspace.";
+  const pendingWorkspaceTransitionProject =
+    pendingWorkspaceTransition?.kind === "open_project"
+      ? projects.find((project) => project.id === pendingWorkspaceTransition.projectId) ?? null
+      : null;
+  const pendingWorkspaceTransitionRevision =
+    pendingWorkspaceTransition?.kind === "open_revision"
+      ? projectRevisions.find((revision) => revision.id === pendingWorkspaceTransition.revisionId) ?? null
+      : null;
+  const pendingWorkspaceTransitionCopy =
+    pendingWorkspaceTransition?.kind === "open_project"
+      ? pendingWorkspaceTransition.projectId === activeProjectId
+        ? {
+            title: "Reload the latest saved project head?",
+            description: `The current workspace has unsaved edits. Save before reloading ${activeProjectDetail?.project.name ?? "this project"}, or reload the latest saved head without those changes.`,
+            saveLabel: "Save and reload",
+            discardLabel: "Reload without saving",
+          }
+        : {
+            title: "Switch projects with unsaved changes?",
+            description: `Save before opening ${pendingWorkspaceTransitionProject?.name ?? "the selected project"}, or discard the current workspace edits and switch immediately.`,
+            saveLabel: "Save and switch",
+            discardLabel: "Discard and switch",
+          }
+      : pendingWorkspaceTransition?.kind === "go_home"
+        ? {
+            title: "Return home with unsaved changes?",
+            description: "Save before leaving the workspace, or discard the current local edits and return to Project Home.",
+            saveLabel: "Save and go home",
+            discardLabel: "Discard and go home",
+          }
+        : pendingWorkspaceTransition?.kind === "open_revision"
+          ? {
+              title: "Open a revision snapshot with unsaved changes?",
+              description: `Save before opening ${pendingWorkspaceTransitionRevision?.note ?? "the selected revision snapshot"}, or discard the current local edits and open that saved snapshot directly in the builder.`,
+              saveLabel: "Save and open snapshot",
+              discardLabel: "Discard and open snapshot",
+            }
+          : pendingWorkspaceTransition?.kind === "return_latest_revision"
+            ? {
+                title: "Return to the latest saved head with unsaved changes?",
+                description: "Save before reloading the latest project head, or discard the current local edits and reload the last saved revision.",
+                saveLabel: "Save and return",
+                discardLabel: "Reload without saving",
+              }
+            : null;
 
   return (
     <main className="min-h-screen">
@@ -2138,44 +3349,86 @@ export default function App() {
               <p className="text-[0.64rem] font-semibold uppercase tracking-[0.22em] text-slate-500">Form Builder</p>
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <h1 className="text-base font-semibold text-slate-950">{workspaceTitle}</h1>
-                <StatusBadge tone={activeProjectDetail ? badgeToneFromProjectStatus(activeProjectDetail.project.status) : activeConversion ? badgeToneFromReview(activeConversion.reviewStatus) : "neutral"}>
-                  {workspaceStatus}
+                <StatusBadge tone={shellStatusTone}>
+                  {shellStatus}
                 </StatusBadge>
               </div>
-              <p className="mt-1 text-sm text-slate-500">
-                {stage === "review"
-                  ? "Validate the import against the source."
-                  : stage === "builder"
-                    ? "Refine the authoring flow step by step."
-                    : "Finalize and hand off the authored project."}
-              </p>
+              <p className="mt-1 text-sm text-slate-500">{workspaceSummary}</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              {stage === "review" ? <span className="app-pill">{conversions.length} conversions</span> : null}
-              {activeProjectDetail ? <span className="app-pill">{projectRevisions.length} revisions</span> : null}
-              {activeConversion ? <span className="app-pill">{activeConversion.documentSignals?.pageCount ?? 0} pages</span> : null}
+              <span className="app-pill">{projects.length} projects</span>
+              {conversions.length ? <span className="app-pill">{conversions.length} imports</span> : null}
+              {stage !== "home" && activeProjectDetail ? <span className="app-pill">{projectRevisions.length} revisions</span> : null}
+              {stage !== "home" && activeConversion ? <span className="app-pill">{activeConversion.documentSignals?.pageCount ?? 0} pages</span> : null}
             </div>
           </div>
           <div className="mt-2.5 flex flex-wrap gap-2">
-            <button type="button" onClick={() => setStage("review")} className={stageButtonClass(stage === "review")}>
-              1. Import + Review
+            <button type="button" onClick={() => setNewProjectDialogOpen(true)} className={actionButtonClass("primary")}>
+              New
             </button>
             <button
               type="button"
-              onClick={() => activeProjectId && setStage("builder")}
-              className={stageButtonClass(stage === "builder")}
-              disabled={!activeProjectId}
+              onClick={() => setOpenProjectDialogOpen(true)}
+              className={actionButtonClass()}
             >
-              2. Build
+              Open
             </button>
-            <button
-              type="button"
-              onClick={() => activeProjectId && setStage("publish")}
-              className={stageButtonClass(stage === "publish")}
-              disabled={!activeProjectId}
-            >
-              3. Publish
-            </button>
+            {stage === "workspace" ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setRevisionHistoryOpen(true)}
+                  disabled={!activeProjectDetail}
+                  className={actionButtonClass()}
+                >
+                  History
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProjectDetailsOpen(true)}
+                  disabled={!activeProjectDetail}
+                  className={actionButtonClass()}
+                >
+                  Project details
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSourceDrawerOpen((current) => !current)}
+                  disabled={!sourceContextDraft}
+                  className={actionButtonClass()}
+                >
+                  {workspaceSourceButtonLabel}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRuntimeToolsOpen(true)}
+                  disabled={!activeDocument}
+                  className={actionButtonClass()}
+                >
+                  Runtime tools
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleSaveProject()}
+                  disabled={!activeProjectDetail || isSavingProject}
+                  className={actionButtonClass()}
+                >
+                  {isSavingProject ? "Saving..." : projectDirty ? "Save" : "Saved"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleTogglePublishProject()}
+                  disabled={!activeProjectDetail || isPublishingProject}
+                  className={actionButtonClass("primary")}
+                >
+                  {isPublishingProject
+                    ? "Updating status..."
+                    : activeProjectDetail?.project.status === "published"
+                      ? "Mark draft"
+                      : "Publish"}
+                </button>
+              </>
+            ) : null}
           </div>
           <input ref={inputRef} hidden type="file" accept="application/pdf,.pdf" onChange={onFileChange} />
           <input ref={jsonInputRef} hidden type="file" accept="application/json,.json" onChange={onJsonFileChange} />
@@ -2196,11 +3449,151 @@ export default function App() {
           </div>
         )}
 
+        {stage === "home" ? (
+          <StageShell
+            eyebrow="Start"
+            title="New or open a project"
+            summary="Treat this as a durable creation tool. Start blank, import a PDF, reopen a saved JSON file, or jump back into a recent project."
+          >
+            <section className="grid gap-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+              <div className="grid gap-5">
+                <PanelCard title="New" eyebrow="Create a project">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleCreateBlankProject()}
+                      disabled={isImportingJson}
+                      className="rounded-[1.35rem] border border-blue-200 bg-[linear-gradient(135deg,#eff6ff_0%,#ffffff_62%)] p-5 text-left shadow-sm transition hover:border-blue-300"
+                    >
+                      <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Blank form</p>
+                      <h3 className="mt-2 text-lg font-semibold text-slate-950">Start from scratch</h3>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">
+                        Create a clean project with one starter step and begin authoring directly in the workspace.
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewProjectDialogOpen(false);
+                        inputRef.current?.click();
+                      }}
+                      disabled={isUploading}
+                      className="rounded-[1.35rem] border border-slate-200 bg-[linear-gradient(135deg,#fff7ed_0%,#ffffff_62%)] p-5 text-left shadow-sm transition hover:border-slate-300"
+                    >
+                      <p className="text-xs uppercase tracking-[0.18em] text-amber-700">Import PDF</p>
+                      <h3 className="mt-2 text-lg font-semibold text-slate-950">Create from source</h3>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">
+                        Start a PDF-backed intake flow, review the extraction against the source, then promote it into a project.
+                      </p>
+                    </button>
+                  </div>
+                </PanelCard>
+
+                <PanelCard title="Recent Projects" eyebrow="Open existing">
+                  <div className="space-y-3">
+                    {projects.length ? (
+                      projects.slice(0, 6).map((project) => (
+                        <button
+                          key={project.id}
+                          type="button"
+                          onClick={() => handleOpenProject(project.id)}
+                          className="block w-full rounded-[1rem] border border-soft bg-white px-4 py-3 text-left transition hover:border-slate-300"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="font-semibold text-slate-950">{project.name}</p>
+                              <p className="mt-1 text-sm text-slate-600">
+                                {project.revisionCount} revisions · updated {new Date(project.updatedAt).toLocaleString()}
+                              </p>
+                            </div>
+                            <StatusBadge tone={badgeToneFromProjectStatus(project.status)}>{formatLabel(project.status)}</StatusBadge>
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="app-muted-card p-4 text-sm text-slate-500">No saved projects yet. Start with a blank form or import a PDF.</div>
+                    )}
+                  </div>
+                </PanelCard>
+              </div>
+
+              <div className="grid gap-5">
+                <PanelCard
+                  title="Open"
+                  eyebrow="Files and history"
+                  aside={
+                    <button
+                      type="button"
+                      onClick={() => jsonInputRef.current?.click()}
+                      disabled={isImportingJson}
+                      className={actionButtonClass("primary")}
+                    >
+                      {isImportingJson ? "Opening..." : "Open JSON"}
+                    </button>
+                  }
+                >
+                  <div className="space-y-4">
+                    <div className="app-muted-card p-4">
+                      <p className="text-sm font-semibold text-slate-950">Authoring JSON</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">
+                        Load a previously created authoring document and reopen it as a durable project.
+                      </p>
+                    </div>
+                    <div className="app-muted-card p-4">
+                      <p className="text-sm font-semibold text-slate-950">Traditional tool flow</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">
+                        `New` creates a project. `Open` returns you to saved work. Review is now part of PDF intake, not the identity of the whole app.
+                      </p>
+                    </div>
+                  </div>
+                </PanelCard>
+
+                <PanelCard title="Recent Imports" eyebrow="Resume intake">
+                  <div className="space-y-3">
+                    {conversions.length ? (
+                      conversions.slice(0, 6).map((conversion) => (
+                        <button
+                          key={conversion.id}
+                          type="button"
+                          onClick={() => handleResumeImport(conversion)}
+                          className="block w-full rounded-[1rem] border border-soft bg-white px-4 py-3 text-left transition hover:border-slate-300"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="font-semibold text-slate-950">{conversion.filename}</p>
+                              <p className="mt-1 text-sm text-slate-600">
+                                {conversion.documentSignals?.pageCount ?? 0} pages · {Math.round(conversion.confidence * 100)}% confidence
+                              </p>
+                            </div>
+                            <StatusBadge tone={badgeToneFromReview(conversion.reviewStatus)}>{formatLabel(conversion.reviewStatus)}</StatusBadge>
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="app-muted-card p-4 text-sm text-slate-500">No imports in the queue. Use `New` to start from a PDF.</div>
+                    )}
+                  </div>
+                </PanelCard>
+              </div>
+            </section>
+          </StageShell>
+        ) : null}
+
         {stage === "review" ? (
           <StageShell
-            eyebrow="Intake"
-            title="Import and review against the source"
-            summary="Keep the source dominant. Confirm that page structure, ordering, and control mapping are accurate before moving into build."
+            eyebrow="Creation Preflight"
+            title={reviewFlowTitle}
+            summary={reviewFlowSummary}
+            actions={
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={handleReturnHomeFromReview} className={actionButtonClass()}>
+                  Back to Home
+                </button>
+                <button type="button" onClick={() => inputRef.current?.click()} disabled={isUploading} className={actionButtonClass("primary")}>
+                  {isUploading ? "Importing..." : "Replace PDF"}
+                </button>
+              </div>
+            }
           >
             <section className="grid gap-5 xl:grid-cols-[1.52fr_0.78fr]">
               <div className="grid gap-5">
@@ -2217,8 +3610,8 @@ export default function App() {
                   onDrop={onDropImport}
                 >
                   <PanelCard
-                    title="Source Preview"
-                    eyebrow="Review workspace"
+                    title="Source Review"
+                    eyebrow="Creation step 2 of 3"
                     aside={
                       <div className="flex flex-wrap items-center justify-end gap-2">
                         <button type="button" onClick={() => setReviewPreviewMode("overlay")} className={subtleButtonClass(reviewPreviewMode === "overlay")}>
@@ -2229,31 +3622,23 @@ export default function App() {
                         </button>
                       </div>
                     }
-                    className="min-h-[42rem]"
+                    className="min-h-[40rem]"
                   >
                   <div className={`mb-4 flex flex-wrap items-center gap-2 rounded-[1rem] border px-3 py-2.5 ${dragActive ? "border-blue-300 bg-blue-50" : "border-soft bg-slate-50"}`}>
                     <div className="min-w-[11rem]">
-                      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-[#103975]/65">Intake</p>
-                      <p className="mt-1 text-sm text-slate-600">Import a PDF or open saved authoring JSON.</p>
+                      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-[#103975]/65">Source file</p>
+                      <p className="mt-1 text-sm text-slate-600">Inspect the imported PDF against the extracted mapping before creating the project workspace.</p>
                     </div>
                     <button type="button" onClick={() => inputRef.current?.click()} className={actionButtonClass("primary")}>
-                      {isUploading ? "Importing..." : "Import PDF"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => jsonInputRef.current?.click()}
-                      disabled={isImportingJson}
-                      className={actionButtonClass()}
-                    >
-                      {isImportingJson ? "Opening..." : "Open JSON"}
+                      {isUploading ? "Importing..." : "Replace PDF"}
                     </button>
                     <div className="ml-auto rounded-full border border-soft bg-white px-3 py-1.5 text-sm text-slate-600">
-                      {selectedFile ? `${selectedFile.name} · ${formatBytes(selectedFile.size)}` : "Drop a PDF here"}
+                      {selectedFile ? `${selectedFile.name} · ${formatBytes(selectedFile.size)}` : "Drop a replacement PDF here"}
                     </div>
                   </div>
                   {reviewPreviewMode === "pdf" ? (
                     previewUrl ? (
-                      <object data={previewUrl} type="application/pdf" className="h-[42rem] w-full rounded-[1.2rem] border border-soft bg-white">
+                      <object data={previewUrl} type="application/pdf" className="h-[38rem] w-full rounded-[1.2rem] border border-soft bg-white">
                         <div className="app-muted-card p-6 text-sm text-slate-500">Inline PDF preview is unavailable in this browser.</div>
                       </object>
                     ) : (
@@ -2261,7 +3646,7 @@ export default function App() {
                     )
                   ) : pagePreviewImageUrl && activeReviewPage ? (
                     <div className="overflow-hidden rounded-[1.5rem] border border-soft bg-slate-950">
-                      <svg viewBox={`0 0 ${reviewPageDimensions.width} ${reviewPageDimensions.height}`} className="h-[42rem] w-full">
+                      <svg viewBox={`0 0 ${reviewPageDimensions.width} ${reviewPageDimensions.height}`} className="h-[38rem] w-full">
                         <image href={pagePreviewImageUrl} x="0" y="0" width={reviewPageDimensions.width} height={reviewPageDimensions.height} preserveAspectRatio="xMidYMid meet" />
                         {activeReviewFields.flatMap((field, fieldIndex) =>
                           overlayRects(field).map((bounds, index) => (
@@ -2318,16 +3703,93 @@ export default function App() {
 
               <div className="grid gap-5">
                 <PanelCard
-                  title="Review Panel"
-                  eyebrow="Mapping and issues"
+                  title="Project Creation"
+                  eyebrow="Compact preflight"
                   aside={
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                      <span className="app-pill">{activeReviewFields.length} mapped</span>
-                      <span className="app-pill">{activeConversion?.issues.length ?? 0} issues</span>
-                    </div>
+                    activeConversion ? (
+                      <StatusBadge tone={badgeToneFromReview(activeConversion.reviewStatus)}>
+                        {reviewReadyToPromote ? "Ready to create" : "Needs review decision"}
+                      </StatusBadge>
+                    ) : undefined
                   }
-                  className="min-h-[34rem]"
                 >
+                  <div className="space-y-3">
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-[1rem] border border-emerald-200 bg-emerald-50 px-4 py-3">
+                        <p className="text-xs uppercase tracking-[0.18em] text-emerald-700">1. Import</p>
+                        <p className="mt-1 text-sm text-emerald-900">{activeConversion ? activeConversion.filename : "PDF loaded"}</p>
+                      </div>
+                      <div className="rounded-[1rem] border border-blue-200 bg-blue-50 px-4 py-3">
+                        <p className="text-xs uppercase tracking-[0.18em] text-blue-700">2. Preflight</p>
+                        <p className="mt-1 text-sm text-blue-900">{activeReviewFields.length} mapped fields · {reviewIssueCount} issues</p>
+                      </div>
+                      <div className="rounded-[1rem] border border-slate-200 bg-white px-4 py-3">
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">3. Workspace</p>
+                        <p className="mt-1 text-sm text-slate-700">
+                          {matchedProjectForActiveConversion ? "Reopen the existing project workspace." : "Create the durable project workspace."}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-[1.1rem] border border-soft bg-[linear-gradient(135deg,#f8fafc_0%,#ffffff_100%)] p-4">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Current source</p>
+                          <p className="mt-2 text-sm font-semibold text-slate-950">{activeConversion?.filename ?? "No PDF selected"}</p>
+                          <p className="mt-1 text-xs text-slate-600">
+                            {activeConversion?.documentSignals?.pageCount ?? reviewPageSummaries.length} pages · {Math.round((activeConversion?.confidence ?? 0) * 100)}% confidence
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Project handoff</p>
+                          <p className="mt-2 text-sm font-semibold text-slate-950">
+                            {matchedProjectForActiveConversion ? "Existing workspace available" : reviewReadyToPromote ? "Ready to create project" : "Hold until reviewed"}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-600">
+                            Source reference stays available after promotion, so this step only needs enough review to start authoring.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3">
+                      <button
+                        type="button"
+                        onClick={() => void handleReviewUpdate("reviewed")}
+                        disabled={!activeConversion || isSavingReview}
+                        className={actionButtonClass("secondary")}
+                      >
+                        {isSavingReview ? "Saving..." : "Mark reviewed"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleReviewUpdate("accepted")}
+                        disabled={!activeConversion || isSavingReview}
+                        className={actionButtonClass("secondary")}
+                      >
+                        Mark accepted
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handlePromoteConversion()}
+                        disabled={!activeConversion || activeConversion.reviewStatus === "needs_review" || isPromoting}
+                        className={actionButtonClass("primary")}
+                      >
+                        {matchedProjectForActiveConversion
+                          ? "Open project workspace"
+                          : isPromoting
+                            ? "Promoting..."
+                            : "Create project workspace"}
+                      </button>
+                    </div>
+
+                    <div className="app-muted-card p-4 text-sm leading-6 text-slate-600">
+                      Treat this as a preflight, not a permanent audit workspace. Confirm the structure is directionally usable, then continue shaping the form inside the main builder.
+                    </div>
+                  </div>
+                </PanelCard>
+
+                <PanelCard title="Current Review" eyebrow="Page and selection">
                   <div className="space-y-3">
                     {activeReviewPage ? (
                       <div className="app-muted-card p-3.5">
@@ -2336,17 +3798,55 @@ export default function App() {
                         <p className="mt-1 text-sm leading-6 text-slate-600">
                           {secondaryPageHeading(activeReviewPage) ?? activePageSummary?.evidenceSnippet ?? "No evidence summary available."}
                         </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <span className="app-pill">{activeReviewFields.length} mapped</span>
+                          {activePageSummary?.flaggedFields ? <span className="app-pill">{activePageSummary.flaggedFields} flagged</span> : null}
+                          {(activePageSummary?.dominantTypes.length ?? 0) > 0 ? (
+                            <span className="app-pill">
+                              {activePageSummary?.dominantTypes.slice(0, 2).map((type) => formatLabel(type)).join(" · ")}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                     ) : null}
-                    <div className="space-y-3 rounded-[1rem] border border-soft bg-white p-3.5">
+
+                    {activeReviewField ? (
+                      <div className="rounded-[1rem] border border-blue-200 bg-blue-50/70 p-3.5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Active selection</p>
+                            <h4 className="mt-1 text-sm font-semibold text-slate-950">{activeReviewField.label}</h4>
+                            <p className="mt-1 text-sm text-slate-600">
+                              {formatLabel(activeReviewField.semanticType)} · confidence {activeReviewFieldConfidence}%
+                            </p>
+                          </div>
+                          <StatusBadge tone={activeReviewField.sourceConflicts.length ? "warning" : "info"}>
+                            {formatLabel(activeReviewField.reviewStatus)}
+                          </StatusBadge>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </PanelCard>
+
+                <PanelCard
+                  title="Mapped Structure"
+                  eyebrow="Active page"
+                  aside={
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                      <span className="app-pill">{activeReviewFields.length} mapped</span>
+                    </div>
+                  }
+                >
+                  <div className="space-y-3 rounded-[1rem] border border-soft bg-white p-3.5">
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Mapped structure</p>
-                          <p className="mt-2 text-sm text-slate-600">Click in the overlay or the list to move the active selection.</p>
+                          <p className="mt-2 text-sm text-slate-600">Use this only to confirm the extracted structure is workable.</p>
                         </div>
                         {activeReviewField ? <StatusBadge tone="info">{formatLabel(activeReviewField.semanticType)}</StatusBadge> : null}
                       </div>
-                      <div className="max-h-[24rem] space-y-2.5 overflow-y-auto pr-1">
+                      <div className="max-h-[16rem] space-y-2.5 overflow-y-auto pr-1">
                         {activeReviewPage?.sections.map((section) => (
                           <div key={section.id} className="rounded-[0.95rem] border border-soft bg-slate-50 p-3">
                             <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Section</p>
@@ -2380,18 +3880,26 @@ export default function App() {
                           </div>
                         ))}
                       </div>
-                    </div>
-                    <div className="space-y-3 rounded-[1rem] border border-soft bg-white p-3.5">
+                  </div>
+                </PanelCard>
+
+                <PanelCard
+                  title="Import Issues"
+                  eyebrow="Carry forward context"
+                  aside={
+                    <StatusBadge tone={reviewIssueCount > 0 ? "warning" : "success"}>
+                      {reviewIssueCount > 0 ? `${reviewIssueCount} open` : "Clear"}
+                    </StatusBadge>
+                  }
+                >
+                  <div className="space-y-3 rounded-[1rem] border border-soft bg-white p-3.5">
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Issues</p>
-                          <p className="mt-2 text-sm text-slate-600">Keep surfaced issues visible without leaving the mapping view.</p>
+                          <p className="mt-2 text-sm text-slate-600">Keep only the essential warnings visible before you move into the workspace.</p>
                         </div>
-                        <StatusBadge tone={(activeConversion?.issues.length ?? 0) > 0 ? "warning" : "success"}>
-                          {(activeConversion?.issues.length ?? 0) > 0 ? `${activeConversion?.issues.length ?? 0} open` : "Clear"}
-                        </StatusBadge>
                       </div>
-                      <div className="max-h-[11rem] space-y-2.5 overflow-y-auto pr-1">
+                      <div className="max-h-[10rem] space-y-2.5 overflow-y-auto pr-1">
                         {(activeConversion?.issues ?? []).map((issue) => (
                           <div key={`${issue.code}-${issue.nodeId ?? "global"}`} className="rounded-[0.95rem] border border-soft bg-slate-50 p-3">
                             <div className="flex items-start justify-between gap-3">
@@ -2411,61 +3919,12 @@ export default function App() {
                           <div className="app-muted-card p-4 text-sm text-slate-500">No surfaced issues on this conversion.</div>
                         ) : null}
                       </div>
-                    </div>
                   </div>
                 </PanelCard>
 
                 <PanelCard
-                  title="Move Forward"
-                  eyebrow="User judgment"
-                  aside={
-                    activeConversion ? (
-                      <StatusBadge tone={badgeToneFromReview(activeConversion.reviewStatus)}>
-                        {formatLabel(activeConversion.reviewStatus)}
-                      </StatusBadge>
-                    ) : undefined
-                  }
-                >
-                  <div className="space-y-3">
-                    <p className="text-sm leading-6 text-slate-600">
-                      You decide when this is good enough. Mark it reviewed or accepted, then promote it into the builder.
-                    </p>
-                    <div className="grid gap-3">
-                      <button
-                        type="button"
-                        onClick={() => void handleReviewUpdate("reviewed")}
-                        disabled={!activeConversion || isSavingReview}
-                        className={actionButtonClass("secondary")}
-                      >
-                        {isSavingReview ? "Saving..." : "Looks good enough to build"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleReviewUpdate("accepted")}
-                        disabled={!activeConversion || isSavingReview}
-                        className={actionButtonClass("secondary")}
-                      >
-                        Mark accepted
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handlePromoteConversion()}
-                        disabled={!activeConversion || activeConversion.reviewStatus === "needs_review" || isPromoting}
-                        className={actionButtonClass("primary")}
-                      >
-                        {matchedProjectForActiveConversion
-                          ? "Open builder project"
-                          : isPromoting
-                            ? "Promoting..."
-                            : "Promote into builder"}
-                      </button>
-                    </div>
-                  </div>
-                </PanelCard>
-
-                <PanelCard
-                  title="Recent Imports"
-                  eyebrow="Queue"
+                  title="Other Imports"
+                  eyebrow="Resume queue"
                   aside={
                     <button type="button" onClick={() => void handleClearConversions()} disabled={!conversions.length || isClearingHistory} className={actionButtonClass()}>
                       {isClearingHistory ? "Clearing..." : "Clear"}
@@ -2477,10 +3936,7 @@ export default function App() {
                       <button
                         key={conversion.id}
                         type="button"
-                        onClick={() => {
-                          setActiveConversionId(conversion.id);
-                          setSelectedPageId(conversion.draft?.pages[0]?.id ?? null);
-                        }}
+                        onClick={() => handleResumeImport(conversion)}
                         className={`block w-full rounded-[0.95rem] border px-3 py-2.5 text-left ${
                           conversion.id === activeConversion?.id
                             ? "border-blue-300 bg-[#e8f0ff]"
@@ -2527,10 +3983,10 @@ export default function App() {
           </StageShell>
         ) : null}
 
-        {stage === "builder" ? (
+        {stage === "workspace" ? (
           <StageShell
-            eyebrow="Builder"
-            title="Shape the runtime flow"
+            eyebrow="Workspace"
+            title="Shape the project"
             summary="Keep the step strip concise, then do the real editing directly in the page preview and inspector."
             actions={
               <div className="flex flex-wrap gap-2">
@@ -2546,28 +4002,52 @@ export default function App() {
                     }
                   }}
                 />
-                <button
-                  type="button"
-                  onClick={() => setRuntimeToolsOpen(true)}
-                  disabled={!activeDocument}
-                  className={actionButtonClass()}
-                >
-                  Runtime tools
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSourceDrawerOpen((current) => !current)}
-                  disabled={!sourceContextDraft}
-                  className={actionButtonClass()}
-                >
-                  {sourceDrawerOpen ? "Hide source context" : "Show source context"}
-                </button>
-                <button type="button" onClick={() => void handleSaveProject()} disabled={!activeProjectDetail || isSavingProject} className={actionButtonClass("primary")}>
-                  {isSavingProject ? "Saving..." : projectDirty ? "Save" : "Saved"}
-                </button>
+                <StatusBadge tone={projectDirty ? "warning" : "success"}>
+                  {projectDirty ? "Unsaved changes" : "Saved"}
+                </StatusBadge>
+                {openedRevisionView ? <StatusBadge tone="info">Revision view</StatusBadge> : null}
+                {activeProjectDetail ? (
+                  <StatusBadge tone={badgeToneFromProjectStatus(activeProjectDetail.project.status)}>
+                    {formatLabel(activeProjectDetail.project.status)}
+                  </StatusBadge>
+                ) : null}
               </div>
             }
           >
+            <div className="space-y-4">
+              {openedRevisionView ? (
+                <div className="rounded-[1.2rem] border border-amber-200 bg-[linear-gradient(135deg,#fff7ed_0%,#ffffff_65%)] p-4 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-amber-700">Revision history</p>
+                      <h3 className="mt-1 text-lg font-semibold text-slate-950">
+                        Viewing snapshot from {new Date(openedRevisionView.createdAt).toLocaleString()}
+                      </h3>
+                      <p className="mt-2 text-sm leading-6 text-slate-700">
+                        {openedRevisionView.note}. This is a saved revision snapshot opened inside the current workspace.
+                        Return to the latest saved project head when you are done inspecting it, or save now to restore this snapshot as the current document.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleReturnToLatestProjectRevision()}
+                        disabled={isLoadingRevisionWorkspace}
+                        className={actionButtonClass()}
+                      >
+                        {isLoadingRevisionWorkspace ? "Returning..." : "Return to latest"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRevisionHistoryOpen(true)}
+                        className={actionButtonClass("primary")}
+                      >
+                        Open history
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             <section
               className={`grid gap-5 ${
                 sourceDrawerOpen
@@ -2654,6 +4134,78 @@ export default function App() {
               >
                 {activeDocument && activeStep ? (
                   <div className="space-y-4">
+                    {isPdfBackedProject && workspaceLandingMode ? (
+                      <div className="rounded-[1.35rem] border border-blue-200 bg-[linear-gradient(135deg,#eff6ff_0%,#ffffff_62%)] p-4 shadow-[0_20px_40px_rgba(37,99,235,0.10)]">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="max-w-3xl">
+                            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-blue-700">Imported project handoff</p>
+                            <h3 className="mt-2 text-xl font-semibold text-slate-950">
+                              {workspaceLandingMode === "promoted_import" ? "Project workspace created from review" : "Imported project reopened in the workspace"}
+                            </h3>
+                            <p className="mt-2 text-sm leading-6 text-slate-700">
+                              The intake step is finished. Continue reshaping the digital flow here, and bring the imported PDF reference back in only when you need evidence, page structure, or field provenance.
+                            </p>
+                          </div>
+                          <StatusBadge tone={workspaceLandingMode === "promoted_import" ? "success" : "info"}>
+                            {workspaceLandingMode === "promoted_import" ? "Ready to author" : "Workspace reopened"}
+                          </StatusBadge>
+                        </div>
+                        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+                          <div className="grid gap-3 sm:grid-cols-3">
+                            <div className="rounded-[1rem] border border-blue-100 bg-white/90 px-4 py-3">
+                              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Source file</p>
+                              <p className="mt-2 text-sm font-semibold text-slate-950">{activeProjectDetail?.sourceContext.filename}</p>
+                            </div>
+                            <div className="rounded-[1rem] border border-blue-100 bg-white/90 px-4 py-3">
+                              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Imported scope</p>
+                              <p className="mt-2 text-sm font-semibold text-slate-950">
+                                {importedSourcePageCount} pages · {importedSourceSectionCount} sections
+                              </p>
+                              <p className="mt-1 text-xs text-slate-600">{importedSourceFieldCount} extracted fields</p>
+                            </div>
+                            <div className="rounded-[1rem] border border-blue-100 bg-white/90 px-4 py-3">
+                              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Review state</p>
+                              <p className="mt-2 text-sm font-semibold text-slate-950">
+                                {formatLabel(activeProjectDetail?.sourceContext.reviewStatus ?? "reviewed")}
+                              </p>
+                              <p className="mt-1 text-xs text-slate-600">
+                                {activeProjectDetail?.sourceContext.issues.length ?? 0} imported issues retained for reference
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSourceDrawerOpen(true);
+                                setWorkspaceLandingMode(null);
+                              }}
+                              className={actionButtonClass("primary")}
+                            >
+                              Open source reference
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setProjectDetailsOpen(true);
+                                setWorkspaceLandingMode(null);
+                              }}
+                              className={actionButtonClass()}
+                            >
+                              Project details
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setWorkspaceLandingMode(null)}
+                              className={actionButtonClass()}
+                            >
+                              Continue editing
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+
                     <div className="rounded-xl border border-soft bg-white px-4 py-3">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <button
@@ -2679,6 +4231,16 @@ export default function App() {
                           <div className="app-pill">
                             Step {activeStepIndex + 1} of {activeDocument.steps.length}
                           </div>
+                          {isPdfBackedProject ? (
+                            <button
+                              type="button"
+                              onClick={() => openSourceReference(sourceReferenceFocusHasMatches ? "matches" : "all")}
+                              disabled={!sourceContextDraft}
+                              className={actionButtonClass()}
+                            >
+                              {sourceReferenceFocusHasMatches ? "Compare source" : "Open source"}
+                            </button>
+                          ) : null}
                           <button type="button" title="Add section" aria-label="Add section" onClick={() => handleAddSectionToStep(activeStep.id)} className={iconButtonClass("primary")}>
                             <PlusIcon />
                           </button>
@@ -2810,112 +4372,9 @@ export default function App() {
                                       })
                                     }
                                   >
-                                  {group.fields.map((field, fieldIndex) => {
-                                    const isButtonComponent = field.rendererHints.component === "button";
-                                    const isSelected =
-                                      selectedAuthoring?.kind === "field" && selectedAuthoring.fieldId === field.id;
-                                    const fieldTone =
-                                      isSelected
-                                        ? "border-blue-300 bg-[#e8f0ff]"
-                                        : field.required
-                                          ? "border-rose-300 bg-rose-50/60"
-                                          : "border-soft bg-slate-50";
-
-                                    return isButtonComponent ? (
-                                      <div
-                                        key={field.id}
-                                        draggable
-                                        onDragStart={() =>
-                                          handleSelectionDragStart({
-                                            kind: "field",
-                                            stepId: activeStep.id,
-                                            sectionId: section.id,
-                                            groupId: group.id,
-                                            fieldId: field.id,
-                                          })
-                                        }
-                                        onDragEnd={() => setDragPayload(null)}
-                                        onDragOver={(event) => event.preventDefault()}
-                                        onDrop={(event) =>
-                                          handleDropTarget(event, {
-                                            kind: "field-list",
-                                            stepId: activeStep.id,
-                                            sectionId: section.id,
-                                            groupId: group.id,
-                                            index: fieldIndex,
-                                          })
-                                        }
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          setSelectedAuthoring({
-                                            kind: "field",
-                                            stepId: activeStep.id,
-                                            sectionId: section.id,
-                                            groupId: group.id,
-                                            fieldId: field.id,
-                                          });
-                                        }}
-                                        className={`rounded-[1.1rem] border p-4 text-left ${fieldTone}`}
-                                      >
-                                        {fieldPreview(field)}
-                                        <div className="mt-3">
-                                          <button
-                                            type="button"
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              handleRuntimeButtonClick(field);
-                                            }}
-                                            className={actionButtonClass(
-                                              getButtonBehaviorSummary(field).action === "submit" || getButtonBehaviorSummary(field).action === "next_step"
-                                                ? "primary"
-                                                : "secondary",
-                                            )}
-                                          >
-                                            {field.label}
-                                          </button>
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      <button
-                                        key={field.id}
-                                        type="button"
-                                        draggable
-                                        onDragStart={() =>
-                                          handleSelectionDragStart({
-                                            kind: "field",
-                                            stepId: activeStep.id,
-                                            sectionId: section.id,
-                                            groupId: group.id,
-                                            fieldId: field.id,
-                                          })
-                                        }
-                                        onDragEnd={() => setDragPayload(null)}
-                                        onDragOver={(event) => event.preventDefault()}
-                                        onDrop={(event) =>
-                                          handleDropTarget(event, {
-                                            kind: "field-list",
-                                            stepId: activeStep.id,
-                                            sectionId: section.id,
-                                            groupId: group.id,
-                                            index: fieldIndex,
-                                          })
-                                        }
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          setSelectedAuthoring({
-                                            kind: "field",
-                                            stepId: activeStep.id,
-                                            sectionId: section.id,
-                                            groupId: group.id,
-                                            fieldId: field.id,
-                                          });
-                                        }}
-                                        className={`rounded-[1.1rem] border p-4 text-left ${fieldTone}`}
-                                      >
-                                        {fieldPreview(field)}
-                                      </button>
-                                    );
-                                  })}
+                                  {group.fields.map((field, fieldIndex) =>
+                                    renderBuilderFieldCard(activeStep.id, section.id, field, fieldIndex, group.id),
+                                  )}
                                   </div>
                                 </div>
                               ))}
@@ -2932,106 +4391,9 @@ export default function App() {
                                   })
                                 }
                               >
-                                {section.fields.map((field, fieldIndex) => {
-                                  const isButtonComponent = field.rendererHints.component === "button";
-                                  const isSelected =
-                                    selectedAuthoring?.kind === "field" && selectedAuthoring.fieldId === field.id;
-                                  const fieldTone =
-                                    isSelected
-                                      ? "border-blue-300 bg-[#e8f0ff]"
-                                      : field.required
-                                        ? "border-rose-300 bg-rose-50/60"
-                                        : "border-soft bg-slate-50";
-
-                                  return isButtonComponent ? (
-                                    <div
-                                      key={field.id}
-                                      draggable
-                                      onDragStart={() =>
-                                        handleSelectionDragStart({
-                                          kind: "field",
-                                          stepId: activeStep.id,
-                                          sectionId: section.id,
-                                          fieldId: field.id,
-                                        })
-                                      }
-                                      onDragEnd={() => setDragPayload(null)}
-                                      onDragOver={(event) => event.preventDefault()}
-                                      onDrop={(event) =>
-                                        handleDropTarget(event, {
-                                          kind: "field-list",
-                                          stepId: activeStep.id,
-                                          sectionId: section.id,
-                                          index: fieldIndex,
-                                        })
-                                      }
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        setSelectedAuthoring({
-                                          kind: "field",
-                                          stepId: activeStep.id,
-                                          sectionId: section.id,
-                                          fieldId: field.id,
-                                        });
-                                      }}
-                                      className={`rounded-[1.1rem] border p-4 text-left ${fieldTone}`}
-                                    >
-                                      {fieldPreview(field)}
-                                      <div className="mt-3">
-                                        <button
-                                          type="button"
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            handleRuntimeButtonClick(field);
-                                          }}
-                                          className={actionButtonClass(
-                                            getButtonBehaviorSummary(field).action === "submit" || getButtonBehaviorSummary(field).action === "next_step"
-                                              ? "primary"
-                                              : "secondary",
-                                          )}
-                                        >
-                                          {field.label}
-                                        </button>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <button
-                                      key={field.id}
-                                      type="button"
-                                      draggable
-                                      onDragStart={() =>
-                                        handleSelectionDragStart({
-                                          kind: "field",
-                                          stepId: activeStep.id,
-                                          sectionId: section.id,
-                                          fieldId: field.id,
-                                        })
-                                      }
-                                      onDragEnd={() => setDragPayload(null)}
-                                      onDragOver={(event) => event.preventDefault()}
-                                      onDrop={(event) =>
-                                        handleDropTarget(event, {
-                                          kind: "field-list",
-                                          stepId: activeStep.id,
-                                          sectionId: section.id,
-                                          index: fieldIndex,
-                                        })
-                                      }
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        setSelectedAuthoring({
-                                          kind: "field",
-                                          stepId: activeStep.id,
-                                          sectionId: section.id,
-                                          fieldId: field.id,
-                                        });
-                                      }}
-                                      className={`rounded-[1.1rem] border p-4 text-left ${fieldTone}`}
-                                    >
-                                      {fieldPreview(field)}
-                                    </button>
-                                  );
-                                })}
+                                {section.fields.map((field, fieldIndex) =>
+                                  renderBuilderFieldCard(activeStep.id, section.id, field, fieldIndex),
+                                )}
                               </div>
                             </div>
                           </section>
@@ -3129,6 +4491,15 @@ export default function App() {
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Current selection</p>
                         <div className="flex gap-2">
+                          {isPdfBackedProject && selectedAuthoring !== null ? (
+                            <button
+                              type="button"
+                              onClick={() => openSourceReference(sourceReferenceFocusHasMatches ? "matches" : "all")}
+                              className={actionButtonClass(sourceReferenceFocusHasMatches ? "primary" : "secondary")}
+                            >
+                              {sourceReferenceFocusHasMatches ? "Compare source" : "Open source"}
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             onClick={() => {
@@ -4290,12 +5661,29 @@ export default function App() {
               </PanelCard>
               {sourceDrawerOpen && sourceContextDraft ? (
                 <PanelCard
-                  title="Source Context"
-                  eyebrow="Imported evidence on demand"
+                  title="Source Reference"
+                  eyebrow="Imported PDF evidence on demand"
                   aside={
-                    <button type="button" onClick={() => setSourceDrawerOpen(false)} className={actionButtonClass()}>
-                      Hide
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSourceReferenceFilterMode("matches")}
+                        disabled={!sourceReferenceFocusHasMatches}
+                        className={subtleButtonClass(sourceReferenceFilterMode === "matches" && sourceReferenceFocusHasMatches)}
+                      >
+                        Matching only
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSourceReferenceFilterMode("all")}
+                        className={subtleButtonClass(sourceReferenceFilterMode === "all")}
+                      >
+                        All source
+                      </button>
+                      <button type="button" onClick={() => setSourceDrawerOpen(false)} className={actionButtonClass()}>
+                        Hide reference
+                      </button>
+                    </div>
                   }
                   className="min-h-[52rem] min-w-0 overflow-hidden"
                 >
@@ -4306,41 +5694,586 @@ export default function App() {
                         {activeProjectDetail?.sourceContext.issues.length ?? 0} imported issues · source conversion {activeProjectDetail?.sourceContext.conversionId}
                       </p>
                       <p className="mt-2 text-sm leading-6 text-slate-600">
-                        Keep this open while reshaping the flow when you need to compare the imported source structure against the current step.
+                        Keep this open only when it helps. Use it to compare the current authored step against the imported PDF structure, then return to shaping the digital flow in the main workspace.
                       </p>
+                      {activeStepSourcePageIds.size ? (
+                        <p className="mt-2 text-sm leading-6 text-slate-600">
+                          The current step traces back to {activeStepSourcePageIds.size} imported page{activeStepSourcePageIds.size === 1 ? "" : "s"} highlighted below.
+                        </p>
+                      ) : null}
+                      {sourceReferenceFocus ? (
+                        <div className="mt-4 rounded-[1rem] border border-blue-200 bg-blue-50/70 p-4">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Current compare target</p>
+                              <p className="mt-2 text-sm font-semibold text-slate-950">
+                                {sourceReferenceFocus.kindLabel}: {sourceReferenceFocus.title}
+                              </p>
+                              <p className="mt-1 text-xs text-slate-600">
+                                {sourceReferenceFocus.pageIds.size} pages · {sourceReferenceFocus.sectionIds.size} sections · {sourceReferenceFocus.groupIds.size} groups · {sourceReferenceFocus.fieldIds.size} fields
+                              </p>
+                            </div>
+                            <StatusBadge tone={sourceReferenceFocusHasMatches ? "info" : "warning"}>
+                              {sourceReferenceFocusHasMatches ? "Linked source found" : "No direct source IDs"}
+                            </StatusBadge>
+                          </div>
+                          <p className="mt-3 text-sm leading-6 text-slate-700">
+                            {sourceReferenceFocusHasMatches
+                              ? "Use `Matching only` to collapse this reference down to the imported pages, sections, groups, and fields tied to the current authored selection."
+                              : "This authored selection no longer has direct imported IDs attached, so the full source reference stays available instead."}
+                          </p>
+                        </div>
+                      ) : null}
                     </div>
                     <div className="space-y-3">
-                      {sourceContextDraft.pages.map((page) => (
-                        <div key={page.id} className="rounded-[1.1rem] border border-soft bg-slate-50 p-4">
-                          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Page {page.orderIndex + 1}</p>
-                          <p className="mt-2 font-semibold text-slate-950">{page.label}</p>
-                          <div className="mt-3 space-y-2">
-                            {page.sections.map((section) => (
-                              <div key={section.id} className="rounded-[0.95rem] border border-soft bg-white p-3">
-                                <p className="font-semibold text-slate-950">{section.title}</p>
-                                <p className="mt-1 text-sm text-slate-600">
-                                  {[...section.fields, ...section.groups.flatMap((group) => group.fields)].length} extracted fields
-                                </p>
+                      {sourceReferenceVisiblePages.length ? (
+                        sourceReferenceVisiblePages.map((page) => {
+                          const pageMatchesCurrentSelection = sourcePageMatchesFocus(page, sourceReferenceFocus);
+                          const pageSelection = resolveSelectionForSourceTarget("page", page);
+                          const pageSelectionIsActive = authoringSelectionsEqual(pageSelection, selectedAuthoring);
+                          const visibleSections = page.sections.filter((section) =>
+                            sourceReferenceFilterMode === "all" || !sourceReferenceFocusHasMatches
+                              ? true
+                              : sourceSectionMatchesFocus(section, sourceReferenceFocus),
+                          );
+                          const matchingFieldCount = visibleSections.reduce(
+                            (count, section) =>
+                              count + orderedReviewSectionFields(section).filter((field) => sourceFieldMatchesFocus(field, sourceReferenceFocus)).length,
+                            0,
+                          );
+                          const matchingGroupCount = visibleSections.reduce(
+                            (count, section) => count + section.groups.filter((group) => sourceGroupMatchesFocus(group, sourceReferenceFocus)).length,
+                            0,
+                          );
+
+                          return (
+                            <div
+                              key={page.id}
+                              className={`rounded-[1.1rem] border p-4 ${
+                                pageMatchesCurrentSelection || activeStepSourcePageIds.has(page.id)
+                                  ? "border-blue-200 bg-blue-50/70 shadow-[0_16px_32px_rgba(37,99,235,0.08)]"
+                                  : "border-soft bg-slate-50"
+                              }`}
+                            >
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Page {page.orderIndex + 1}</p>
+                                  <p className="mt-2 font-semibold text-slate-950">{page.label}</p>
+                                  <p className="mt-1 text-sm text-slate-600">
+                                    {countSourceFieldsOnPage(page)} extracted fields · {visibleSections.length} visible sections
+                                  </p>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  {pageSelection ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => focusAuthoringSelectionFromSource("page", page)}
+                                      className={actionButtonClass(pageSelectionIsActive ? "primary" : "secondary")}
+                                    >
+                                      {pageSelectionIsActive ? "Focused in builder" : "Focus in builder"}
+                                    </button>
+                                  ) : null}
+                                  {activeStepSourcePageIds.has(page.id) ? <StatusBadge tone="info">Current step source</StatusBadge> : null}
+                                  {pageMatchesCurrentSelection ? <StatusBadge tone="info">Current selection match</StatusBadge> : null}
+                                  {matchingFieldCount ? <span className="app-pill">{matchingFieldCount} matching fields</span> : null}
+                                  {matchingGroupCount ? <span className="app-pill">{matchingGroupCount} matching groups</span> : null}
+                                </div>
                               </div>
-                            ))}
-                          </div>
+                              <div className="mt-3 space-y-2">
+                                {visibleSections.map((section) => {
+                                  const sectionMatchesCurrentSelection = sourceSectionMatchesFocus(section, sourceReferenceFocus);
+                                  const matchingFields = orderedReviewSectionFields(section).filter((field) => sourceFieldMatchesFocus(field, sourceReferenceFocus));
+                                  const matchingGroups = section.groups.filter((group) => sourceGroupMatchesFocus(group, sourceReferenceFocus));
+                                  const sectionSelection = resolveSelectionForSourceTarget("section", page, section);
+                                  const sectionSelectionIsActive = authoringSelectionsEqual(sectionSelection, selectedAuthoring);
+
+                                  return (
+                                    <div
+                                      key={section.id}
+                                      className={`rounded-[0.95rem] border p-3 ${
+                                        sectionMatchesCurrentSelection ? "border-blue-200 bg-white shadow-sm" : "border-soft bg-white"
+                                      }`}
+                                    >
+                                      <div className="flex flex-wrap items-start justify-between gap-3">
+                                        <div>
+                                          <p className="font-semibold text-slate-950">{section.title}</p>
+                                          <p className="mt-1 text-sm text-slate-600">
+                                            {[...section.fields, ...section.groups.flatMap((group) => group.fields)].length} extracted fields
+                                          </p>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2">
+                                          {sectionSelection ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => focusAuthoringSelectionFromSource("section", page, section)}
+                                              className={subtleButtonClass(sectionSelectionIsActive)}
+                                            >
+                                              {sectionSelectionIsActive ? "Focused in builder" : "Focus in builder"}
+                                            </button>
+                                          ) : null}
+                                          {sourceReferenceFocus?.sectionIds.has(section.id) ? <StatusBadge tone="info">Direct section match</StatusBadge> : null}
+                                          {matchingFields.length ? <span className="app-pill">{matchingFields.length} matching fields</span> : null}
+                                          {matchingGroups.length ? <span className="app-pill">{matchingGroups.length} matching groups</span> : null}
+                                        </div>
+                                      </div>
+                                      {matchingGroups.length || matchingFields.length ? (
+                                        <div className="mt-3 space-y-2">
+                                          {matchingGroups.length ? (
+                                            <div>
+                                              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Matching groups</p>
+                                              <div className="mt-2 flex flex-wrap gap-2">
+                                                {matchingGroups.map((group) => {
+                                                  const groupSelection = resolveSelectionForSourceTarget("group", page, section, group);
+                                                  const groupSelectionIsActive = authoringSelectionsEqual(groupSelection, selectedAuthoring);
+
+                                                  return groupSelection ? (
+                                                    <button
+                                                      key={group.id}
+                                                      type="button"
+                                                      onClick={() => focusAuthoringSelectionFromSource("group", page, section, group)}
+                                                      className={subtleButtonClass(groupSelectionIsActive)}
+                                                    >
+                                                      {group.label}
+                                                    </button>
+                                                  ) : (
+                                                    <span key={group.id} className="app-pill">
+                                                      {group.label}
+                                                    </span>
+                                                  );
+                                                })}
+                                              </div>
+                                            </div>
+                                          ) : null}
+                                          {matchingFields.length ? (
+                                            <div>
+                                              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Matching fields</p>
+                                              <div className="mt-2 flex flex-wrap gap-2">
+                                                {matchingFields.slice(0, 8).map((field) => {
+                                                  const fieldSelection = resolveSelectionForSourceTarget("field", page, section, undefined, field);
+                                                  const fieldSelectionIsActive = authoringSelectionsEqual(fieldSelection, selectedAuthoring);
+
+                                                  return fieldSelection ? (
+                                                    <button
+                                                      key={field.id}
+                                                      type="button"
+                                                      onClick={() => focusAuthoringSelectionFromSource("field", page, section, undefined, field)}
+                                                      className={subtleButtonClass(fieldSelectionIsActive)}
+                                                    >
+                                                      {field.label}
+                                                    </button>
+                                                  ) : (
+                                                    <span key={field.id} className="app-pill">
+                                                      {field.label}
+                                                    </span>
+                                                  );
+                                                })}
+                                                {matchingFields.length > 8 ? <span className="app-pill">+{matchingFields.length - 8} more</span> : null}
+                                              </div>
+                                            </div>
+                                          ) : null}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  );
+                                })}
+                                {!visibleSections.length ? (
+                                  <div className="app-muted-card p-4 text-sm text-slate-500">
+                                    No imported sections match the current selection on this page.
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div className="app-muted-card p-4 text-sm text-slate-500">
+                          No imported pages matched the current authored selection. Switch back to `All source` to inspect the full imported reference.
                         </div>
-                      ))}
+                      )}
                     </div>
                   </div>
                 </PanelCard>
               ) : null}
             </section>
+            </div>
           </StageShell>
         ) : null}
 
-        {stage === "publish" ? (
-          <StageShell
-            eyebrow="Project state"
-            title="Save and release"
-            summary="Persist the authoring JSON, toggle published state, and confirm the stored project artifacts."
-            actions={
-              <div className="flex flex-wrap gap-2">
+        {newProjectDialogOpen ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/28 p-4">
+            <div className="w-full max-w-[42rem] rounded-[1.35rem] border border-soft bg-white p-5 shadow-[0_30px_70px_rgba(19,32,51,0.18)]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">New project</p>
+                  <h4 className="mt-1 text-lg font-semibold text-slate-950">Choose how to begin</h4>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Start from a blank authoring document or bring in a PDF and review it before promotion.
+                  </p>
+                </div>
+                <button type="button" onClick={() => setNewProjectDialogOpen(false)} className={iconButtonClass()}>
+                  ×
+                </button>
+              </div>
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => void handleCreateBlankProject()}
+                  disabled={isImportingJson}
+                  className="rounded-[1.35rem] border border-blue-200 bg-[linear-gradient(135deg,#eff6ff_0%,#ffffff_62%)] p-5 text-left shadow-sm transition hover:border-blue-300"
+                >
+                  <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Blank form</p>
+                  <h5 className="mt-2 text-lg font-semibold text-slate-950">Start from scratch</h5>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Create a fresh project and begin editing inside the main workspace immediately.
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewProjectDialogOpen(false);
+                    inputRef.current?.click();
+                  }}
+                  disabled={isUploading}
+                  className="rounded-[1.35rem] border border-slate-200 bg-[linear-gradient(135deg,#fff7ed_0%,#ffffff_62%)] p-5 text-left shadow-sm transition hover:border-slate-300"
+                >
+                  <p className="text-xs uppercase tracking-[0.18em] text-amber-700">Import PDF</p>
+                  <h5 className="mt-2 text-lg font-semibold text-slate-950">Create from source</h5>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Run the intake and review flow, then promote the imported structure into a project.
+                  </p>
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {openProjectDialogOpen ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/28 p-4">
+            <div className="w-full max-w-[58rem] rounded-[1.35rem] border border-soft bg-white p-5 shadow-[0_30px_70px_rgba(19,32,51,0.18)]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Open</p>
+                  <h4 className="mt-1 text-lg font-semibold text-slate-950">Return to existing work</h4>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Switch projects, reopen authoring JSON, or jump back to the main home screen without leaving the builder shell.
+                  </p>
+                </div>
+                <button type="button" onClick={() => setOpenProjectDialogOpen(false)} className={iconButtonClass()}>
+                  ×
+                </button>
+              </div>
+              <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.9fr)]">
+                <div className="rounded-[1.2rem] border border-soft bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Saved projects</p>
+                      <h5 className="mt-1 text-base font-semibold text-slate-950">Recent workspaces</h5>
+                    </div>
+                    <span className="app-pill">{projects.length} total</span>
+                  </div>
+                  <div className="mt-4 space-y-3">
+                    {projects.length ? (
+                      projects.slice(0, 8).map((project) => {
+                        const isActiveProject = activeProjectId === project.id;
+                        return (
+                          <button
+                            key={project.id}
+                            type="button"
+                            onClick={() => handleOpenProject(project.id)}
+                            className={`block w-full rounded-[1rem] border px-4 py-3 text-left transition ${
+                              isActiveProject
+                                ? "border-blue-300 bg-blue-50/70 shadow-[0_12px_28px_rgba(59,130,246,0.12)]"
+                                : "border-soft bg-white hover:border-slate-300"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="font-semibold text-slate-950">{project.name}</p>
+                                <p className="mt-1 text-sm text-slate-600">
+                                  {project.revisionCount} revisions · updated {new Date(project.updatedAt).toLocaleString()}
+                                </p>
+                              </div>
+                              <div className="flex flex-col items-end gap-2">
+                                <StatusBadge tone={badgeToneFromProjectStatus(project.status)}>{formatLabel(project.status)}</StatusBadge>
+                                {isActiveProject ? <span className="text-xs font-medium uppercase tracking-[0.16em] text-blue-700">Current</span> : null}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <div className="app-muted-card p-4 text-sm text-slate-500">
+                        No saved projects yet. Create a blank form or import a PDF to start building.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="rounded-[1.2rem] border border-soft bg-[linear-gradient(135deg,#f8fafc_0%,#ffffff_100%)] p-4">
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Open from file</p>
+                    <h5 className="mt-1 text-base font-semibold text-slate-950">Authoring JSON</h5>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      Load a saved authoring document directly into a durable project workspace.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => jsonInputRef.current?.click()}
+                      disabled={isImportingJson}
+                      className={`mt-4 ${actionButtonClass("primary")}`}
+                    >
+                      {isImportingJson ? "Opening..." : "Open JSON"}
+                    </button>
+                  </div>
+
+                  <div className="rounded-[1.2rem] border border-soft bg-[linear-gradient(135deg,#fff7ed_0%,#ffffff_100%)] p-4">
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Resume intake</p>
+                    <h5 className="mt-1 text-base font-semibold text-slate-950">Recent imports</h5>
+                    <div className="mt-3 space-y-3">
+                      {conversions.length ? (
+                        conversions.slice(0, 4).map((conversion) => (
+                          <button
+                            key={conversion.id}
+                            type="button"
+                            onClick={() => handleResumeImport(conversion)}
+                            className="block w-full rounded-[1rem] border border-soft bg-white px-4 py-3 text-left transition hover:border-slate-300"
+                          >
+                            <p className="font-semibold text-slate-950">{conversion.filename}</p>
+                            <p className="mt-1 text-sm text-slate-600">
+                              {formatLabel(conversion.reviewStatus)} · updated {new Date(conversion.updatedAt).toLocaleString()}
+                            </p>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="app-muted-card p-4 text-sm text-slate-500">
+                          No import reviews are waiting right now.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[1.2rem] border border-soft bg-slate-50 p-4">
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Home</p>
+                    <h5 className="mt-1 text-base font-semibold text-slate-950">Return to Project Home</h5>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      Go back to the start screen for the full creation and open overview.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleReturnHomeFromWorkspace}
+                      className={`mt-4 ${actionButtonClass()}`}
+                    >
+                      Go to Home
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {revisionHistoryOpen && activeProjectDetail ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/28 p-4">
+            <div className="w-full max-w-[68rem] rounded-[1.35rem] border border-soft bg-white p-5 shadow-[0_30px_70px_rgba(19,32,51,0.18)]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Revision history</p>
+                  <h4 className="mt-1 text-lg font-semibold text-slate-950">Inspect and reopen saved workspace snapshots</h4>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Revisions are the durable checkpoints for this project. Open an older snapshot into the current workspace, then return to the latest head or save it forward as the new current document.
+                  </p>
+                </div>
+                <button type="button" onClick={() => setRevisionHistoryOpen(false)} className={iconButtonClass()}>
+                  ×
+                </button>
+              </div>
+              <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(18rem,0.9fr)]">
+                <div className="rounded-[1.2rem] border border-soft bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Saved revisions</p>
+                      <h5 className="mt-1 text-base font-semibold text-slate-950">Project timeline</h5>
+                    </div>
+                    <span className="app-pill">{projectRevisions.length} total</span>
+                  </div>
+                  <div className="mt-4 max-h-[28rem] space-y-3 overflow-y-auto pr-1">
+                    {projectRevisions.length ? (
+                      projectRevisions.map((revision) => {
+                        const summary = summarizeAuthoringDocument(revision.document);
+                        const isCurrentHead = activeProjectDetail.project.currentRevisionId === revision.id;
+                        const isOpenedRevision = openedRevisionView?.id === revision.id;
+                        return (
+                          <div
+                            key={revision.id}
+                            className={`rounded-[1rem] border px-4 py-3 ${
+                              isOpenedRevision
+                                ? "border-amber-300 bg-amber-50/70 shadow-[0_12px_28px_rgba(245,158,11,0.12)]"
+                                : isCurrentHead
+                                  ? "border-blue-300 bg-blue-50/70 shadow-[0_12px_28px_rgba(59,130,246,0.12)]"
+                                  : "border-soft bg-white"
+                            }`}
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="font-semibold text-slate-950">{revision.note}</p>
+                                <p className="mt-1 text-sm text-slate-600">{new Date(revision.createdAt).toLocaleString()}</p>
+                                <p className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-500">{revision.document.title}</p>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {isCurrentHead ? <StatusBadge tone="info">Current head</StatusBadge> : null}
+                                {isOpenedRevision ? <StatusBadge tone="warning">Opened in workspace</StatusBadge> : null}
+                              </div>
+                            </div>
+                            <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
+                              <span className="app-pill">{summary.stepCount} steps</span>
+                              <span className="app-pill">{summary.sectionCount} sections</span>
+                              <span className="app-pill">{summary.fieldCount} fields</span>
+                              <span className="app-pill">{summary.interactiveCount} interactive</span>
+                            </div>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {isCurrentHead ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleReturnToLatestProjectRevision()}
+                                  disabled={!openedRevisionView || isLoadingRevisionWorkspace}
+                                  className={actionButtonClass(isOpenedRevision ? "primary" : "secondary")}
+                                >
+                                  {isLoadingRevisionWorkspace && isOpenedRevision ? "Returning..." : isOpenedRevision ? "Return to this head" : "Current head"}
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenRevisionSnapshot(revision.id)}
+                                  disabled={isLoadingRevisionWorkspace}
+                                  className={actionButtonClass(isOpenedRevision ? "primary" : "secondary")}
+                                >
+                                  {isOpenedRevision ? "Opened in workspace" : "Open snapshot"}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="app-muted-card p-4 text-sm text-slate-500">
+                        No saved revisions yet. Save the project to create the first durable snapshot.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="rounded-[1.2rem] border border-soft bg-[linear-gradient(135deg,#f8fafc_0%,#ffffff_100%)] p-4">
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Current workspace</p>
+                    <h5 className="mt-1 text-base font-semibold text-slate-950">{activeProjectDetail.project.name}</h5>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      {openedRevisionView
+                        ? `You are viewing a saved snapshot from ${new Date(openedRevisionView.createdAt).toLocaleString()}.`
+                        : "You are on the latest saved project head."}
+                    </p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <span className="app-pill">{activeDocumentSummary?.stepCount ?? 0} steps</span>
+                      <span className="app-pill">{activeDocumentSummary?.sectionCount ?? 0} sections</span>
+                      <span className="app-pill">{activeDocumentSummary?.fieldCount ?? 0} fields</span>
+                    </div>
+                  </div>
+
+                  <div className="rounded-[1.2rem] border border-soft bg-slate-50 p-4">
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">How restore works</p>
+                    <div className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+                      <p>Opening a snapshot swaps the workspace to that saved revision without leaving the builder.</p>
+                      <p>Return to the latest head any time if you only needed inspection.</p>
+                      <p>Save after opening a snapshot to make that older revision the current project document again.</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-[1.2rem] border border-soft bg-white p-4">
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Current revision file</p>
+                    <p className="mt-2 break-all font-mono text-sm text-slate-800">
+                      {projectArtifactPaths?.revision ?? "Save the project to create the first revision file."}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {pendingWorkspaceTransition && pendingWorkspaceTransitionCopy ? (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/38 p-4">
+            <div className="w-full max-w-[32rem] rounded-[1.35rem] border border-soft bg-white p-5 shadow-[0_30px_70px_rgba(19,32,51,0.24)]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-amber-700">Unsaved workspace changes</p>
+                  <h4 className="mt-1 text-lg font-semibold text-slate-950">{pendingWorkspaceTransitionCopy.title}</h4>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">{pendingWorkspaceTransitionCopy.description}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPendingWorkspaceTransition(null)}
+                  disabled={isResolvingWorkspaceTransition}
+                  className={iconButtonClass()}
+                >
+                  ×
+                </button>
+              </div>
+              <div className="mt-5 rounded-[1.1rem] border border-amber-200 bg-amber-50/70 p-4 text-sm leading-6 text-amber-900">
+                Save keeps the current workspace edits before the next move. Discard or reload continues immediately from the last saved state on disk.
+              </div>
+              <div className="mt-5 flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPendingWorkspaceTransition(null)}
+                  disabled={isResolvingWorkspaceTransition}
+                  className={actionButtonClass()}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleConfirmWorkspaceTransitionDiscard()}
+                  disabled={isResolvingWorkspaceTransition}
+                  className={actionButtonClass("danger")}
+                >
+                  {isResolvingWorkspaceTransition ? "Working..." : pendingWorkspaceTransitionCopy.discardLabel}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleConfirmWorkspaceTransitionSave()}
+                  disabled={isResolvingWorkspaceTransition || isSavingProject}
+                  className={actionButtonClass("primary")}
+                >
+                  {isResolvingWorkspaceTransition || isSavingProject ? "Saving..." : pendingWorkspaceTransitionCopy.saveLabel}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {projectDetailsOpen && activeProjectDetail ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/28 p-4">
+            <div className="w-full max-w-[68rem] rounded-[1.35rem] border border-soft bg-white p-5 shadow-[0_30px_70px_rgba(19,32,51,0.18)]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Project details</p>
+                  <h4 className="mt-1 text-lg font-semibold text-slate-950">Save, publish, and inspect stored artifacts</h4>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Publishing is a project action now. Use this panel to save, toggle release state, and verify what is stored on disk.
+                  </p>
+                </div>
+                <button type="button" onClick={() => setProjectDetailsOpen(false)} className={iconButtonClass()}>
+                  ×
+                </button>
+              </div>
+              <div className="mt-5 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRevisionHistoryOpen(true)}
+                  disabled={!activeProjectDetail}
+                  className={actionButtonClass()}
+                >
+                  Revision history
+                </button>
                 <button
                   type="button"
                   onClick={() => void handleSaveProject()}
@@ -4357,16 +6290,13 @@ export default function App() {
                 >
                   {isPublishingProject
                     ? "Updating status..."
-                    : activeProjectDetail?.project.status === "published"
-                      ? "Mark unpublished"
-                      : "Mark published"}
+                    : activeProjectDetail.project.status === "published"
+                      ? "Mark draft"
+                      : "Publish"}
                 </button>
               </div>
-            }
-          >
-            <section className="grid gap-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-              <PanelCard title="Release state" eyebrow="Current output">
-                {activeProjectDetail ? (
+              <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+                <PanelCard title="Release state" eyebrow="Current output">
                   <div className="space-y-4">
                     <div className="rounded-[1.15rem] border border-soft bg-white p-5">
                       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -4387,7 +6317,7 @@ export default function App() {
                       <div className="app-muted-card p-4">
                         <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Saved document</p>
                         <p className="mt-2 text-sm font-semibold text-slate-950">
-                          {projectDirty ? "Unsaved local changes in builder" : "Current document persisted to disk"}
+                          {projectDirty ? "Unsaved local changes in workspace" : "Current document persisted to disk"}
                         </p>
                         <p className="mt-2 break-all font-mono text-sm text-slate-600">
                           {projectArtifactPaths?.document ?? "No document file yet"}
@@ -4407,54 +6337,52 @@ export default function App() {
                     </div>
 
                     <div className="rounded-[1.15rem] border border-soft bg-white p-5">
-                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">What this stage does now</p>
+                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">What this panel does</p>
                       <div className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
                         <p>Save writes the structured authoring JSON and a revision snapshot to the project folder.</p>
-                        <p>Published state is a reversible toggle while the runtime/export contract is still evolving.</p>
-                        <p>This stage stays intentionally lightweight and separate from day-to-day editing.</p>
+                        <p>Published state is a reversible project flag while the runtime/export contract is still evolving.</p>
+                        <p>This stays separate from the main editing canvas so the workspace remains creation-first.</p>
                       </div>
                     </div>
                   </div>
-                ) : (
-                  <div className="app-muted-card p-6 text-sm text-slate-500">No project selected.</div>
-                )}
-              </PanelCard>
+                </PanelCard>
 
-              <PanelCard title="Stored artifacts" eyebrow="Local files">
-                {activeProjectDetail && projectArtifactPaths ? (
-                  <div className="space-y-4">
-                    <div className="app-muted-card p-4">
-                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Project metadata</p>
-                      <p className="mt-2 break-all font-mono text-sm text-slate-800">{projectArtifactPaths.project}</p>
+                <PanelCard title="Stored artifacts" eyebrow="Local files">
+                  {projectArtifactPaths ? (
+                    <div className="space-y-4">
+                      <div className="app-muted-card p-4">
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Project metadata</p>
+                        <p className="mt-2 break-all font-mono text-sm text-slate-800">{projectArtifactPaths.project}</p>
+                      </div>
+                      <div className="app-muted-card p-4">
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Authoring document JSON</p>
+                        <p className="mt-2 break-all font-mono text-sm text-slate-800">{projectArtifactPaths.document}</p>
+                      </div>
+                      <div className="app-muted-card p-4">
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Source context JSON</p>
+                        <p className="mt-2 break-all font-mono text-sm text-slate-800">{projectArtifactPaths.sourceContext}</p>
+                      </div>
+                      <div className="app-muted-card p-4">
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Current revision snapshot</p>
+                        <p className="mt-2 break-all font-mono text-sm text-slate-800">
+                          {projectArtifactPaths.revision ?? "Save the project to create the first revision file."}
+                        </p>
+                      </div>
+                      <div className="rounded-[1.15rem] border border-soft bg-white p-5">
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Source lineage</p>
+                        <p className="mt-2 font-semibold text-slate-950">{activeProjectDetail.sourceContext.filename}</p>
+                        <p className="mt-2 text-sm leading-6 text-slate-600">
+                          The imported draft remains preserved as provenance. Toggling published state does not alter the source lineage.
+                        </p>
+                      </div>
                     </div>
-                    <div className="app-muted-card p-4">
-                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Authoring document JSON</p>
-                      <p className="mt-2 break-all font-mono text-sm text-slate-800">{projectArtifactPaths.document}</p>
-                    </div>
-                    <div className="app-muted-card p-4">
-                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Source context JSON</p>
-                      <p className="mt-2 break-all font-mono text-sm text-slate-800">{projectArtifactPaths.sourceContext}</p>
-                    </div>
-                    <div className="app-muted-card p-4">
-                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Current revision snapshot</p>
-                      <p className="mt-2 break-all font-mono text-sm text-slate-800">
-                        {projectArtifactPaths.revision ?? "Save the project to create the first revision file."}
-                      </p>
-                    </div>
-                    <div className="rounded-[1.15rem] border border-soft bg-white p-5">
-                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Source lineage</p>
-                      <p className="mt-2 font-semibold text-slate-950">{activeProjectDetail.sourceContext.filename}</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">
-                        The imported draft remains preserved as provenance. Toggling published state does not alter the source lineage.
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="app-muted-card p-6 text-sm text-slate-500">No project selected.</div>
-                )}
-              </PanelCard>
-            </section>
-          </StageShell>
+                  ) : (
+                    <div className="app-muted-card p-6 text-sm text-slate-500">No project artifacts are available.</div>
+                  )}
+                </PanelCard>
+              </div>
+            </div>
+          </div>
         ) : null}
       </div>
     </main>

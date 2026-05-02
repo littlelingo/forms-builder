@@ -396,6 +396,54 @@ test("runtime restores session state after export/import style roundtrip", () =>
   assert.equal(restored.hostContextSnapshot?.environment, "runtime-test");
 });
 
+test("runtime restores exported session after document JSON save/load roundtrip", () => {
+  const document = createDocument();
+  const engine = createRuntimeEngine();
+
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+  engine.dispatch({
+    type: "field.change",
+    version: "1.0",
+    source: {
+      runtimeId: "runtime-test",
+      formId: "form-test",
+      projectId: "project-test",
+      nodeId: "field-name",
+      nodeType: "field",
+    },
+    payload: {
+      fieldId: "field-name",
+      nextValue: "Jane Doe",
+    },
+    correlationId: "corr-field-change",
+    timestamp: "2026-05-01T12:00:01.000Z",
+  });
+  engine.dispatch(clickEvent("button-next"));
+
+  const exportedState = engine.getState();
+  const persistedDocument = JSON.parse(JSON.stringify(document)) as AuthoringDocument;
+  const persistedSession = JSON.parse(JSON.stringify(exportedState));
+
+  const restoredEngine = createRuntimeEngine();
+  const restored = restoredEngine.mount(persistedDocument, {
+    runtimeId: "runtime-restored",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    initialSessionState: persistedSession,
+    emitLoadEvent: false,
+  });
+
+  assert.equal(restored.currentStepId, "step-2");
+  assert.equal(restored.values["field-name"], "Jane Doe");
+  assert.equal(restored.hostContextSnapshot?.environment, "runtime-test");
+  assert.equal(restoredEngine.getDocument()?.runtime?.submitEventName, "form.submit");
+});
+
 test("runtime emits validation_failed when submit is blocked", () => {
   const document = createDocument();
   const engine = createRuntimeEngine();

@@ -181,3 +181,228 @@ def test_import_authoring_document_creates_project(monkeypatch, tmp_path):
     assert imported["project"]["name"] == "Imported JSON Form"
     assert imported["document"]["title"] == "Imported JSON Form"
     assert imported["sourceContext"]["conversionId"].startswith("json-import-")
+
+
+def test_runtime_authoring_survives_project_save_and_disk_reload(monkeypatch, tmp_path):
+    repository = InMemoryRepository(project_storage_dir=tmp_path / "projects")
+    monkeypatch.setattr("form_builder_api.main.repository", repository)
+
+    payload = {
+        "id": "document-runtime-1",
+        "title": "Runtime Persistence Form",
+        "documentClass": "mixed",
+        "reviewStatus": "accepted",
+        "targetRuntime": "va_web_form",
+        "visualBaseline": "va.gov",
+        "sourcePriority": [],
+        "sourceConflicts": [],
+        "metadata": {"importSource": "test"},
+        "runtime": {
+            "version": "1.0",
+            "formEvents": [
+                {
+                    "id": "event-form-loaded",
+                    "name": "form.load",
+                    "payloadShape": {
+                        "mode": "key_value",
+                        "fields": [
+                            {
+                                "name": "projectId",
+                                "label": "Project ID",
+                                "valueType": "string",
+                                "required": False,
+                            }
+                        ],
+                        "example": {"projectId": "project-test"},
+                        "notes": ["Form load host payload."],
+                    },
+                }
+            ],
+            "formListeners": [
+                {
+                    "id": "listener-form-load",
+                    "label": "Emit project loaded event",
+                    "eventName": "form.load",
+                    "enabled": True,
+                    "ruleGuards": [],
+                    "actions": [
+                        {
+                            "id": "action-form-load",
+                            "kind": "emit_event",
+                            "target": {"nodeId": "document-runtime-1", "nodeType": "form"},
+                            "config": {
+                                "eventName": "project.loaded",
+                                "payload": {"source": "disk-reload"},
+                            },
+                            "continueOnError": False,
+                        }
+                    ],
+                }
+            ],
+            "hostBindings": [
+                {
+                    "id": "binding-form-submit",
+                    "eventName": "form.submit",
+                    "direction": "outbound",
+                    "handlerKey": "submit_form",
+                    "payloadShape": {
+                        "mode": "key_value",
+                        "fields": [
+                            {
+                                "name": "submissionId",
+                                "label": "Submission ID",
+                                "valueType": "string",
+                                "required": False,
+                            }
+                        ],
+                        "example": {"submissionId": "sub-123"},
+                        "notes": ["Host submit response payload."],
+                    },
+                }
+            ],
+            "submitEventName": "form.submit",
+            "sessionStateShape": {
+                "mode": "key_value",
+                "fields": [
+                    {
+                        "name": "draftSavedAt",
+                        "label": "Draft saved at",
+                        "valueType": "string",
+                        "required": False,
+                        "description": "Timestamp carried in exported runtime sessions.",
+                    }
+                ],
+                "example": {"draftSavedAt": "2026-05-02T12:00:00.000Z"},
+                "notes": ["Persisted runtime QA session shape."],
+            },
+        },
+        "steps": [
+            {
+                "id": "step-1",
+                "title": "Step 1",
+                "description": "Collect runtime details.",
+                "kind": "collect",
+                "layoutHints": {"surface": "va-step", "density": "comfortable"},
+                "sourcePageIds": [],
+                "provenanceAnchorIds": [],
+                "runtime": {
+                    "eventSources": [
+                        {
+                            "id": "event-step-enter",
+                            "name": "step.enter",
+                            "sourceNodeId": "step-1",
+                            "sourceNodeType": "step",
+                        }
+                    ],
+                    "listeners": [],
+                },
+                "sections": [
+                    {
+                        "id": "section-1",
+                        "title": "Section 1",
+                        "description": "Runtime section",
+                        "layoutHints": {},
+                        "lineage": [],
+                        "sourceSectionIds": [],
+                        "provenanceAnchorIds": [],
+                        "groups": [],
+                        "fields": [
+                            {
+                                "id": "field-1",
+                                "stableKey": "field-1",
+                                "label": "Applicant name",
+                                "semanticType": "text",
+                                "required": True,
+                                "confidence": 1,
+                                "options": [],
+                                "validations": [],
+                                "conditionals": [],
+                                "layoutHints": {"width": "full", "presentation": "input"},
+                                "rendererHints": {},
+                                "sourcePriority": [],
+                                "sourceConflicts": [],
+                                "lineage": [],
+                                "sourceFieldIds": [],
+                                "provenanceAnchorIds": [],
+                                "runtime": {
+                                    "eventSources": [
+                                        {
+                                            "id": "event-field-change",
+                                            "name": "field.change",
+                                            "sourceNodeId": "field-1",
+                                            "sourceNodeType": "field",
+                                        }
+                                    ],
+                                    "listeners": [
+                                        {
+                                            "id": "listener-field-change",
+                                            "label": "Mirror field value",
+                                            "eventName": "field.change",
+                                            "sourceNodeId": "field-1",
+                                            "enabled": True,
+                                            "ruleGuards": [],
+                                            "actions": [
+                                                {
+                                                    "id": "action-field-change",
+                                                    "kind": "set_field_value",
+                                                    "target": {"nodeId": "field-1", "nodeType": "field"},
+                                                    "config": {"fieldId": "field-1"},
+                                                    "continueOnError": False,
+                                                }
+                                            ],
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+    create_response = client.post("/projects/from-document", json=payload)
+    assert create_response.status_code == 200
+    created = create_response.json()
+    project_id = created["project"]["id"]
+
+    saved_document = created["document"]
+    saved_document["runtime"]["sessionStateShape"]["fields"].append(
+        {
+            "name": "submitStatus",
+            "label": "Submit status",
+            "valueType": "string",
+            "required": False,
+            "description": "Tracks the latest submit result in exported session JSON.",
+        }
+    )
+    saved_document["steps"][0]["sections"][0]["fields"][0]["runtime"]["listeners"][0]["actions"][0]["config"][
+        "value"
+    ] = "persisted after save"
+
+    save_response = client.put(f"/projects/{project_id}/document", json=saved_document)
+    assert save_response.status_code == 200
+    saved = save_response.json()
+
+    assert len(saved["document"]["runtime"]["sessionStateShape"]["fields"]) == 2
+    assert (
+        saved["document"]["steps"][0]["sections"][0]["fields"][0]["runtime"]["listeners"][0]["actions"][0]["config"][
+            "value"
+        ]
+        == "persisted after save"
+    )
+
+    reloaded = InMemoryRepository(project_storage_dir=tmp_path / "projects")
+    detail = reloaded.get_project(project_id)
+
+    assert detail is not None
+    assert detail.document.runtime is not None
+    assert detail.document.runtime.session_state_shape.fields[1].name == "submitStatus"
+    assert detail.document.runtime.host_bindings[0].handler_key == "submit_form"
+    assert detail.document.steps[0].runtime is not None
+    assert detail.document.steps[0].runtime.event_sources[0].name == "step.enter"
+    assert detail.document.steps[0].sections[0].fields[0].runtime is not None
+    assert (
+        detail.document.steps[0].sections[0].fields[0].runtime.listeners[0].actions[0].config["value"]
+        == "persisted after save"
+    )

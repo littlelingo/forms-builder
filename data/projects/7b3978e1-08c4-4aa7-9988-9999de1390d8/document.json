@@ -1,0 +1,203 @@
+{
+  "id": "14355de8-4464-433c-a78c-52c861f7c00a",
+  "title": "Forms Builder Import Check",
+  "documentClass": "born_digital_nonfillable",
+  "reviewStatus": "reviewed",
+  "targetRuntime": "va_web_form",
+  "visualBaseline": "va.gov",
+  "sourcePriority": [
+    "layout",
+    "widget_geometry"
+  ],
+  "sourceConflicts": [],
+  "steps": [
+    {
+      "id": "4f3aa1e9-84bc-486f-b274-2aa68b98b7ae",
+      "title": "Page 1 \u00b7 Test PDF for builder import",
+      "description": "Test PDF for builder import",
+      "kind": "collect",
+      "layoutHints": {
+        "surface": "va-step",
+        "density": "comfortable",
+        "sourcePageNumber": "1"
+      },
+      "sourcePageIds": [
+        "page-1"
+      ],
+      "provenanceAnchorIds": [
+        "ev-1-test-pdf-for-builder-import",
+        "ev-1-field-a",
+        "ev-1-field-b"
+      ],
+      "sections": [
+        {
+          "id": "df0a7ebb-1672-48d4-83a5-4fd8ea07100f",
+          "title": "Test PDF for builder import",
+          "description": "Recovered from visible page text because no explicit fillable field metadata was found.",
+          "layoutHints": {
+            "presentation": "stacked"
+          },
+          "lineage": [
+            "page-1"
+          ],
+          "sourceSectionIds": [
+            "section-1-1"
+          ],
+          "provenanceAnchorIds": [
+            "ev-1-test-pdf-for-builder-import"
+          ],
+          "groups": [
+            {
+              "id": "80a8fccb-9d1d-49b5-a628-8a02582156bd",
+              "label": "Test PDF for builder import",
+              "description": "Grouped from visible section content.",
+              "layoutHints": {
+                "presentation": "stacked",
+                "kind": "static_content"
+              },
+              "rendererHints": {
+                "groupType": "static_content",
+                "fieldCount": "3"
+              },
+              "lineage": [
+                "page-1",
+                "section-1-1"
+              ],
+              "sourceGroupIds": [
+                "group-static-1-fallback"
+              ],
+              "provenanceAnchorIds": [
+                "ev-1-test-pdf-for-builder-import"
+              ],
+              "fields": [
+                {
+                  "id": "acf43d5c-bc4f-4b68-b646-3419e9fec06b",
+                  "stableKey": "forms-builder-import-check-1-statement-0",
+                  "label": "Test PDF for builder import",
+                  "helpText": "Recovered from page text for reviewer triage.",
+                  "semanticType": "statement",
+                  "required": false,
+                  "confidence": 0.62,
+                  "options": [],
+                  "validations": [],
+                  "conditionals": [],
+                  "layoutHints": {
+                    "width": "full",
+                    "presentation": "content"
+                  },
+                  "rendererHints": {
+                    "runtimePattern": "statement"
+                  },
+                  "sourcePriority": [
+                    "layout"
+                  ],
+                  "sourceConflicts": [],
+                  "lineage": [
+                    "page-1",
+                    "section-1-1",
+                    "group-static-1-fallback"
+                  ],
+                  "sourceFieldIds": [
+                    "field-1-statement-0"
+                  ],
+                  "provenanceAnchorIds": [
+                    "ev-1-test-pdf-for-builder-import"
+                  ],
+                  "runtime": null
+                },
+                {
+                  "id": "bd1218b7-ecc9-4601-b47f-99edcb863c78",
+                  "stableKey": "forms-builder-import-check-1-statement-1",
+                  "label": "Field A",
+                  "helpText": "Recovered from page text for reviewer triage.",
+                  "semanticType": "statement",
+                  "required": false,
+                  "confidence": 0.62,
+                  "options": [],
+                  "validations": [],
+                  "conditionals": [],
+                  "layoutHints": {
+                    "width": "full",
+                    "presentation": "content"
+                  },
+                  "rendererHints": {
+                    "runtimePattern": "statement"
+                  },
+                  "sourcePriority": [
+                    "layout"
+                  ],
+                  "sourceConflicts": [],
+                  "lineage": [
+                    "page-1",
+                    "section-1-1",
+                    "group-static-1-fallback"
+                  ],
+                  "sourceFieldIds": [
+                    "field-1-statement-1"
+                  ],
+                  "provenanceAnchorIds": [
+                    "ev-1-field-a"
+                  ],
+                  "runtime": null
+                },
+                {
+                  "id": "3226df06-74bf-457a-92f9-6c6cf5be7b9f",
+                  "stableKey": "forms-builder-import-check-1-statement-2",
+                  "label": "Field B",
+                  "helpText": "Recovered from page text for reviewer triage.",
+                  "semanticType": "statement",
+                  "required": false,
+                  "confidence": 0.62,
+                  "options": [],
+                  "validations": [],
+                  "conditionals": [],
+                  "layoutHints": {
+                    "width": "full",
+                    "presentation": "content"
+                  },
+                  "rendererHints": {
+                    "runtimePattern": "statement"
+                  },
+                  "sourcePriority": [
+                    "layout"
+                  ],
+                  "sourceConflicts": [],
+                  "lineage": [
+                    "page-1",
+                    "section-1-1",
+                    "group-static-1-fallback"
+                  ],
+                  "sourceFieldIds": [
+                    "field-1-statement-2"
+                  ],
+                  "provenanceAnchorIds": [
+                    "ev-1-field-b"
+                  ],
+                  "runtime": null
+                }
+              ],
+              "runtime": null
+            }
+          ],
+          "fields": [],
+          "runtime": null
+        }
+      ],
+      "runtime": null
+    }
+  ],
+  "metadata": {
+    "phase": "phase-1",
+    "filename": "forms-builder-import-check.pdf",
+    "documentClass": "born_digital_nonfillable",
+    "classificationNotes": "Detected live text without form packets; use born-digital layout extraction.",
+    "adapterNotes": "fitz_text_lines=3 | acroform_fields=0 | xfa_hints=0 | table_hints=0 | page_regions=0",
+    "acroformFieldCount": "0",
+    "xfaHintCount": "0",
+    "textLineCount": "3",
+    "sourceFilename": "forms-builder-import-check.pdf",
+    "sourceConversionId": "4dd551fd-ce08-4470-9028-3fc71a408974",
+    "vaBaseline": "true"
+  },
+  "runtime": null
+}

@@ -1,0 +1,333 @@
+{
+  "conversionId": "3b01f40f-adfd-45f8-bd5f-815286871650",
+  "filename": "forms-builder-import-check.pdf",
+  "documentClass": "born_digital_nonfillable",
+  "reviewStatus": "reviewed",
+  "confidence": 0.74,
+  "extractorPath": [
+    "layout_primitives",
+    "table_heuristics",
+    "label_reconciliation"
+  ],
+  "notes": [
+    "Detected live text without form packets; use born-digital layout extraction."
+  ],
+  "issues": [
+    {
+      "code": "ambiguous_field_type",
+      "severity": "warning",
+      "message": "No explicit fillable widgets were detected; this draft was inferred from page text.",
+      "nodeId": "field-1-statement-0",
+      "evidenceAnchorIds": [],
+      "confidenceBand": "medium",
+      "suggestedAction": "Confirm which text lines are prompts, instructions, or true input fields."
+    }
+  ],
+  "importedDraft": {
+    "id": "forms-builder-import-check-born-digital-nonfillable",
+    "title": "Forms Builder Import Check",
+    "documentClass": "born_digital_nonfillable",
+    "reviewStatus": "reviewed",
+    "sourcePriority": [
+      "layout",
+      "widget_geometry"
+    ],
+    "sourceConflicts": [],
+    "pages": [
+      {
+        "id": "page-1",
+        "orderIndex": 0,
+        "label": "Test PDF for builder import",
+        "sections": [
+          {
+            "id": "section-1-1",
+            "orderIndex": 0,
+            "title": "Test PDF for builder import",
+            "description": "Recovered from visible page text because no explicit fillable field metadata was found.",
+            "pageId": "page-1",
+            "lineage": [
+              "page-1"
+            ],
+            "groups": [
+              {
+                "id": "group-static-1-fallback",
+                "orderIndex": 0,
+                "label": "Test PDF for builder import",
+                "description": "Grouped from visible section content.",
+                "pageId": "page-1",
+                "sectionId": "section-1-1",
+                "lineage": [
+                  "page-1",
+                  "section-1-1"
+                ],
+                "sourceCoordinates": [
+                  {
+                    "page": 1,
+                    "x": 16.600000381469727,
+                    "y": 16.71600341796875,
+                    "width": 194.43124961853027,
+                    "height": 51.0
+                  }
+                ],
+                "evidence": [
+                  {
+                    "anchorId": "ev-1-test-pdf-for-builder-import",
+                    "sourcePriority": "layout",
+                    "page": 1,
+                    "snippet": "Test PDF for builder import",
+                    "bounds": {
+                      "page": 1,
+                      "x": 16.600000381469727,
+                      "y": 16.71600341796875,
+                      "width": 194.43124961853027,
+                      "height": 15.0
+                    },
+                    "confidence": 0.78,
+                    "notes": "Recovered from visible page text."
+                  }
+                ],
+                "fields": [
+                  {
+                    "id": "field-1-statement-0",
+                    "stableKey": "forms-builder-import-check-1-statement-0",
+                    "orderIndex": 0,
+                    "lineage": [
+                      "page-1",
+                      "section-1-1",
+                      "group-static-1-fallback"
+                    ],
+                    "pageId": "page-1",
+                    "sectionId": "section-1-1",
+                    "semanticType": "statement",
+                    "label": "Test PDF for builder import",
+                    "helpText": "Recovered from page text for reviewer triage.",
+                    "required": false,
+                    "sourceCoordinates": [
+                      {
+                        "page": 1,
+                        "x": 16.600000381469727,
+                        "y": 16.71600341796875,
+                        "width": 194.43124961853027,
+                        "height": 15.0
+                      }
+                    ],
+                    "evidence": [
+                      {
+                        "anchorId": "ev-1-test-pdf-for-builder-import",
+                        "sourcePriority": "layout",
+                        "page": 1,
+                        "snippet": "Test PDF for builder import",
+                        "bounds": {
+                          "page": 1,
+                          "x": 16.600000381469727,
+                          "y": 16.71600341796875,
+                          "width": 194.43124961853027,
+                          "height": 15.0
+                        },
+                        "confidence": 0.78,
+                        "notes": "Recovered from visible page text."
+                      }
+                    ],
+                    "confidence": 0.62,
+                    "sourcePriority": [
+                      "layout"
+                    ],
+                    "sourceConflicts": [],
+                    "reviewStatus": "needs_review",
+                    "options": [],
+                    "validations": [],
+                    "conditionals": [],
+                    "rendererHints": {
+                      "runtimePattern": "statement"
+                    }
+                  },
+                  {
+                    "id": "field-1-statement-1",
+                    "stableKey": "forms-builder-import-check-1-statement-1",
+                    "orderIndex": 1,
+                    "lineage": [
+                      "page-1",
+                      "section-1-1",
+                      "group-static-1-fallback"
+                    ],
+                    "pageId": "page-1",
+                    "sectionId": "section-1-1",
+                    "semanticType": "statement",
+                    "label": "Field A",
+                    "helpText": "Recovered from page text for reviewer triage.",
+                    "required": false,
+                    "sourceCoordinates": [
+                      {
+                        "page": 1,
+                        "x": 16.600000381469727,
+                        "y": 40.71600341796875,
+                        "width": 50.40720176696777,
+                        "height": 15.0
+                      }
+                    ],
+                    "evidence": [
+                      {
+                        "anchorId": "ev-1-field-a",
+                        "sourcePriority": "layout",
+                        "page": 1,
+                        "snippet": "Field A",
+                        "bounds": {
+                          "page": 1,
+                          "x": 16.600000381469727,
+                          "y": 40.71600341796875,
+                          "width": 50.40720176696777,
+                          "height": 15.0
+                        },
+                        "confidence": 0.78,
+                        "notes": "Recovered from visible page text."
+                      }
+                    ],
+                    "confidence": 0.62,
+                    "sourcePriority": [
+                      "layout"
+                    ],
+                    "sourceConflicts": [],
+                    "reviewStatus": "needs_review",
+                    "options": [],
+                    "validations": [],
+                    "conditionals": [],
+                    "rendererHints": {
+                      "runtimePattern": "statement"
+                    }
+                  },
+                  {
+                    "id": "field-1-statement-2",
+                    "stableKey": "forms-builder-import-check-1-statement-2",
+                    "orderIndex": 2,
+                    "lineage": [
+                      "page-1",
+                      "section-1-1",
+                      "group-static-1-fallback"
+                    ],
+                    "pageId": "page-1",
+                    "sectionId": "section-1-1",
+                    "semanticType": "statement",
+                    "label": "Field B",
+                    "helpText": "Recovered from page text for reviewer triage.",
+                    "required": false,
+                    "sourceCoordinates": [
+                      {
+                        "page": 1,
+                        "x": 16.600000381469727,
+                        "y": 52.71600341796875,
+                        "width": 50.40720176696777,
+                        "height": 15.0
+                      }
+                    ],
+                    "evidence": [
+                      {
+                        "anchorId": "ev-1-field-b",
+                        "sourcePriority": "layout",
+                        "page": 1,
+                        "snippet": "Field B",
+                        "bounds": {
+                          "page": 1,
+                          "x": 16.600000381469727,
+                          "y": 52.71600341796875,
+                          "width": 50.40720176696777,
+                          "height": 15.0
+                        },
+                        "confidence": 0.78,
+                        "notes": "Recovered from visible page text."
+                      }
+                    ],
+                    "confidence": 0.62,
+                    "sourcePriority": [
+                      "layout"
+                    ],
+                    "sourceConflicts": [],
+                    "reviewStatus": "needs_review",
+                    "options": [],
+                    "validations": [],
+                    "conditionals": [],
+                    "rendererHints": {
+                      "runtimePattern": "statement"
+                    }
+                  }
+                ],
+                "rendererHints": {
+                  "groupType": "static_content",
+                  "fieldCount": "3"
+                }
+              }
+            ],
+            "fields": []
+          }
+        ],
+        "evidence": [
+          {
+            "anchorId": "ev-1-test-pdf-for-builder-import",
+            "sourcePriority": "layout",
+            "page": 1,
+            "snippet": "Test PDF for builder import",
+            "bounds": {
+              "page": 1,
+              "x": 16.600000381469727,
+              "y": 16.71600341796875,
+              "width": 194.43124961853027,
+              "height": 15.0
+            },
+            "confidence": 0.78,
+            "notes": "Recovered from visible page text."
+          },
+          {
+            "anchorId": "ev-1-field-a",
+            "sourcePriority": "layout",
+            "page": 1,
+            "snippet": "Field A",
+            "bounds": {
+              "page": 1,
+              "x": 16.600000381469727,
+              "y": 40.71600341796875,
+              "width": 50.40720176696777,
+              "height": 15.0
+            },
+            "confidence": 0.78,
+            "notes": "Recovered from visible page text."
+          },
+          {
+            "anchorId": "ev-1-field-b",
+            "sourcePriority": "layout",
+            "page": 1,
+            "snippet": "Field B",
+            "bounds": {
+              "page": 1,
+              "x": 16.600000381469727,
+              "y": 52.71600341796875,
+              "width": 50.40720176696777,
+              "height": 15.0
+            },
+            "confidence": 0.78,
+            "notes": "Recovered from visible page text."
+          }
+        ]
+      }
+    ],
+    "issues": [
+      {
+        "code": "ambiguous_field_type",
+        "severity": "warning",
+        "message": "No explicit fillable widgets were detected; this draft was inferred from page text.",
+        "nodeId": "field-1-statement-0",
+        "evidenceAnchorIds": [],
+        "confidenceBand": "medium",
+        "suggestedAction": "Confirm which text lines are prompts, instructions, or true input fields."
+      }
+    ],
+    "metadata": {
+      "phase": "phase-1",
+      "filename": "forms-builder-import-check.pdf",
+      "documentClass": "born_digital_nonfillable",
+      "classificationNotes": "Detected live text without form packets; use born-digital layout extraction.",
+      "adapterNotes": "fitz_text_lines=3 | acroform_fields=0 | xfa_hints=0 | table_hints=0 | page_regions=0",
+      "acroformFieldCount": "0",
+      "xfaHintCount": "0",
+      "textLineCount": "3"
+    }
+  }
+}
