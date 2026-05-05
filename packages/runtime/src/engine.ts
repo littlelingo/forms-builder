@@ -22,6 +22,20 @@ import type {
 import { validateRuntimeDocument } from "./validation";
 
 const RUNTIME_VERSION = "1.0";
+const runtimePayloadReferenceKeys = [
+  "current.field.id",
+  "current.field.key",
+  "current.step.id",
+  "current.step.title",
+  "current.form.id",
+  "current.form.title",
+  "current.project.id",
+  "current.source.node.id",
+  "current.source.node.type",
+  "current.runtime.value",
+] as const;
+
+type RuntimePayloadReferenceKey = (typeof runtimePayloadReferenceKeys)[number];
 
 export function createRuntimeEngine(): RuntimeEngine {
   const eventBus = new RuntimeEventBus();
@@ -159,6 +173,8 @@ export function createRuntimeEngine(): RuntimeEngine {
     }
   };
 
+  const ruleIsEnabled = (rule: ConditionalRule): boolean => rule.enabled !== false;
+
   const listenerMatches = (listener: RuntimeListenerDefinition, event: RuntimeEventEnvelope): boolean => {
     if (!listener.enabled || listener.eventName !== event.type) {
       return false;
@@ -172,7 +188,7 @@ export function createRuntimeEngine(): RuntimeEngine {
     const currentIndex = index;
     return listener.ruleGuards.every((guard) => {
       const conditional = currentIndex.conditionalRules.get(guard.ruleId);
-      return conditional ? evaluateRule(conditional.rule) : true;
+      return conditional ? !ruleIsEnabled(conditional.rule) || evaluateRule(conditional.rule) : true;
     });
   };
 
@@ -282,7 +298,7 @@ export function createRuntimeEngine(): RuntimeEngine {
             typeof action.config.eventName === "string" && action.config.eventName.trim().length > 0
               ? action.config.eventName
               : "custom.event";
-          const payload = isRecord(action.config.payload) ? action.config.payload : {};
+          const payload = resolveRuntimePayload(isRecord(action.config.payload) ? action.config.payload : {}, event, document, index, state);
           routeEvent(
             buildEvent(eventName, payload, "outbound", {
               nodeId: event.source.nodeId,
@@ -295,6 +311,15 @@ export function createRuntimeEngine(): RuntimeEngine {
         }
         case "host_action": {
           const handlerKey = typeof action.config.handlerKey === "string" ? action.config.handlerKey : null;
+          const resolvedPayload = resolveRuntimePayload(
+            isRecord(action.config.payload) ? action.config.payload : {},
+            event,
+            document,
+            index,
+            state,
+          );
+          const config = structuredClone(action.config);
+          config.payload = resolvedPayload;
           routeEvent(
             buildEvent(
               "host.action_requested",
@@ -302,7 +327,7 @@ export function createRuntimeEngine(): RuntimeEngine {
                 handlerKey,
                 actionId: action.id,
                 target: action.target ?? null,
-                config: structuredClone(action.config),
+                config,
               },
               "outbound",
               {
@@ -600,4 +625,83 @@ function isStringRecord(value: unknown): value is Record<string, string> {
     return false;
   }
   return Object.values(value).every((entry) => typeof entry === "string");
+}
+
+function isRuntimePayloadReference(value: unknown): value is { $runtime: RuntimePayloadReferenceKey } {
+  return (
+    isRecord(value) &&
+    typeof value.$runtime === "string" &&
+    runtimePayloadReferenceKeys.includes(value.$runtime as RuntimePayloadReferenceKey)
+  );
+}
+
+function resolveRuntimePayload(
+  payload: Record<string, unknown>,
+  event: RuntimeEventEnvelope,
+  document: AuthoringDocument,
+  index: RuntimeDocumentIndex,
+  state: RuntimeSessionState,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(payload).map(([key, value]) => [key, resolveRuntimePayloadValue(value, event, document, index, state)]),
+  );
+}
+
+function resolveRuntimePayloadValue(
+  value: unknown,
+  event: RuntimeEventEnvelope,
+  document: AuthoringDocument,
+  index: RuntimeDocumentIndex,
+  state: RuntimeSessionState,
+): unknown {
+  if (isRuntimePayloadReference(value)) {
+    return resolveRuntimePayloadReference(value.$runtime, event, document, index, state);
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => resolveRuntimePayloadValue(entry, event, document, index, state));
+  }
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, resolveRuntimePayloadValue(entry, event, document, index, state)]),
+    );
+  }
+  return structuredClone(value);
+}
+
+function resolveRuntimePayloadReference(
+  referenceKey: RuntimePayloadReferenceKey,
+  event: RuntimeEventEnvelope,
+  document: AuthoringDocument,
+  index: RuntimeDocumentIndex,
+  state: RuntimeSessionState,
+): unknown {
+  const sourceNodeId = typeof event.source.nodeId === "string" ? event.source.nodeId : null;
+  const sourceNode = sourceNodeId ? index.nodes.get(sourceNodeId) ?? null : null;
+  const activeStepNode = state.currentStepId ? index.nodes.get(state.currentStepId) ?? null : null;
+  switch (referenceKey) {
+    case "current.field.id":
+      return sourceNode?.fieldId ?? null;
+    case "current.field.key":
+      return sourceNode?.field?.stableKey ?? null;
+    case "current.step.id":
+      return sourceNode?.stepId ?? state.currentStepId ?? null;
+    case "current.step.title":
+      return sourceNode?.step?.title ?? activeStepNode?.step?.title ?? null;
+    case "current.form.id":
+      return document.id;
+    case "current.form.title":
+      return document.title;
+    case "current.project.id":
+      return event.source.projectId ?? null;
+    case "current.source.node.id":
+      return sourceNodeId;
+    case "current.source.node.type":
+      return sourceNode?.nodeType ?? event.source.nodeType ?? null;
+    case "current.runtime.value": {
+      const fieldId = sourceNode?.fieldId ?? null;
+      return fieldId ? structuredClone(state.values[fieldId] ?? null) : null;
+    }
+    default:
+      return null;
+  }
 }

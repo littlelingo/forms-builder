@@ -1,3 +1,5 @@
+import json
+from copy import deepcopy
 from io import BytesIO
 
 from fastapi.testclient import TestClient
@@ -8,6 +10,187 @@ from form_builder_api.repository import InMemoryRepository
 
 
 client = TestClient(app)
+
+
+def _behavior_lifecycle_document_payload():
+    return {
+        "id": "document-behavior-lifecycle",
+        "title": "Behavior Lifecycle Fixture",
+        "documentClass": "mixed",
+        "reviewStatus": "accepted",
+        "targetRuntime": "va_web_form",
+        "visualBaseline": "va.gov",
+        "sourcePriority": [],
+        "sourceConflicts": [],
+        "metadata": {"importSource": "test"},
+        "runtime": {
+            "version": "1.0",
+            "formEvents": [],
+            "formListeners": [
+                {
+                    "id": "listener-form-submit",
+                    "label": "Submit through host",
+                    "eventName": "form.submit",
+                    "enabled": True,
+                    "ruleGuards": [],
+                    "actions": [
+                        {
+                            "id": "action-form-submit",
+                            "kind": "host_action",
+                            "target": {"nodeId": "document-behavior-lifecycle", "nodeType": "form"},
+                            "config": {"handlerKey": "submit_form", "payload": {"source": "form-listener"}},
+                            "continueOnError": False,
+                        }
+                    ],
+                },
+                {
+                    "id": "listener-delete-me",
+                    "label": "Temporary listener",
+                    "eventName": "form.validation_failed",
+                    "enabled": True,
+                    "ruleGuards": [],
+                    "actions": [
+                        {
+                            "id": "action-delete-me",
+                            "kind": "emit_event",
+                            "target": {"nodeId": "document-behavior-lifecycle", "nodeType": "form"},
+                            "config": {"eventName": "temporary.deleted"},
+                            "continueOnError": False,
+                        }
+                    ],
+                },
+            ],
+            "hostBindings": [],
+            "submitEventName": "form.submit",
+            "sessionStateShape": {"mode": "key_value", "fields": [], "example": None, "notes": []},
+        },
+        "steps": [
+            {
+                "id": "step-1",
+                "title": "Step 1",
+                "description": "Exercise behavior lifecycle persistence.",
+                "kind": "collect",
+                "layoutHints": {},
+                "sourcePageIds": [],
+                "provenanceAnchorIds": [],
+                "sections": [
+                    {
+                        "id": "section-1",
+                        "title": "Section 1",
+                        "description": "Runtime section",
+                        "layoutHints": {},
+                        "lineage": [],
+                        "sourceSectionIds": [],
+                        "provenanceAnchorIds": [],
+                        "groups": [],
+                        "fields": [
+                            {
+                                "id": "field-controller",
+                                "stableKey": "field-controller",
+                                "label": "Controller",
+                                "semanticType": "text",
+                                "required": False,
+                                "confidence": 1,
+                                "options": [],
+                                "validations": [],
+                                "conditionals": [],
+                                "layoutHints": {},
+                                "rendererHints": {},
+                                "sourcePriority": [],
+                                "sourceConflicts": [],
+                                "lineage": [],
+                                "sourceFieldIds": [],
+                                "provenanceAnchorIds": [],
+                                "runtime": {
+                                    "eventSources": [
+                                        {
+                                            "id": "event-controller-change",
+                                            "name": "field.change",
+                                            "sourceNodeId": "field-controller",
+                                            "sourceNodeType": "field",
+                                        }
+                                    ],
+                                    "listeners": [
+                                        {
+                                            "id": "flow-field-change",
+                                            "label": "Emit field changed",
+                                            "eventName": "field.change",
+                                            "sourceNodeId": "field-controller",
+                                            "enabled": True,
+                                            "ruleGuards": [],
+                                            "actions": [
+                                                {
+                                                    "id": "action-field-change",
+                                                    "kind": "emit_event",
+                                                    "target": {"nodeId": "field-controller", "nodeType": "field"},
+                                                    "config": {
+                                                        "eventName": "field.controller.changed",
+                                                        "payload": {"fieldId": "field-controller"},
+                                                    },
+                                                    "continueOnError": False,
+                                                }
+                                            ],
+                                        },
+                                        {
+                                            "id": "flow-delete-me",
+                                            "label": "Temporary event flow",
+                                            "eventName": "field.blur",
+                                            "sourceNodeId": "field-controller",
+                                            "enabled": True,
+                                            "ruleGuards": [],
+                                            "actions": [
+                                                {
+                                                    "id": "action-flow-delete-me",
+                                                    "kind": "emit_event",
+                                                    "target": {"nodeId": "field-controller", "nodeType": "field"},
+                                                    "config": {"eventName": "temporary.flow"},
+                                                    "continueOnError": False,
+                                                }
+                                            ],
+                                        },
+                                    ],
+                                },
+                            },
+                            {
+                                "id": "field-target",
+                                "stableKey": "field-target",
+                                "label": "Target",
+                                "semanticType": "text",
+                                "required": False,
+                                "confidence": 1,
+                                "options": [],
+                                "validations": [],
+                                "conditionals": [
+                                    {
+                                        "ruleId": "rule-show-target",
+                                        "whenFieldId": "field-controller",
+                                        "operator": "equals",
+                                        "expectedValue": "yes",
+                                        "effect": "show",
+                                        "enabled": True,
+                                    },
+                                    {
+                                        "ruleId": "rule-delete-me",
+                                        "whenFieldId": "field-controller",
+                                        "operator": "exists",
+                                        "effect": "disable",
+                                        "enabled": True,
+                                    },
+                                ],
+                                "layoutHints": {},
+                                "rendererHints": {},
+                                "sourcePriority": [],
+                                "sourceConflicts": [],
+                                "lineage": [],
+                                "sourceFieldIds": [],
+                                "provenanceAnchorIds": [],
+                            },
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
 
 
 def test_healthcheck():
@@ -406,3 +589,113 @@ def test_runtime_authoring_survives_project_save_and_disk_reload(monkeypatch, tm
         detail.document.steps[0].sections[0].fields[0].runtime.listeners[0].actions[0].config["value"]
         == "persisted after save"
     )
+
+
+def test_behavior_lifecycle_edits_survive_project_save_and_disk_reload(monkeypatch, tmp_path):
+    repository = InMemoryRepository(project_storage_dir=tmp_path / "projects")
+    monkeypatch.setattr("form_builder_api.main.repository", repository)
+
+    create_response = client.post("/projects/from-document", json=_behavior_lifecycle_document_payload())
+    assert create_response.status_code == 200
+    created = create_response.json()
+    project_id = created["project"]["id"]
+
+    saved_document = created["document"]
+    form_listeners = saved_document["runtime"]["formListeners"]
+    form_listeners[0]["enabled"] = False
+    duplicated_form_listener = deepcopy(form_listeners[0])
+    duplicated_form_listener["id"] = "listener-form-submit-copy"
+    duplicated_form_listener["enabled"] = True
+    duplicated_form_listener["actions"][0]["id"] = "action-form-submit-copy"
+    duplicated_form_listener["actions"][0]["config"]["payload"]["source"] = "duplicated-form-listener"
+    form_listeners.insert(1, duplicated_form_listener)
+    saved_document["runtime"]["formListeners"] = [
+        listener for listener in form_listeners if listener["id"] != "listener-delete-me"
+    ]
+
+    fields = saved_document["steps"][0]["sections"][0]["fields"]
+    controller_field = fields[0]
+    target_field = fields[1]
+
+    target_field["conditionals"][0]["enabled"] = False
+    duplicated_rule = deepcopy(target_field["conditionals"][0])
+    duplicated_rule["ruleId"] = "rule-show-target-copy"
+    duplicated_rule["effect"] = "require"
+    duplicated_rule["enabled"] = True
+    target_field["conditionals"].insert(1, duplicated_rule)
+    target_field["conditionals"] = [
+        rule for rule in target_field["conditionals"] if rule["ruleId"] != "rule-delete-me"
+    ]
+
+    field_flows = controller_field["runtime"]["listeners"]
+    field_flows[0]["enabled"] = False
+    duplicated_event_flow = deepcopy(field_flows[0])
+    duplicated_event_flow["id"] = "flow-field-change-copy"
+    duplicated_event_flow["enabled"] = True
+    duplicated_event_flow["actions"][0]["id"] = "action-field-change-copy"
+    duplicated_event_flow["actions"][0]["config"]["eventName"] = "field.controller.changed.copy"
+    field_flows.insert(1, duplicated_event_flow)
+    controller_field["runtime"]["listeners"] = [
+        listener for listener in field_flows if listener["id"] != "flow-delete-me"
+    ]
+
+    save_response = client.put(f"/projects/{project_id}/document", json=saved_document)
+    assert save_response.status_code == 200
+    saved = save_response.json()
+    assert saved["project"]["revisionCount"] == 2
+
+    persisted_document = json.loads((tmp_path / "projects" / project_id / "document.json").read_text())
+    persisted_target_field = persisted_document["steps"][0]["sections"][0]["fields"][1]
+    persisted_rules_by_id = {rule["ruleId"]: rule for rule in persisted_target_field["conditionals"]}
+    assert set(persisted_rules_by_id) == {"rule-show-target", "rule-show-target-copy"}
+    assert persisted_rules_by_id["rule-show-target"]["enabled"] is False
+    assert persisted_rules_by_id["rule-show-target-copy"]["enabled"] is True
+    assert persisted_rules_by_id["rule-show-target-copy"]["effect"] == "require"
+
+    persisted_form_listeners_by_id = {
+        listener["id"]: listener for listener in persisted_document["runtime"]["formListeners"]
+    }
+    assert set(persisted_form_listeners_by_id) == {"listener-form-submit", "listener-form-submit-copy"}
+    assert persisted_form_listeners_by_id["listener-form-submit"]["enabled"] is False
+    assert (
+        persisted_form_listeners_by_id["listener-form-submit-copy"]["actions"][0]["config"]["payload"]["source"]
+        == "duplicated-form-listener"
+    )
+
+    persisted_field_flows_by_id = {
+        listener["id"]: listener
+        for listener in persisted_document["steps"][0]["sections"][0]["fields"][0]["runtime"]["listeners"]
+    }
+    assert set(persisted_field_flows_by_id) == {"flow-field-change", "flow-field-change-copy"}
+    assert persisted_field_flows_by_id["flow-field-change"]["enabled"] is False
+    assert (
+        persisted_field_flows_by_id["flow-field-change-copy"]["actions"][0]["config"]["eventName"]
+        == "field.controller.changed.copy"
+    )
+
+    reloaded = InMemoryRepository(project_storage_dir=tmp_path / "projects")
+    detail = reloaded.get_project(project_id)
+
+    assert detail is not None
+    reloaded_target_field = detail.document.steps[0].sections[0].fields[1]
+    reloaded_rules_by_id = {rule.rule_id: rule for rule in reloaded_target_field.conditionals}
+    assert set(reloaded_rules_by_id) == {"rule-show-target", "rule-show-target-copy"}
+    assert reloaded_rules_by_id["rule-show-target"].enabled is False
+    assert reloaded_rules_by_id["rule-show-target-copy"].enabled is True
+
+    assert detail.document.runtime is not None
+    reloaded_form_listeners_by_id = {
+        listener.id: listener for listener in detail.document.runtime.form_listeners
+    }
+    assert set(reloaded_form_listeners_by_id) == {"listener-form-submit", "listener-form-submit-copy"}
+    assert reloaded_form_listeners_by_id["listener-form-submit"].enabled is False
+    assert reloaded_form_listeners_by_id["listener-form-submit-copy"].enabled is True
+
+    reloaded_controller_runtime = detail.document.steps[0].sections[0].fields[0].runtime
+    assert reloaded_controller_runtime is not None
+    reloaded_field_flows_by_id = {
+        listener.id: listener for listener in reloaded_controller_runtime.listeners
+    }
+    assert set(reloaded_field_flows_by_id) == {"flow-field-change", "flow-field-change-copy"}
+    assert reloaded_field_flows_by_id["flow-field-change"].enabled is False
+    assert reloaded_field_flows_by_id["flow-field-change-copy"].enabled is True

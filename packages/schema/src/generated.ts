@@ -139,6 +139,7 @@ export interface ConditionalRule {
   operator: "equals" | "not_equals" | "contains" | "exists";
   expectedValue?: string;
   effect: "show" | "hide" | "require" | "disable";
+  enabled?: boolean;
   [k: string]: unknown;
 }
 export interface ExtractionIssue {

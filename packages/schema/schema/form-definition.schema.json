@@ -137,6 +137,10 @@
         "effect": {
           "type": "string",
           "enum": ["show", "hide", "require", "disable"]
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
         }
       }
     },

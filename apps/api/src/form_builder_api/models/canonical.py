@@ -114,6 +114,7 @@ class ConditionalRule(CamelModel):
     operator: Literal["equals", "not_equals", "contains", "exists"]
     expected_value: str | None = None
     effect: Literal["show", "hide", "require", "disable"]
+    enabled: bool = True
 
 
 class FieldNode(CamelModel):

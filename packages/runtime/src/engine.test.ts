@@ -335,6 +335,26 @@ function errorEvent(correlationId: string): RuntimeEventEnvelope {
   };
 }
 
+function fieldChangeEvent(fieldId: string, nextValue: unknown): RuntimeEventEnvelope {
+  return {
+    type: "field.change",
+    version: "1.0",
+    source: {
+      runtimeId: "runtime-test",
+      formId: "form-test",
+      projectId: "project-test",
+      nodeId: fieldId,
+      nodeType: "field",
+    },
+    payload: {
+      fieldId,
+      nextValue,
+    },
+    correlationId: `corr-${fieldId}-change`,
+    timestamp: "2026-05-01T12:00:01.000Z",
+  };
+}
+
 function invokeNextStepAction(): RuntimeActionDefinition {
   return {
     id: "invoke-next",
@@ -529,4 +549,180 @@ test("explicit button listeners override the implicit compatibility listener pat
     .filter((entry) => entry.event.type === "custom.button_clicked");
   assert.equal(customEvents.length, 1);
   assert.deepEqual(customEvents[0]?.event.payload, { mode: "explicit" });
+});
+
+test("runtime payload references resolve against live session context", () => {
+  const document = createDocument();
+  const field = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "field-name");
+  assert.ok(field);
+
+  field.runtime = {
+    eventSources: [
+      {
+        id: "event-field-change-runtime-payload",
+        name: "field.change",
+        sourceNodeId: "field-name",
+        sourceNodeType: "field",
+      },
+    ],
+    listeners: [
+      {
+        id: "listener-field-change-runtime-payload",
+        label: "Emit runtime context",
+        eventName: "field.change",
+        sourceNodeId: "field-name",
+        enabled: true,
+        ruleGuards: [],
+        actions: [
+          {
+            id: "action-field-change-runtime-payload",
+            kind: "emit_event",
+            target: { nodeId: "field-name", nodeType: "field" },
+            config: {
+              eventName: "field.context_emitted",
+              payload: {
+                fieldId: { $runtime: "current.field.id" },
+                fieldKey: { $runtime: "current.field.key" },
+                stepId: { $runtime: "current.step.id" },
+                stepTitle: { $runtime: "current.step.title" },
+                formId: { $runtime: "current.form.id" },
+                formTitle: { $runtime: "current.form.title" },
+                projectId: { $runtime: "current.project.id" },
+                sourceNodeId: { $runtime: "current.source.node.id" },
+                sourceNodeType: { $runtime: "current.source.node.type" },
+                value: { $runtime: "current.runtime.value" },
+              },
+            },
+            continueOnError: false,
+          },
+          {
+            id: "action-field-change-host-payload",
+            kind: "host_action",
+            target: { nodeId: "field-name", nodeType: "field" },
+            config: {
+              handlerKey: "host.lookup",
+              payload: {
+                fieldId: { $runtime: "current.field.id" },
+                query: { $runtime: "current.runtime.value" },
+                meta: {
+                  fieldKey: { $runtime: "current.field.key" },
+                  stepId: { $runtime: "current.step.id" },
+                  stepTitle: { $runtime: "current.step.title" },
+                  projectId: { $runtime: "current.project.id" },
+                  sourceNodeType: { $runtime: "current.source.node.type" },
+                },
+              },
+            },
+            continueOnError: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  engine.dispatch(fieldChangeEvent("field-name", "Jane Doe"));
+
+  const emittedEvent = engine.getTrace().findLast((entry) => entry.event.type === "field.context_emitted");
+  assert.ok(emittedEvent);
+  assert.deepEqual(emittedEvent.event.payload, {
+    fieldId: "field-name",
+    fieldKey: "field-name",
+    stepId: "step-1",
+    stepTitle: "Step 1",
+    formId: "form-test",
+    formTitle: "Runtime Test Form",
+    projectId: "project-test",
+    sourceNodeId: "field-name",
+    sourceNodeType: "field",
+    value: "Jane Doe",
+  });
+
+  const hostRequest = engine.getTrace().findLast((entry) => entry.event.type === "host.action_requested");
+  assert.ok(hostRequest);
+  assert.equal(hostRequest.event.payload.handlerKey, "host.lookup");
+  assert.deepEqual(
+    (hostRequest.event.payload.config as RuntimeActionDefinition["config"]).payload,
+    {
+      fieldId: "field-name",
+      query: "Jane Doe",
+      meta: {
+        fieldKey: "field-name",
+        stepId: "step-1",
+        stepTitle: "Step 1",
+        projectId: "project-test",
+        sourceNodeType: "field",
+      },
+    },
+  );
+});
+
+test("disabled conditional rules do not gate runtime listeners", () => {
+  const document = createDocument();
+  const field = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "field-name");
+  assert.ok(field);
+
+  field.conditionals = [
+    {
+      ruleId: "rule-disabled-guard",
+      whenFieldId: "field-name",
+      operator: "equals",
+      expectedValue: "allowed",
+      effect: "show",
+      enabled: false,
+    },
+  ];
+  field.runtime = {
+    eventSources: [
+      {
+        id: "event-disabled-rule-guard",
+        name: "field.change",
+        sourceNodeId: "field-name",
+        sourceNodeType: "field",
+      },
+    ],
+    listeners: [
+      {
+        id: "listener-disabled-rule-guard",
+        label: "Emit even while guard rule is disabled",
+        eventName: "field.change",
+        sourceNodeId: "field-name",
+        enabled: true,
+        ruleGuards: [{ ruleId: "rule-disabled-guard" }],
+        actions: [
+          {
+            id: "action-disabled-rule-guard",
+            kind: "emit_event",
+            target: { nodeId: "field-name", nodeType: "field" },
+            config: {
+              eventName: "field.disabled_guard_ignored",
+              payload: { source: "disabled-rule" },
+            },
+            continueOnError: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  engine.dispatch(fieldChangeEvent("field-name", "blocked-value"));
+
+  const emittedEvent = engine.getTrace().findLast((entry) => entry.event.type === "field.disabled_guard_ignored");
+  assert.ok(emittedEvent);
+  assert.deepEqual(emittedEvent.event.payload, { source: "disabled-rule" });
 });
