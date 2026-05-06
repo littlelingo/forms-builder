@@ -358,10 +358,9 @@ Implemented direction:
   scrolling only where needed, Escape close, initial focus, and focus
   restoration to the opener.
 - Create/Test/Manage now use smaller mode-sized shells that anchor to the
-  selected behavior button when viewport space allows, choose above/below
-  placement based on available space, and show a small pointer back to the
-  clicked action so Studio reads as a focused pop-out instead of a full-screen
-  workspace by default.
+  selected behavior toolbar when viewport space allows. Placement is based on
+  the toolbar container, not the individual icon, so add-rule, listener, event,
+  and test actions open in the same predictable position for a selected object.
 - The anchored shell is now stable across `Create`, scoped `Manage`, and scoped
   `Test`; switching those modes should not resize, re-anchor, or expose the
   broader graph/simulator stack.
@@ -374,11 +373,87 @@ Implemented direction:
   - `Create` for one focused rule/listener/event flow
   - `Manage` for selected-object behavior, with full manager as secondary
   - `Test` for selected-object simulator checks, with runtime lab as secondary
-  - `Graph` for secondary graph/debug work
+  - `Graph` for secondary graph/debug work in a centered workspace shell
 
-Next refinement should isolate the runtime lab and graph into even narrower
-mode-specific panels so `Test` does not need to render the full advanced
-workspace before the simulator content.
+Graph and full runtime lab are deliberate workspace-level mode changes. They
+should use centered shells and should not inherit the cramped icon-by-icon
+popover placement from selected-object create/manage/test actions.
+
+## Preview Reordering Reset
+
+The step preview and page strip should expose clear drag handles instead of
+making entire cards feel draggable.
+
+Implemented direction:
+
+- Steps, sections, groups, and field/components now have explicit drag-handle
+  buttons with accessible labels.
+- Dragging starts from the handle only, so selecting text, clicking controls,
+  and interacting with fields does not accidentally begin a move.
+- Cards still act as drop targets. Dropping on the upper half inserts before
+  that card; dropping on the lower half inserts after it.
+- Nested drop targets stop propagation so field, group, section, and step drops
+  do not fight each other.
+- Same-container moves account for the removed source item before inserting, so
+  reordered items do not snap back to their original position.
+- The dragged card visually dims/lifts while moving so the active source and
+  intended drop location are easier to read.
+
+## Behavior Rail Pruning
+
+Element-scoped behavior should not be launched from two places.
+
+Implemented direction:
+
+- The right rail no longer shows a generic `Behavior launchpad` for selected
+  section, group, field, or selected step scopes.
+- Selected element scopes use the inline behavior toolbar on the selected card
+  as the primary entry point for add-rule, add-listener, add-event, and test.
+- The selected current-step header now exposes its own compact `Step behavior`
+  toolbar for step listeners, event flows, and tests.
+- The right rail stays passive for selected steps and element scopes: current
+  selection, counts, and status only.
+- Form-level behavior still keeps a small `Scope behavior` fallback until the
+  form itself gets a better direct canvas/header affordance.
+
+Recommended next simplification:
+
+- Keep aligning step-level Behavior Studio placement with selected element
+  placement so preview-scope behavior always opens predictably near its toolbar.
+- Keep the rail as status/provenance/inspection only once all active scopes have
+  a direct in-preview behavior affordance.
+
+## Rule Listener Event Simplification
+
+The current model is technically capable, but the creation experience still
+exposes too many implementation concepts too early. The preferred model should
+be:
+
+- `Rule` = state behavior: show, require, disable, or grouped state bundles.
+- `Event flow` = emit a named event with guided payload.
+- `Listener` = react to an event and run one or more actions.
+- `Custom` = advanced path, still guided, never just a blank empty object.
+
+Implemented first cleanup:
+
+- The guided setup no longer repeats separate scope/starter/edit cards.
+- The sticky duplicate cancel footer was removed.
+- Starters are grouped under `Recommended starters`.
+- Blank listener/event creation now reads as `Custom listener` or `Custom event
+  flow` so the escape hatch feels intentional instead of unfinished.
+
+Recommended next cleanup:
+
+- Rename `Add listener` to `React to event` in the UI. Keep `listener` as the
+  underlying schema term only.
+- Rename `Add event` to `Emit event` or `Send event`, because users are creating
+  an emitted event flow, not an abstract event object.
+- Make `Add rule` open with one recommended default: `Show and require`, plus
+  secondary choices for `Require when`, `Show/hide`, and `Enable/disable`.
+- Split custom creation into a small wizard: trigger -> condition/payload ->
+  action -> review, with live summary always visible.
+- Keep graph and full manager out of the first-create path. They should appear
+  after an object exists or when explicitly opened.
 
 ## First Implementation Priorities
 

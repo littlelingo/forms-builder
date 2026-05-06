@@ -181,6 +181,39 @@
   - removed the stacked full-width creation buttons from the right rail so the rail stays inspection/status oriented
   - changed Behavior Studio into a top-aligned viewport workbench with internal scrolling, Escape close, initial focus, and focus restoration
   - split Studio into explicit `Create`, `Manage`, `Test`, and `Graph` modes so rule/event creation no longer opens into a manager-plus-editor vertical stack
+  - locked selected-object Studio placement to the behavior toolbar container instead of the clicked icon, so `Add rule`, `Add listener`, `Add event`, and `Test` open consistently for a selected section/group/field
+  - kept `Create`, scoped `Manage`, and scoped `Test` on the same compact anchored shell while moving `Graph` into a centered workspace shell and preserving the selected-object anchor when returning from graph/debug modes
+- Repaired preview and page-strip reordering in [apps/web/src/App.tsx](/Users/clint/Workspace/forms-builder/apps/web/src/App.tsx) and [apps/web/src/lib/authoring-utils.ts](/Users/clint/Workspace/forms-builder/apps/web/src/lib/authoring-utils.ts):
+  - steps, sections, groups, and field/components now expose explicit accessible drag handles instead of making whole cards the drag origin
+  - card drop targets now use pointer position to insert before or after the hovered item, and nested drops stop propagation so the intended target wins
+  - same-container moves now adjust the insertion index after removing the dragged source item, fixing the snap-back/no-swap behavior when reordering inside the same list
+  - dragged cards visually dim/lift while moving so the source item and drop marker are easier to read
+- Pruned duplicated behavior entry points in [apps/web/src/App.tsx](/Users/clint/Workspace/forms-builder/apps/web/src/App.tsx):
+  - the right-rail `Behavior launchpad` no longer appears for selected section, group, or field scopes because those elements now have inline behavior toolbar access
+  - the right rail stays as `At a glance` status for element and step scopes, while form-level behavior keeps the small `Scope behavior` fallback
+  - guided behavior creation was tightened by removing the repeated scope/starter/edit cards and sticky duplicate footer, grouping options under `Recommended starters`, and renaming blank listener/event starts as intentional custom paths
+- Added the first step-level behavior affordance and bundle cleanup:
+  - the selected current-step header in Step Preview now exposes a compact `Step behavior` toolbar for listener, event-flow, and test actions so authors do not need to scroll back to the inspector rail
+  - the step toolbar opens the same compact Behavior Studio shell as selected section/group/field actions, keeping Behavior Studio entry consistent across preview scopes
+  - `apps/web/vite.config.ts` now splits React, USWDS, and remaining vendor code into manual chunks, removing the prior Vite `>500 kB` JavaScript chunk warning during `npm run build:web`
+- Fixed the dev-server Babel deopt note for the oversized `App.tsx` transform:
+  - `apps/web/vite.config.ts` now sets the React plugin Babel generator `compact` option to `false`, preventing Babel from switching into deoptimized auto-compact styling when the source module exceeds 500KB
+  - a one-off Vite server on `127.0.0.1:5174` transformed `/src/App.tsx` without emitting the `[BABEL] ... exceeds the max of 500KB` note
+- Repaired the selected-preview drag and Behavior Studio graph regressions in [apps/web/src/App.tsx](/Users/clint/Workspace/forms-builder/apps/web/src/App.tsx):
+  - component cards now use a compact component-type chrome label (`Statement`, `Checkbox group`, `Button`, etc.) instead of repeating the full field/source label above the body
+  - drag handles now use app-controlled pointer dragging with explicit drop-target metadata, so step-strip and preview-card reorders commit instead of relying on brittle native browser drag/drop behavior
+  - pointer drop resolution now climbs to the nearest compatible section/group/field/step target, preventing nested child drop zones from stealing parent-level drags
+  - the Behavior Studio `Graph` action now closes the compact studio and opens the inspector `Map` graph surface, avoiding the previous oversized/blocking graph popover state
+- Added a compact Behavior Studio preset picker in [apps/web/src/App.tsx](/Users/clint/Workspace/forms-builder/apps/web/src/App.tsx):
+  - listener and event creation now starts from searchable intent-based presets grouped by `Recommended`, `Visibility`, `Validation`, `Data`, `Navigation`, and `Host`
+  - `Advanced` now acts as the explicit raw-trigger escape hatch rather than exposing the raw trigger list as the default authoring path
+  - the picker uses stable wrapped category chips instead of a cramped horizontal strip, fixing the browser click interception seen in the anchored Studio shell
+  - selecting a preset creates the scoped runtime listener/event flow and opens the focused chain composer without saving the project
+- Re-centered and resized the Behavior Studio shell in [apps/web/src/App.tsx](/Users/clint/Workspace/forms-builder/apps/web/src/App.tsx):
+  - compact create/manage/test modes now open as a centered viewport workbench instead of trying to anchor to the clicked toolbar button
+  - the default Studio target is wider and taller while still capped to the viewport
+  - the preset picker no longer nests its own scroll area inside the modal body, reducing the double-scroll/scroll-hell feel
+  - the Behavior Studio overlay now renders through a `document.body` portal and uses `preventScroll` focus restoration, so opening/closing the studio does not reposition the underlying form canvas
 
 ## Key Files
 
@@ -207,7 +240,25 @@
 - Latest command pass:
   - `npm run typecheck:web`
   - `npm run build:web`
-  - result: passed; Vite still reports the existing `>500 kB` chunk-size warning
+  - live browser pass on `http://localhost:5173/` validating the new Behavior Studio listener preset picker on the selected step toolbar
+  - live browser pass validating `Advanced` raw-trigger mode opens cleanly from the anchored Studio shell without click interception
+  - live browser pass validating `Emit event when step opens` creates a scoped `step.enter` listener, marks the project dirty, and opens the focused chain composer
+  - live browser pass validating the centered, wider/taller Behavior Studio shell opens from the step toolbar and category chips still switch between `Recommended` and `Advanced`
+  - live browser measurement validating the Behavior Studio overlay is mounted under `document.body`, the page remains at `window.scrollY = 0` after open, and the dialog center is exactly aligned to the `1280x720` viewport center
+  - result: passed
+- Previous latest command pass:
+  - `npm run typecheck:web`
+  - `npm run build:web`
+  - live browser pass on `http://localhost:5173/` validating component-card chrome no longer duplicates the full field label
+  - live browser pass validating a grouped component drag from the second component onto the first group target commits and marks the project dirty instead of snapping back
+  - live browser pass validating page-strip step reordering by dragging Step 2 ahead of Step 1
+  - live browser pass validating Behavior Studio `Graph` closes the compact dialog and opens the inspector `Map` / document behavior graph without leaving a blocking modal
+  - result: passed
+- Previous dev-server transform pass:
+  - `npm run typecheck:web`
+  - `npm run build:web`
+  - one-off dev transform check: `npm run dev --workspace @form-builder/web -- --host 127.0.0.1 --port 5174`, then requested `/src/App.tsx`
+  - result: passed; the prior Vite `>500 kB` JavaScript chunk-size warning no longer appears after manual vendor chunking, and the Babel `App.tsx` source-size deopt note no longer appears during the dev transform
 - Previous runtime/contract pass:
   - `npm run build:runtime`
   - `npm run test:runtime`
@@ -301,6 +352,7 @@
   - live pass on `http://127.0.0.1:5173/` validating the base Phase 3-6 implementation: the new `Rules Manager` full index exposes step/scope/trigger/effect/status/object-view filters plus `Open in studio` and `Test` actions; `Graph view` now describes itself as secondary visualization and exposes manager/studio handoffs; `Test this chain` dispatches the selected `step.enter` flow and updates authored runtime evidence; `Source Compare Workspace` opens as an overlay instead of a cramped fourth column
   - live pass on `http://127.0.0.1:5173/` validating the next `Rules Manager` object-lifecycle pass on `Page 3 · Submitting Your Application`: a browser-only event flow opened in the full index with an `Object detail` card, `Disable` flipped the row/detail status and stayed visible under the disabled filter, `Enable` restored the flow, `Duplicate` created a second event flow and selected it, `Delete` removed the duplicate back to one unsaved flow, and row-level `Test` opened the advanced workspace/simulator with emitted-event runtime evidence for `page.3.submitting.your.application.entered`
   - live pass on `http://127.0.0.1:5173/` validating the graph cleanup pass on `Page 3 · Submitting Your Application`: graph view now shows manager/studio handoffs instead of direct creation/deletion/growth controls, `Edit chain in studio` returns to the focused composer, and `Open lifecycle details` opens the full Rules Manager index with the selected event flow detail expanded
+  - live pass on `http://127.0.0.1:5173/` validating the step-level behavior toolbar on `Page 3 · Submitting Your Application`: the selected current-step header now shows `Step behavior`, the right rail stays status-only for that selected step, and `Add listener` opens the compact `Create listener` Behavior Studio dialog from the preview scope
 - Persistence/contract:
   - `PYTHONPATH=apps/api/src ./.venv/bin/pytest apps/api/tests/test_smoke.py -q`
   - result: `9 passed`
@@ -342,9 +394,12 @@
   - tuck `Graph view`, `Document graph workspace`, advanced simulator debug, and full source compare behind explicit secondary affordances
   - identify any duplicate right-rail controls that can be removed now that Studio and workspace overlays own the heavy flows
 - Follow-up after the Studio navigation reset:
-  - isolate `Test` into a simulator-only panel instead of rendering the broader advanced graph workspace first
-  - consider moving `Rules Manager` into its own workspace affordance if the Create/Manage split still feels too modal-heavy
-  - browser-check the preview toolbar hover/focus labels and dialog focus behavior on a real project
+  - browser-check the selected-card behavior toolbar so `Add rule`, `Add listener`, `Add event`, and `Test` all open in the same compact placement for section, group, and field selections
+  - continue drag-handle browser coverage for section, group, standalone-field, and grouped-field reordering after the pointer-based path is now proven for grouped components and page-strip steps
+  - consider renaming `Add listener` to `React to event` and `Add event` to `Emit event` so creation starts from user intent rather than runtime object names
+  - continue tightening the step-level Behavior Studio launch placement now that the inline toolbar exists
+  - review whether `Graph` should remain as an inspector `Map` handoff or move behind a more explicit workspace affordance now that the blocking Studio graph mode is removed
+  - continue pruning duplicate right-rail controls now that selected-object behavior actions live in the preview canvas
 
 ## Product Direction Update
 

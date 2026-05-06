@@ -1,5 +1,6 @@
-import type { CSSProperties, ChangeEvent, DragEvent, MouseEvent, ReactNode } from "react";
+import type { CSSProperties, ChangeEvent, DragEvent, MouseEvent, PointerEvent, ReactNode } from "react";
 import { Fragment, startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { createRuntimeEngine } from "@form-builder/runtime";
 import type { RuntimeTraceEntry } from "@form-builder/runtime";
@@ -72,6 +73,7 @@ type ReviewFlowMode = "new_project" | "resume_import";
 type WorkspaceLandingMode = "promoted_import" | "reopened_import";
 type InspectorTab = "properties" | "behavior" | "map";
 type BuilderFieldTypeOption = SemanticType | "action_button";
+type BehaviorPresetCategory = "recommended" | "visibility" | "validation" | "data" | "navigation" | "host" | "advanced";
 
 interface RuntimeEditorScope {
   scopeKind: "form" | "step" | "section" | "group" | "field" | "component";
@@ -85,6 +87,10 @@ interface RuntimePreset {
   id: string;
   label: string;
   description: string;
+  category: Exclude<BehaviorPresetCategory, "recommended" | "advanced">;
+  triggerName: string;
+  actionSummary: string;
+  actionKinds: RuntimeActionKind[];
   apply: (scope: RuntimeEditorScope, currentField: AuthoringField | null) => RuntimeListenerDefinition;
 }
 
@@ -192,6 +198,7 @@ type BehaviorStudioAnchor = {
   top: number;
   bottom: number;
   centerX: number;
+  pointerX: number;
   width: number;
 };
 type BehaviorStudioPlacement = "above" | "below" | "center";
@@ -395,6 +402,16 @@ const builtInRuntimeEventNames = new Set<string>([
   "component.click",
   "host.context_updated",
 ]);
+
+const behaviorPresetCategoryLabels: Record<BehaviorPresetCategory, string> = {
+  recommended: "Recommended",
+  visibility: "Visibility",
+  validation: "Validation",
+  data: "Data",
+  navigation: "Navigation",
+  host: "Host",
+  advanced: "Advanced",
+};
 
 function formatLabel(value: string | undefined | null): string {
   if (!value) {
@@ -1178,6 +1195,19 @@ function PageIcon() {
   );
 }
 
+function DragHandleIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4" fill="currentColor">
+      <circle cx="5.25" cy="4" r="1" />
+      <circle cx="10.75" cy="4" r="1" />
+      <circle cx="5.25" cy="8" r="1" />
+      <circle cx="10.75" cy="8" r="1" />
+      <circle cx="5.25" cy="12" r="1" />
+      <circle cx="10.75" cy="12" r="1" />
+    </svg>
+  );
+}
+
 function PlusIcon() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7">
@@ -1329,6 +1359,26 @@ function fieldPreview(field: AuthoringField) {
       </div>
     </div>
   );
+}
+
+function componentChromeLabel(field: AuthoringField): string {
+  if (field.rendererHints.component === "button") {
+    return "Button";
+  }
+  switch (field.semanticType) {
+    case "checkbox":
+      return "Checkbox group";
+    case "radio":
+      return "Radio group";
+    case "select":
+      return "Select input";
+    case "statement":
+      return "Statement";
+    case "textarea":
+      return "Textarea";
+    default:
+      return `${formatLabel(field.semanticType)} field`;
+  }
 }
 
 function defaultPreviewRuntimeValue(field: AuthoringField): unknown {
@@ -2072,6 +2122,15 @@ export default function App() {
     originX: number;
     originY: number;
   } | null>(null);
+  const activeDropTargetRef = useRef<DropTarget | null>(null);
+  const handledDropRef = useRef(false);
+  const pointerDragRef = useRef<{
+    active: boolean;
+    payload: DragPayload;
+    pointerId: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
   const simulatorSectionRef = useRef<HTMLDivElement | null>(null);
   const [stage, setStage] = useState<AppStage>("home");
   const [reviewPreviewMode, setReviewPreviewMode] = useState<ReviewPreviewMode>("overlay");
@@ -2105,6 +2164,8 @@ export default function App() {
   const [behaviorStudioManagerMode, setBehaviorStudioManagerMode] = useState<BehaviorStudioManagerMode>("all");
   const [behaviorStudioManagerQuery, setBehaviorStudioManagerQuery] = useState("");
   const [behaviorStudioCreationKind, setBehaviorStudioCreationKind] = useState<BehaviorStudioCreationKind | null>(null);
+  const [behaviorPresetSearch, setBehaviorPresetSearch] = useState("");
+  const [behaviorPresetCategory, setBehaviorPresetCategory] = useState<BehaviorPresetCategory>("recommended");
   const [behaviorIndexStepFilter, setBehaviorIndexStepFilter] = useState("all");
   const [behaviorIndexScopeFilter, setBehaviorIndexScopeFilter] = useState("all");
   const [behaviorIndexTriggerFilter, setBehaviorIndexTriggerFilter] = useState("all");
@@ -3075,10 +3136,10 @@ export default function App() {
 
   useEffect(() => {
     if (behaviorStudioOpen) {
-      behaviorStudioDialogRef.current?.focus();
+      behaviorStudioDialogRef.current?.focus({ preventScroll: true });
       return;
     }
-    behaviorStudioReturnFocusRef.current?.focus();
+    behaviorStudioReturnFocusRef.current?.focus({ preventScroll: true });
   }, [behaviorStudioOpen]);
 
   useEffect(() => {
@@ -4114,165 +4175,421 @@ export default function App() {
     if (!activeRuntimeScope) {
       return [];
     }
+    const scopedSourceNodeId = selectedAuthoring?.kind === "field" ? selectedAuthoring.fieldId : null;
+    const changedEventName = `${activeBuilderField?.stableKey ?? "field"}.changed`;
+    const preset = (
+      config: Omit<RuntimePreset, "apply"> & {
+        create: () => RuntimeListenerDefinition;
+      },
+    ): RuntimePreset => ({
+      id: config.id,
+      label: config.label,
+      description: config.description,
+      category: config.category,
+      triggerName: config.triggerName,
+      actionKinds: config.actionKinds,
+      actionSummary: config.actionSummary,
+      apply: config.create,
+    });
+
     if (activeRuntimeScope.scopeKind === "component") {
       return [
-        {
+        preset({
           id: "button-next",
           label: "Continue to next step",
           description: "Wire this button to the next runtime step.",
-          apply: (scope) =>
+          category: "navigation",
+          triggerName: "component.click",
+          actionSummary: "Go to next step",
+          actionKinds: ["go_to_next_step"],
+          create: () =>
             createRuntimeListener(
               "component.click",
               [createRuntimeAction("go_to_next_step")],
-              selectedAuthoring?.kind === "field" ? selectedAuthoring.fieldId : null,
+              scopedSourceNodeId,
             ),
-        },
-        {
+        }),
+        preset({
           id: "button-previous",
           label: "Go to previous step",
           description: "Use this for back navigation inside the runtime.",
-          apply: () =>
+          category: "navigation",
+          triggerName: "component.click",
+          actionSummary: "Go to previous step",
+          actionKinds: ["go_to_previous_step"],
+          create: () =>
             createRuntimeListener(
               "component.click",
               [createRuntimeAction("go_to_previous_step")],
-              selectedAuthoring?.kind === "field" ? selectedAuthoring.fieldId : null,
+              scopedSourceNodeId,
             ),
-        },
-        {
+        }),
+        preset({
           id: "button-submit",
           label: "Submit form",
           description: "Validate and emit the host-facing submit event.",
-          apply: () =>
+          category: "navigation",
+          triggerName: "component.click",
+          actionSummary: "Submit form",
+          actionKinds: ["submit_form"],
+          create: () =>
             createRuntimeListener(
               "component.click",
               [createRuntimeAction("submit_form")],
-              selectedAuthoring?.kind === "field" ? selectedAuthoring.fieldId : null,
+              scopedSourceNodeId,
             ),
-        },
-        {
+        }),
+        preset({
           id: "button-next-emit",
           label: "Continue then emit event",
           description: "Move forward and immediately broadcast a follow-up runtime event.",
-          apply: () =>
+          category: "navigation",
+          triggerName: "component.click",
+          actionSummary: "Continue + emit event",
+          actionKinds: ["go_to_next_step", "emit_event"],
+          create: () =>
             createRuntimeListener(
               "component.click",
               [
                 createRuntimeAction("go_to_next_step"),
                 createRuntimeAction("emit_event", defaultRuntimeActionConfigForScope("emit_event")),
               ],
-              selectedAuthoring?.kind === "field" ? selectedAuthoring.fieldId : null,
+              scopedSourceNodeId,
             ),
-        },
-        {
+        }),
+        preset({
           id: "button-emit",
           label: "Emit custom event",
           description: "Fire a named runtime event for the host shell or other listeners.",
-          apply: () =>
+          category: "host",
+          triggerName: "component.click",
+          actionSummary: "Emit event",
+          actionKinds: ["emit_event"],
+          create: () =>
             createRuntimeListener(
               "component.click",
               [createRuntimeAction("emit_event", defaultRuntimeActionConfigForScope("emit_event"))],
-              selectedAuthoring?.kind === "field" ? selectedAuthoring.fieldId : null,
+              scopedSourceNodeId,
             ),
-        },
+        }),
+        preset({
+          id: "button-host-action",
+          label: "Request host action",
+          description: "Let the host application handle this button click.",
+          category: "host",
+          triggerName: "component.click",
+          actionSummary: "Request host action",
+          actionKinds: ["host_action"],
+          create: () =>
+            createRuntimeListener(
+              "component.click",
+              [createRuntimeAction("host_action", defaultRuntimeActionConfigForScope("host_action"))],
+              scopedSourceNodeId,
+            ),
+        }),
       ];
     }
     if (activeRuntimeScope.scopeKind === "field") {
       return [
-        {
-          id: "field-change-event",
-          label: "Emit event on change",
-          description: "Broadcast a custom event whenever this field changes.",
-          apply: () =>
-            createRuntimeListener(
-              "field.change",
-              [createRuntimeAction("emit_event", { eventName: `${activeBuilderField?.stableKey ?? "field"}.changed`, payload: {} })],
-              selectedAuthoring?.kind === "field" ? selectedAuthoring.fieldId : null,
-            ),
-        },
-        {
-          id: "field-show-node",
-          label: "Show another node on change",
-          description: "Create a change listener and target another node.",
-          apply: () =>
-            createRuntimeListener(
-              "field.change",
-              [createRuntimeAction("show_node", { nodeId: builderNodeOptions[0]?.id ?? "" })],
-              selectedAuthoring?.kind === "field" ? selectedAuthoring.fieldId : null,
-            ),
-        },
-        {
-          id: "field-set-value",
-          label: "Set another field on change",
-          description: "Create a change listener that writes into another field.",
-          apply: () =>
-            createRuntimeListener(
-              "field.change",
-              [createRuntimeAction("set_field_value", { fieldId: builderFieldOptions[0]?.id ?? "", value: "" })],
-              selectedAuthoring?.kind === "field" ? selectedAuthoring.fieldId : null,
-            ),
-        },
-        {
-          id: "field-change-host",
-          label: "Emit then request host action",
-          description: "Broadcast a field event first, then hand the same change context to the host.",
-          apply: () =>
+        preset({
+          id: "field-show-require",
+          label: "Show and require follow-up",
+          description: "Reveal a related target and make it required when this answer changes.",
+          category: "visibility",
+          triggerName: "field.change",
+          actionSummary: "Show target + mark required",
+          actionKinds: ["show_node", "mark_required"],
+          create: () =>
             createRuntimeListener(
               "field.change",
               [
-                createRuntimeAction("emit_event", { eventName: `${activeBuilderField?.stableKey ?? "field"}.changed`, payload: {} }),
+                createRuntimeAction("show_node", defaultRuntimeActionConfigForScope("show_node")),
+                createRuntimeAction("mark_required", defaultRuntimeActionConfigForScope("mark_required")),
+              ],
+              scopedSourceNodeId,
+            ),
+        }),
+        preset({
+          id: "field-show-node",
+          label: "Show content based on answer",
+          description: "Reveal another field, group, or section when this answer changes.",
+          category: "visibility",
+          triggerName: "field.change",
+          actionSummary: "Show target",
+          actionKinds: ["show_node"],
+          create: () =>
+            createRuntimeListener(
+              "field.change",
+              [createRuntimeAction("show_node", defaultRuntimeActionConfigForScope("show_node"))],
+              scopedSourceNodeId,
+            ),
+        }),
+        preset({
+          id: "field-hide-node",
+          label: "Hide content based on answer",
+          description: "Hide another field, group, or section when this answer changes.",
+          category: "visibility",
+          triggerName: "field.change",
+          actionSummary: "Hide target",
+          actionKinds: ["hide_node"],
+          create: () =>
+            createRuntimeListener(
+              "field.change",
+              [createRuntimeAction("hide_node", defaultRuntimeActionConfigForScope("hide_node"))],
+              scopedSourceNodeId,
+            ),
+        }),
+        preset({
+          id: "field-require-node",
+          label: "Make field required",
+          description: "Mark a target required when this answer changes.",
+          category: "validation",
+          triggerName: "field.change",
+          actionSummary: "Mark required",
+          actionKinds: ["mark_required"],
+          create: () =>
+            createRuntimeListener(
+              "field.change",
+              [createRuntimeAction("mark_required", defaultRuntimeActionConfigForScope("mark_required"))],
+              scopedSourceNodeId,
+            ),
+        }),
+        preset({
+          id: "field-clear-value",
+          label: "Clear dependent answer",
+          description: "Clear another field when this controlling answer changes.",
+          category: "data",
+          triggerName: "field.change",
+          actionSummary: "Clear field value",
+          actionKinds: ["clear_field_value"],
+          create: () =>
+            createRuntimeListener(
+              "field.change",
+              [createRuntimeAction("clear_field_value", defaultRuntimeActionConfigForScope("clear_field_value"))],
+              scopedSourceNodeId,
+            ),
+        }),
+        preset({
+          id: "field-set-value",
+          label: "Set another field on change",
+          description: "Create a change listener that writes into another field.",
+          category: "data",
+          triggerName: "field.change",
+          actionSummary: "Set field value",
+          actionKinds: ["set_field_value"],
+          create: () =>
+            createRuntimeListener(
+              "field.change",
+              [createRuntimeAction("set_field_value", defaultRuntimeActionConfigForScope("set_field_value"))],
+              scopedSourceNodeId,
+            ),
+        }),
+        preset({
+          id: "field-blur-host-lookup",
+          label: "Look up data after entry",
+          description: "Ask the host application for data after the user leaves this field.",
+          category: "data",
+          triggerName: "field.blur",
+          actionSummary: "Request host lookup",
+          actionKinds: ["host_action"],
+          create: () =>
+            createRuntimeListener(
+              "field.blur",
+              [createRuntimeAction("host_action", defaultRuntimeActionConfigForScope("host_action"))],
+              scopedSourceNodeId,
+            ),
+        }),
+        preset({
+          id: "field-change-event",
+          label: "Emit event on change",
+          description: "Broadcast a custom event whenever this field changes.",
+          category: "host",
+          triggerName: "field.change",
+          actionSummary: "Emit event",
+          actionKinds: ["emit_event"],
+          create: () =>
+            createRuntimeListener(
+              "field.change",
+              [createRuntimeAction("emit_event", { eventName: changedEventName, payload: {} })],
+              scopedSourceNodeId,
+            ),
+        }),
+        preset({
+          id: "field-change-host",
+          label: "Emit then request host action",
+          description: "Broadcast a field event first, then hand the same change context to the host.",
+          category: "host",
+          triggerName: "field.change",
+          actionSummary: "Emit event + request host",
+          actionKinds: ["emit_event", "host_action"],
+          create: () =>
+            createRuntimeListener(
+              "field.change",
+              [
+                createRuntimeAction("emit_event", { eventName: changedEventName, payload: {} }),
                 createRuntimeAction("host_action", defaultRuntimeActionConfigForScope("host_action")),
               ],
-              selectedAuthoring?.kind === "field" ? selectedAuthoring.fieldId : null,
+              scopedSourceNodeId,
             ),
-        },
+        }),
       ];
     }
     if (activeRuntimeScope.scopeKind === "form") {
       return [
-        {
+        preset({
+          id: "form-prefill",
+          label: "Prefill from host",
+          description: "Ask the host application for known data when the form opens.",
+          category: "data",
+          triggerName: "form.load",
+          actionSummary: "Request host prefill",
+          actionKinds: ["host_action"],
+          create: () => createRuntimeListener("form.load", [createRuntimeAction("host_action", { handlerKey: "host.prefill", payload: {} })]),
+        }),
+        preset({
           id: "form-load",
           label: "Emit event on load",
           description: "Useful when the host needs a clean runtime-ready signal.",
-          apply: () => createRuntimeListener("form.load", [createRuntimeAction("emit_event", { eventName: "form.loaded", payload: {} })]),
-        },
-        {
+          category: "host",
+          triggerName: "form.load",
+          actionSummary: "Emit form loaded",
+          actionKinds: ["emit_event"],
+          create: () => createRuntimeListener("form.load", [createRuntimeAction("emit_event", { eventName: "form.loaded", payload: {} })]),
+        }),
+        preset({
           id: "form-submit",
           label: "Emit event on submit",
           description: "Add a follow-up event after the runtime creates the submit payload.",
-          apply: () => createRuntimeListener("form.submit", [createRuntimeAction("emit_event", { eventName: "form.submit.dispatched", payload: {} })]),
-        },
-        {
+          category: "validation",
+          triggerName: "form.submit",
+          actionSummary: "Emit submit event",
+          actionKinds: ["emit_event"],
+          create: () => createRuntimeListener("form.submit", [createRuntimeAction("emit_event", { eventName: "form.submit.dispatched", payload: {} })]),
+        }),
+        preset({
           id: "form-submit-host",
           label: "Emit then request host action on submit",
           description: "Keep the authored submit event and host handoff together in one reusable chain.",
-          apply: () =>
+          category: "host",
+          triggerName: "form.submit",
+          actionSummary: "Emit submit + request host",
+          actionKinds: ["emit_event", "host_action"],
+          create: () =>
             createRuntimeListener("form.submit", [
               createRuntimeAction("emit_event", { eventName: "form.submit.dispatched", payload: {} }),
               createRuntimeAction("host_action", { handlerKey: "host.audit", payload: {} }),
             ]),
-        },
-        {
+        }),
+        preset({
           id: "form-validation",
           label: "Emit event on validation failure",
           description: "Surface a reusable event when submit is blocked.",
-          apply: () =>
+          category: "validation",
+          triggerName: "form.validation_failed",
+          actionSummary: "Emit validation event",
+          actionKinds: ["emit_event"],
+          create: () =>
             createRuntimeListener("form.validation_failed", [createRuntimeAction("emit_event", { eventName: "form.validation_failed", payload: {} })]),
-        },
+        }),
+        preset({
+          id: "form-submit-success",
+          label: "Emit event on submit success",
+          description: "Broadcast a completion event after the host reports success.",
+          category: "validation",
+          triggerName: "form.submit_success",
+          actionSummary: "Emit success event",
+          actionKinds: ["emit_event"],
+          create: () => createRuntimeListener("form.submit_success", [createRuntimeAction("emit_event", { eventName: "form.completed", payload: {} })]),
+        }),
+        preset({
+          id: "form-submit-error",
+          label: "Emit event on submit error",
+          description: "Broadcast a recoverable failure event after the host reports an error.",
+          category: "validation",
+          triggerName: "form.submit_error",
+          actionSummary: "Emit error event",
+          actionKinds: ["emit_event"],
+          create: () => createRuntimeListener("form.submit_error", [createRuntimeAction("emit_event", { eventName: "form.submit.failed", payload: {} })]),
+        }),
+      ];
+    }
+    if (activeRuntimeScope.scopeKind === "step") {
+      return [
+        preset({
+          id: "step-enter-event",
+          label: "Emit event when step opens",
+          description: "Broadcast that the current step became active.",
+          category: "host",
+          triggerName: "step.enter",
+          actionSummary: "Emit step event",
+          actionKinds: ["emit_event"],
+          create: () => createRuntimeListener("step.enter", [createRuntimeAction("emit_event", defaultRuntimeActionConfigForScope("emit_event"))]),
+        }),
+        preset({
+          id: "step-leave-host-save",
+          label: "Save progress when leaving step",
+          description: "Ask the host shell to persist progress when the user leaves this step.",
+          category: "data",
+          triggerName: "step.leave",
+          actionSummary: "Request host save",
+          actionKinds: ["host_action"],
+          create: () => createRuntimeListener("step.leave", [createRuntimeAction("host_action", { handlerKey: "host.saveDraft", payload: {} })]),
+        }),
+        preset({
+          id: "step-enter-set-value",
+          label: "Initialize value on step open",
+          description: "Set a field value when this step opens.",
+          category: "data",
+          triggerName: "step.enter",
+          actionSummary: "Set field value",
+          actionKinds: ["set_field_value"],
+          create: () => createRuntimeListener("step.enter", [createRuntimeAction("set_field_value", defaultRuntimeActionConfigForScope("set_field_value"))]),
+        }),
+      ];
+    }
+    if (activeRuntimeScope.scopeKind === "section" || activeRuntimeScope.scopeKind === "group") {
+      const triggerName = defaultBehaviorTriggerName();
+      return [
+        preset({
+          id: `${activeRuntimeScope.scopeKind}-emit-event`,
+          label: `Emit ${activeRuntimeScope.scopeKind} event`,
+          description: `Broadcast when this ${activeRuntimeScope.scopeKind} runtime scope changes or updates.`,
+          category: "host",
+          triggerName,
+          actionSummary: "Emit event",
+          actionKinds: ["emit_event"],
+          create: () => createRuntimeListener(triggerName, [createRuntimeAction("emit_event", defaultRuntimeActionConfigForScope("emit_event"))]),
+        }),
+        preset({
+          id: `${activeRuntimeScope.scopeKind}-host-sync`,
+          label: `Sync ${activeRuntimeScope.scopeKind} with host`,
+          description: `Request a host sync for this ${activeRuntimeScope.scopeKind} scope.`,
+          category: "data",
+          triggerName,
+          actionSummary: "Request host sync",
+          actionKinds: ["host_action"],
+          create: () => createRuntimeListener(triggerName, [createRuntimeAction("host_action", defaultRuntimeActionConfigForScope("host_action"))]),
+        }),
       ];
     }
     return [];
-  }, [activeRuntimeScope, activeBuilderField?.stableKey, builderFieldOptions, builderNodeOptions, selectedAuthoring]);
+  }, [activeRuntimeScope, activeBuilderField?.stableKey, builderFieldOptions, builderNodeOptions, builderStepOptions, selectedAuthoring]);
 
   function createBehaviorStudioAnchor(element: HTMLElement | null): BehaviorStudioAnchor | null {
     if (!element || typeof window === "undefined" || window.innerWidth < 760) {
       return null;
     }
+    const anchorElement = element.closest("[data-behavior-toolbar-anchor]");
+    const surfaceElement = element.closest("[data-behavior-studio-surface]");
     const rect = element.getBoundingClientRect();
+    const toolbarRect = anchorElement instanceof HTMLElement ? anchorElement.getBoundingClientRect() : rect;
+    const surfaceRect = surfaceElement instanceof HTMLElement ? surfaceElement.getBoundingClientRect() : toolbarRect;
     return {
-      bottom: rect.bottom,
-      centerX: rect.left + rect.width / 2,
-      top: rect.top,
-      width: rect.width,
+      bottom: toolbarRect.bottom,
+      centerX: surfaceRect.left + surfaceRect.width / 2,
+      pointerX: toolbarRect.left + toolbarRect.width / 2,
+      top: toolbarRect.top,
+      width: surfaceRect.width,
     };
   }
 
@@ -4286,67 +4603,46 @@ export default function App() {
 
   function behaviorStudioEstimatedSize() {
     if (typeof window === "undefined") {
-      return { width: 768, height: 480 };
+      return { width: 896, height: 624 };
     }
     const usesWorkspaceShell = behaviorStudioUsesWorkspaceShell();
+    const viewportGutter = window.innerWidth < 760 ? 16 : 32;
     const width =
       behaviorStudioMode === "graph"
-        ? 1344
+        ? 1120
         : behaviorStudioMode === "test" && behaviorStudioView === "advanced" && behaviorStudioAnchor === null
-          ? 896
+          ? 960
         : usesWorkspaceShell
           ? 1120
-          : 752;
+          : 896;
     const height =
       behaviorStudioMode === "graph"
-        ? window.innerHeight - 32
+        ? Math.min(window.innerHeight * 0.86, 760)
         : behaviorStudioMode === "test" && behaviorStudioView === "advanced" && behaviorStudioAnchor === null
-          ? Math.min(window.innerHeight * 0.74, 620)
+          ? Math.min(window.innerHeight * 0.82, 672)
         : usesWorkspaceShell
-          ? Math.min(window.innerHeight * 0.82, 720)
-          : Math.min(window.innerHeight * 0.72, 540);
+          ? Math.min(window.innerHeight * 0.84, 736)
+          : Math.min(window.innerHeight * 0.78, 624);
 
     return {
-      width: Math.min(width, window.innerWidth - 24),
-      height: Math.min(height, window.innerHeight - 24),
+      width: Math.min(width, window.innerWidth - viewportGutter),
+      height: Math.min(height, window.innerHeight - viewportGutter),
     };
   }
 
   function behaviorStudioPositionLayout(): BehaviorStudioPositionLayout {
-    if (!behaviorStudioAnchor || behaviorStudioUsesWorkspaceShell() || typeof window === "undefined" || window.innerWidth < 760) {
+    if (typeof window === "undefined") {
       return { anchored: false, placement: "center" };
     }
     const shellSize = behaviorStudioEstimatedSize();
-    const gutter = 12;
-    const gap = 12;
-    const arrowInset = 28;
-    const spaceBelow = window.innerHeight - behaviorStudioAnchor.bottom - gap - gutter;
-    const spaceAbove = behaviorStudioAnchor.top - gap - gutter;
-    const placement: BehaviorStudioPlacement = spaceBelow >= shellSize.height || spaceBelow >= spaceAbove ? "below" : "above";
-    const left = Math.min(
-      Math.max(behaviorStudioAnchor.centerX - shellSize.width / 2, gutter),
-      Math.max(gutter, window.innerWidth - shellSize.width - gutter),
-    );
-    const preferredTop =
-      placement === "below"
-        ? behaviorStudioAnchor.bottom + gap
-        : behaviorStudioAnchor.top - shellSize.height - gap;
-    const top = Math.min(Math.max(preferredTop, gutter), Math.max(gutter, window.innerHeight - shellSize.height - gutter));
-    const arrowLeft = Math.min(Math.max(behaviorStudioAnchor.centerX - left, arrowInset), shellSize.width - arrowInset);
-
     return {
-      anchored: true,
-      arrowStyle: {
-        left: arrowLeft,
-      },
       dialogStyle: {
-        left,
-        position: "fixed",
-        top,
-        transformOrigin: `${arrowLeft}px ${placement === "below" ? "top" : "bottom"}`,
+        height: shellSize.height,
+        transformOrigin: "center",
         width: shellSize.width,
       },
-      placement,
+      anchored: false,
+      placement: "center",
     };
   }
 
@@ -4536,6 +4832,8 @@ export default function App() {
 
   function beginBehaviorStudioCreation(kind: BehaviorStudioCreationKind, anchor: BehaviorStudioAnchor | null = null) {
     setBehaviorStudioCreationKind(kind);
+    setBehaviorPresetSearch("");
+    setBehaviorPresetCategory("recommended");
     setSelectedBehaviorNode(null);
     setEditingRuleIndex(null);
     setBehaviorFocusTarget(null);
@@ -5261,14 +5559,41 @@ export default function App() {
     }, nextField ? { kind: "field", stepId, sectionId, ...(groupId ? { groupId } : {}), fieldId: nextField.id } : groupId ? { kind: "group", stepId, sectionId, groupId } : { kind: "section", stepId, sectionId });
   }
 
-  function handleSelectionDragStart(payload: DragPayload) {
+  function handleSelectionDragStart(event: DragEvent<HTMLElement>, payload: DragPayload) {
+    event.stopPropagation();
+    handledDropRef.current = false;
+    activeDropTargetRef.current = null;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-form-builder-drag", JSON.stringify(payload));
+    event.dataTransfer.setData("text/plain", payload.kind);
     setDragPayload(payload);
     setActiveDropTargetKey(null);
+  }
+
+  function dragPayloadFromTransfer(event: DragEvent<HTMLElement>): DragPayload | null {
+    const rawPayload = event.dataTransfer.getData("application/x-form-builder-drag");
+    if (!rawPayload) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(rawPayload) as DragPayload;
+      if (parsed && (parsed.kind === "step" || parsed.kind === "section" || parsed.kind === "group" || parsed.kind === "field")) {
+        return parsed;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  function currentDragPayload(event?: DragEvent<HTMLElement>): DragPayload | null {
+    return dragPayload ?? (event ? dragPayloadFromTransfer(event) : null);
   }
 
   function clearDragInteraction() {
     setDragPayload(null);
     setActiveDropTargetKey(null);
+    activeDropTargetRef.current = null;
   }
 
   function dropTargetKey(target: DropTarget): string {
@@ -5312,30 +5637,318 @@ export default function App() {
     }
   }
 
-  function handleDropZoneDragOver(event: DragEvent<HTMLElement>, target: DropTarget) {
-    event.preventDefault();
-    if (!isCompatibleDropTarget(dragPayload, target)) {
-      return;
+  function dragPayloadMatchesSelection(payload: DragPayload | null, selection: AuthoringSelection): boolean {
+    if (!payload || payload.kind !== selection.kind || payload.stepId !== selection.stepId) {
+      return false;
     }
-    setActiveDropTargetKey(dropTargetKey(target));
+    if (selection.kind === "step") {
+      return true;
+    }
+    if (payload.kind === "section" && selection.kind === "section") {
+      return payload.sectionId === selection.sectionId;
+    }
+    if (payload.kind === "group" && selection.kind === "group") {
+      return payload.sectionId === selection.sectionId && payload.groupId === selection.groupId;
+    }
+    if (payload.kind === "field" && selection.kind === "field") {
+      return payload.sectionId === selection.sectionId && payload.groupId === selection.groupId && payload.fieldId === selection.fieldId;
+    }
+    return false;
   }
 
-  function handleDropZoneDragLeave(target: DropTarget) {
-    if (activeDropTargetKey === dropTargetKey(target)) {
-      setActiveDropTargetKey(null);
+  function dropTargetAttributes(target: DropTarget, options?: { exact?: boolean }): Record<string, string> {
+    const attributes: Record<string, string> = {
+      "data-authoring-drop-target": target.kind,
+      "data-drop-index": String(target.index),
+    };
+    if (options?.exact) {
+      attributes["data-authoring-drop-exact"] = "true";
+    }
+    if ("stepId" in target) {
+      attributes["data-drop-step-id"] = target.stepId;
+    }
+    if ("sectionId" in target) {
+      attributes["data-drop-section-id"] = target.sectionId;
+    }
+    if ("groupId" in target && target.groupId) {
+      attributes["data-drop-group-id"] = target.groupId;
+    }
+    return attributes;
+  }
+
+  function readDropTargetElement(element: Element | null): { element: HTMLElement; exact: boolean; target: DropTarget } | null {
+    const targetElement = element instanceof HTMLElement
+      ? element.closest<HTMLElement>("[data-authoring-drop-target]")
+      : null;
+    if (!targetElement) {
+      return null;
+    }
+    const kind = targetElement.dataset.authoringDropTarget;
+    const index = Number(targetElement.dataset.dropIndex);
+    if (!Number.isFinite(index)) {
+      return null;
+    }
+    const stepId = targetElement.dataset.dropStepId;
+    const sectionId = targetElement.dataset.dropSectionId;
+    const groupId = targetElement.dataset.dropGroupId;
+    const exact = targetElement.dataset.authoringDropExact === "true";
+    switch (kind) {
+      case "step-list":
+        return { element: targetElement, exact, target: { kind, index } };
+      case "section-list":
+        return stepId ? { element: targetElement, exact, target: { kind, stepId, index } } : null;
+      case "group-list":
+        return stepId && sectionId ? { element: targetElement, exact, target: { kind, stepId, sectionId, index } } : null;
+      case "field-list":
+        return stepId && sectionId
+          ? {
+              element: targetElement,
+              exact,
+              target: { kind, stepId, sectionId, ...(groupId ? { groupId } : {}), index },
+            }
+          : null;
+      default:
+        return null;
     }
   }
 
-  function handleDropTarget(event: DragEvent<HTMLElement>, target: DropTarget) {
+  function sourceIndexForDropTarget(payload: DragPayload, target: DropTarget): number | null {
+    const document = activeProjectDetail?.document;
+    if (!document || payload.kind !== target.kind.replace("-list", "")) {
+      return null;
+    }
+    if (payload.kind === "step" && target.kind === "step-list") {
+      return document.steps.findIndex((step) => step.id === payload.stepId);
+    }
+    if (payload.kind === "section" && target.kind === "section-list" && payload.stepId === target.stepId) {
+      return document.steps.find((step) => step.id === payload.stepId)?.sections.findIndex((section) => section.id === payload.sectionId) ?? null;
+    }
+    if (
+      payload.kind === "group" &&
+      target.kind === "group-list" &&
+      payload.stepId === target.stepId &&
+      payload.sectionId === target.sectionId
+    ) {
+      return document.steps
+        .find((step) => step.id === payload.stepId)
+        ?.sections.find((section) => section.id === payload.sectionId)
+        ?.groups.findIndex((group) => group.id === payload.groupId) ?? null;
+    }
+    if (
+      payload.kind === "field" &&
+      target.kind === "field-list" &&
+      payload.stepId === target.stepId &&
+      payload.sectionId === target.sectionId &&
+      payload.groupId === target.groupId
+    ) {
+      const section = document.steps
+        .find((step) => step.id === payload.stepId)
+        ?.sections.find((candidate) => candidate.id === payload.sectionId);
+      const fields = payload.groupId
+        ? section?.groups.find((group) => group.id === payload.groupId)?.fields
+        : section?.fields;
+      return fields?.findIndex((field) => field.id === payload.fieldId) ?? null;
+    }
+    return null;
+  }
+
+  function dropTargetFromPointerPosition(clientY: number, rect: DOMRect, target: DropTarget, payload: DragPayload | null): DropTarget {
+    const sourceIndex = payload ? sourceIndexForDropTarget(payload, target) : null;
+    const afterThreshold =
+      sourceIndex === null || sourceIndex === target.index
+        ? 0.5
+        : sourceIndex > target.index
+          ? 0.82
+          : 0.18;
+    const isAfter = clientY > rect.top + rect.height * afterThreshold;
+    if (!isAfter) {
+      return target;
+    }
+    return { ...target, index: target.index + 1 } as DropTarget;
+  }
+
+  function dropTargetFromPointer(event: DragEvent<HTMLElement>, target: DropTarget): DropTarget {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const payload = currentDragPayload(event);
+    return dropTargetFromPointerPosition(event.clientY, rect, target, payload);
+  }
+
+  function handleDropZoneDragOver(event: DragEvent<HTMLElement>, target: DropTarget, options?: { positionByPointer?: boolean }) {
     event.preventDefault();
-    if (!dragPayload || !isCompatibleDropTarget(dragPayload, target)) {
+    event.stopPropagation();
+    const resolvedTarget = options?.positionByPointer ? dropTargetFromPointer(event, target) : target;
+    if (!isCompatibleDropTarget(currentDragPayload(event), resolvedTarget)) {
       return;
     }
-    const payload = dragPayload;
+    event.dataTransfer.dropEffect = "move";
+    activeDropTargetRef.current = resolvedTarget;
+    setActiveDropTargetKey(dropTargetKey(resolvedTarget));
+  }
+
+  function handleDropZoneDragLeave(_target: DropTarget) {
+    setActiveDropTargetKey(null);
+  }
+
+  function handleDropTarget(event: DragEvent<HTMLElement>, target: DropTarget, options?: { positionByPointer?: boolean }) {
+    event.preventDefault();
+    event.stopPropagation();
+    const resolvedTarget = options?.positionByPointer ? dropTargetFromPointer(event, target) : target;
+    const payload = currentDragPayload(event);
+    if (!payload || !isCompatibleDropTarget(payload, resolvedTarget)) {
+      return;
+    }
+    handledDropRef.current = true;
+    updateAuthoringDocument((document) => {
+      applyDragMove(document, payload, resolvedTarget);
+    });
+    clearDragInteraction();
+  }
+
+  function handleSelectionDragEnd(event: DragEvent<HTMLElement>) {
+    const payload = currentDragPayload(event);
+    const target = activeDropTargetRef.current;
+    const shouldCommitFallback =
+      !handledDropRef.current &&
+      payload &&
+      target &&
+      isCompatibleDropTarget(payload, target);
+    if (shouldCommitFallback) {
+      updateAuthoringDocument((document) => {
+        applyDragMove(document, payload, target);
+      });
+    }
+    clearDragInteraction();
+  }
+
+  function resolvePointerDropTarget(clientX: number, clientY: number, payload: DragPayload): DropTarget | null {
+    let element = document.elementFromPoint(clientX, clientY);
+    while (element) {
+      const targetCandidate = readDropTargetElement(element);
+      if (!targetCandidate) {
+        element = element.parentElement;
+        continue;
+      }
+      const resolvedTarget = targetCandidate.exact
+        ? targetCandidate.target
+        : dropTargetFromPointerPosition(clientY, targetCandidate.element.getBoundingClientRect(), targetCandidate.target, payload);
+      if (isCompatibleDropTarget(payload, resolvedTarget)) {
+        return resolvedTarget;
+      }
+      element = targetCandidate.element.parentElement;
+    }
+    return null;
+  }
+
+  function updatePointerDropTarget(clientX: number, clientY: number, payload: DragPayload) {
+    const resolvedTarget = resolvePointerDropTarget(clientX, clientY, payload);
+    activeDropTargetRef.current = resolvedTarget;
+    setActiveDropTargetKey(resolvedTarget ? dropTargetKey(resolvedTarget) : null);
+  }
+
+  function commitPointerDragTarget(payload: DragPayload) {
+    const target = activeDropTargetRef.current;
+    if (!target || !isCompatibleDropTarget(payload, target)) {
+      return;
+    }
     updateAuthoringDocument((document) => {
       applyDragMove(document, payload, target);
     });
+  }
+
+  function handleSelectionPointerDown(event: PointerEvent<HTMLButtonElement>, payload: DragPayload) {
+    if (event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    handledDropRef.current = false;
+    activeDropTargetRef.current = null;
+    pointerDragRef.current = {
+      active: false,
+      payload,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handleSelectionPointerMove(event: PointerEvent<HTMLButtonElement>) {
+    const dragState = pointerDragRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+    const distance = Math.hypot(event.clientX - dragState.startX, event.clientY - dragState.startY);
+    if (!dragState.active && distance < 4) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (!dragState.active) {
+      dragState.active = true;
+      setDragPayload(dragState.payload);
+    }
+    updatePointerDropTarget(event.clientX, event.clientY, dragState.payload);
+  }
+
+  function handleSelectionPointerUp(event: PointerEvent<HTMLButtonElement>) {
+    const dragState = pointerDragRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (dragState.active) {
+      updatePointerDropTarget(event.clientX, event.clientY, dragState.payload);
+      commitPointerDragTarget(dragState.payload);
+    } else {
+      setSelectedAuthoring(dragState.payload);
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    pointerDragRef.current = null;
     clearDragInteraction();
+  }
+
+  function handleSelectionPointerCancel(event: PointerEvent<HTMLButtonElement>) {
+    const dragState = pointerDragRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    pointerDragRef.current = null;
+    clearDragInteraction();
+  }
+
+  function renderDragHandle(label: string, payload: DragPayload, options?: { compact?: boolean }) {
+    return (
+      <button
+        type="button"
+        title={label}
+        aria-label={label}
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => handleSelectionPointerDown(event, payload)}
+        onPointerMove={handleSelectionPointerMove}
+        onPointerUp={handleSelectionPointerUp}
+        onPointerCancel={handleSelectionPointerCancel}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            event.stopPropagation();
+            setSelectedAuthoring(payload);
+          }
+        }}
+        className={`inline-flex shrink-0 cursor-grab items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 active:cursor-grabbing focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+          options?.compact ? "h-7 w-6" : "h-8 w-7"
+        }`}
+      >
+        <DragHandleIcon />
+      </button>
+    );
   }
 
   function renderDropMarker(target: DropTarget, options?: { gridSpan?: boolean; label?: string }) {
@@ -5347,6 +5960,7 @@ export default function App() {
     return (
       <div
         key={dropTargetKey(target)}
+        {...dropTargetAttributes(target, { exact: true })}
         onDragOver={(event) => handleDropZoneDragOver(event, target)}
         onDragLeave={() => handleDropZoneDragLeave(target)}
         onDrop={(event) => handleDropTarget(event, target)}
@@ -5376,6 +5990,7 @@ export default function App() {
     const isActive = compatible && activeDropTargetKey === dropTargetKey(target);
     return (
       <div
+        {...dropTargetAttributes(target, { exact: true })}
         onDragOver={(event) => handleDropZoneDragOver(event, target)}
         onDragLeave={() => handleDropZoneDragLeave(target)}
         onDrop={(event) => handleDropTarget(event, target)}
@@ -5423,6 +6038,7 @@ export default function App() {
       fieldId: field.id,
     };
     const isSelected = selectedAuthoring?.kind === "field" && selectedAuthoring.fieldId === field.id;
+    const isDragging = dragPayloadMatchesSelection(dragPayload, selection);
     const fieldState = runtimeNodeStateForField(field);
     const isVisible = fieldState?.visible ?? true;
     const isRequired = fieldState?.required ?? field.required;
@@ -5439,24 +6055,21 @@ export default function App() {
     return (
       <div
         key={field.id}
-        draggable
-        onDragStart={() =>
-          handleSelectionDragStart({
-            kind: "field",
-            stepId,
-            sectionId,
-            ...(groupId ? { groupId } : {}),
-            fieldId: field.id,
-          })
-        }
-        onDragEnd={clearDragInteraction}
-        onDragOver={(event) => handleDropZoneDragOver(event, {
+        data-behavior-studio-surface
+        {...dropTargetAttributes({
           kind: "field-list",
           stepId,
           sectionId,
           ...(groupId ? { groupId } : {}),
           index: fieldIndex,
         })}
+        onDragOver={(event) => handleDropZoneDragOver(event, {
+          kind: "field-list",
+          stepId,
+          sectionId,
+          ...(groupId ? { groupId } : {}),
+          index: fieldIndex,
+        }, { positionByPointer: true })}
         onDragLeave={() =>
           handleDropZoneDragLeave({
             kind: "field-list",
@@ -5472,14 +6085,33 @@ export default function App() {
             sectionId,
             ...(groupId ? { groupId } : {}),
             index: fieldIndex,
-          })
+          }, { positionByPointer: true })
         }
         onClick={(event) => {
           event.stopPropagation();
           setSelectedAuthoring(selection);
         }}
-        className={`rounded-[1.1rem] border p-4 text-left ${fieldTone}`}
+        className={`rounded-[1.1rem] border p-4 text-left transition ${fieldTone} ${
+          isDragging ? "scale-[0.995] opacity-55 shadow-[0_18px_34px_rgba(37,99,235,0.16)]" : ""
+        }`}
       >
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Component
+            </p>
+            <p className="mt-1 truncate text-sm font-semibold text-slate-900">
+              {componentChromeLabel(field)}
+            </p>
+          </div>
+          {renderDragHandle("Drag component", {
+            kind: "field",
+            stepId,
+            sectionId,
+            ...(groupId ? { groupId } : {}),
+            fieldId: field.id,
+          }, { compact: true })}
+        </div>
         {isSelected ? (
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             {renderBehaviorQuickToolbar({ compact: true, stopPropagation: true, label: "Behavior" })}
@@ -5592,6 +6224,8 @@ export default function App() {
 
   function finalizeBehaviorStudioCreation() {
     setBehaviorStudioCreationKind(null);
+    setBehaviorPresetSearch("");
+    setBehaviorPresetCategory("recommended");
   }
 
   function applyBehaviorRuleStarter(
@@ -5612,12 +6246,11 @@ export default function App() {
     finalizeBehaviorStudioCreation();
   }
 
-  function createBlankBehaviorStudioListener(seedAction: "listener" | "event") {
+  function createBlankBehaviorStudioListener(seedAction: "listener" | "event", triggerName = defaultBehaviorTriggerName()) {
     if (!activeRuntimeScope) {
       setMessage("Select a form, button, or interactive field to create a behavior flow.");
       return;
     }
-    const triggerName = defaultBehaviorTriggerName();
     const actions =
       seedAction === "event"
         ? [createRuntimeAction("emit_event", defaultRuntimeActionConfigForScope("emit_event"))]
@@ -6743,6 +7376,17 @@ export default function App() {
     }
   }
 
+  function openGraphInspectorSurface() {
+    setBehaviorStudioOpen(false);
+    setBehaviorStudioCreationKind(null);
+    setBehaviorStudioAnchor(null);
+    setBehaviorStudioView("studio");
+    setBehaviorStudioMode("manage");
+    setBehaviorFocusTarget(null);
+    setInspectorTab("map");
+    setMapViewMode("graph");
+  }
+
   function renderBehaviorEdgeLabel(label: string, compact = false) {
     return (
       <span
@@ -6805,7 +7449,10 @@ export default function App() {
     };
 
     return (
-      <div className={`${isCompact ? "inline-flex" : "flex"} rounded-full border border-blue-100 bg-white/92 px-2 py-1.5 shadow-[0_10px_24px_rgba(37,99,235,0.12)] backdrop-blur`}>
+      <div
+        data-behavior-toolbar-anchor
+        className={`${isCompact ? "inline-flex" : "flex"} rounded-full border border-blue-100 bg-white/92 px-2 py-1.5 shadow-[0_10px_24px_rgba(37,99,235,0.12)] backdrop-blur`}
+      >
         <div className="flex flex-wrap items-center gap-2">
           <span className="px-1.5 text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-blue-700">
             {options?.label ?? "Behavior"}
@@ -6868,35 +7515,43 @@ export default function App() {
       selectedAuthoring === null
         ? "Form behavior"
         : activeRuntimeScope?.label ?? activeBuilderField?.label ?? activeStep?.title ?? "Current selection";
+    const hasInlineBehaviorToolbar =
+      selectedAuthoring?.kind === "step" ||
+      selectedAuthoring?.kind === "section" ||
+      selectedAuthoring?.kind === "group" ||
+      selectedAuthoring?.kind === "field";
 
     return (
       <div className="space-y-4">
-        <div className="rounded-[1.15rem] border border-soft bg-white p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Behavior launchpad</p>
-              <h4 className="mt-2 text-lg font-semibold text-slate-950">{currentScopeTitle}</h4>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                Keep the inspector lightweight. Launch deeper behavior work in the studio instead of stacking rule and graph editing here.
-              </p>
+        {!hasInlineBehaviorToolbar ? (
+          <div className="rounded-[1.15rem] border border-soft bg-white p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Scope behavior</p>
+                <h4 className="mt-2 text-lg font-semibold text-slate-950">{currentScopeTitle}</h4>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Form-level behavior opens from here. Selected steps and elements use inline preview controls.</p>
+              </div>
+              <button type="button" onClick={() => openBehaviorStudio("studio")} className={actionButtonClass("primary")}>
+                Open studio
+              </button>
             </div>
-            <button type="button" onClick={() => openBehaviorStudio("studio")} className={actionButtonClass("primary")}>
-              Open studio
-            </button>
           </div>
-          <div className="mt-4 flex flex-wrap gap-2">
+        ) : null}
+
+        <div className="rounded-[1.15rem] border border-soft bg-white p-4">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">At a glance</p>
+          <h4 className="mt-2 text-lg font-semibold text-slate-950">{currentScopeTitle}</h4>
+          <div className="mt-3 flex flex-wrap gap-2">
             {conditionalGroups.length ? <span className="app-pill">{conditionalGroups.length} bundles</span> : null}
             {scopeListeners.length ? <span className="app-pill">{scopeListeners.length} flows</span> : null}
             {activeRuntimeScope ? <span className="app-pill">{activeRuntimeScope.label}</span> : null}
             <span className="app-pill">{currentBehaviorSelectionSummary()}</span>
           </div>
-          <div className="mt-4 rounded-[0.95rem] border border-dashed border-slate-200 bg-slate-50 p-3 text-sm leading-6 text-slate-600">
-            Use the behavior toolbar in the step preview for quick rule, listener, event, and test actions. Keep this rail for status and inspection only.
-          </div>
-        </div>
-
-        <div className="rounded-[1.15rem] border border-soft bg-white p-4">
-          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">At a glance</p>
+          {hasInlineBehaviorToolbar ? (
+            <div className="mt-3 rounded-[0.95rem] border border-dashed border-slate-200 bg-slate-50 p-3 text-sm leading-6 text-slate-600">
+              Use the behavior toolbar on the selected card for add rule, listener, event, and test actions. This rail is status only.
+            </div>
+          ) : null}
           <div className="mt-3 grid gap-3">
             <div className="rounded-[0.95rem] border border-soft bg-slate-50 p-3">
               <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Rules</p>
@@ -7306,7 +7961,7 @@ export default function App() {
               >
                 Full index
               </button>
-              <button type="button" onClick={() => openBehaviorStudio("advanced", "graph")} className={actionButtonClass("secondary")}>
+              <button type="button" onClick={openGraphInspectorSurface} className={actionButtonClass("secondary")}>
                 Graph view
               </button>
               <button
@@ -7653,10 +8308,65 @@ export default function App() {
 
     const isRuleCreation = behaviorStudioCreationKind === "rule";
     const isEventCreation = behaviorStudioCreationKind === "event";
-    const availableEventPresets = runtimePresets.filter((preset) =>
-      preset.label.toLowerCase().includes("emit") || preset.id.includes("emit") || preset.id.includes("event"),
+    const flowPresets = isEventCreation
+      ? runtimePresets.filter((preset) => preset.actionKinds.includes("emit_event"))
+      : runtimePresets;
+    const recommendedPresetIds = new Set(flowPresets.slice(0, 5).map((preset) => preset.id));
+    const normalizedPresetSearch = behaviorPresetSearch.trim().toLowerCase();
+    const rawTriggerNames = activeRuntimeScope
+      ? Array.from(
+          new Set([
+            ...runtimeTriggerSuggestions(activeRuntimeScope, activeBuilderField),
+            ...(activeRuntimeScope.scopeKind === "form"
+              ? ["form.load", "form.submit", "form.submit_success", "form.submit_error", "form.validation_failed", "host.context_updated"]
+              : activeRuntimeScope.scopeKind === "step"
+                ? ["step.enter", "step.leave"]
+                : activeRuntimeScope.scopeKind === "field"
+                  ? ["field.change", "field.focus", "field.blur", "host.context_updated"]
+                  : activeRuntimeScope.scopeKind === "component"
+                    ? ["component.click"]
+                    : []),
+          ]),
+        )
+      : [];
+    const availableCategories = (["recommended", "visibility", "validation", "data", "navigation", "host", "advanced"] as BehaviorPresetCategory[])
+      .filter((category) => {
+        if (category === "recommended" || category === "advanced") {
+          return true;
+        }
+        return flowPresets.some((preset) => preset.category === category);
+      });
+    const visibleFlowPresets = flowPresets.filter((preset) => {
+      const matchesSearch =
+        !normalizedPresetSearch ||
+        [
+          preset.label,
+          preset.description,
+          preset.triggerName,
+          preset.actionSummary,
+          behaviorPresetCategoryLabels[preset.category],
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedPresetSearch);
+      if (!matchesSearch) {
+        return false;
+      }
+      if (normalizedPresetSearch) {
+        return true;
+      }
+      if (behaviorPresetCategory === "recommended") {
+        return recommendedPresetIds.has(preset.id);
+      }
+      if (behaviorPresetCategory === "advanced") {
+        return false;
+      }
+      return preset.category === behaviorPresetCategory;
+    });
+    const visibleRawTriggers = rawTriggerNames.filter((triggerName) =>
+      !normalizedPresetSearch || triggerName.toLowerCase().includes(normalizedPresetSearch) || formatLabel(triggerName).toLowerCase().includes(normalizedPresetSearch),
     );
-    const visibleFlowPresets = isEventCreation && availableEventPresets.length ? availableEventPresets : runtimePresets;
+    const shouldShowRawTriggers = behaviorPresetCategory === "advanced" || (normalizedPresetSearch.length > 0 && visibleFlowPresets.length === 0);
     const title =
       behaviorStudioCreationKind === "rule"
         ? "Create rule"
@@ -7683,87 +8393,143 @@ export default function App() {
           </button>
         </div>
 
-        <div className="mt-3 grid gap-2 sm:grid-cols-3">
-          <div className="rounded-[0.85rem] border border-blue-200 bg-white p-3">
-            <p className="text-[0.62rem] uppercase tracking-[0.16em] text-slate-500">1. Scope</p>
-            <p className="mt-1 truncate text-sm font-semibold text-slate-950">{currentBehaviorSelectionSummary()}</p>
-            <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">
-              {activeRuntimeScope?.label ?? (selectedAuthoring?.kind === "field" ? activeBuilderField?.label : activeStep?.title) ?? "Current selection"}
-            </p>
-          </div>
-          <div className="rounded-[0.85rem] border border-blue-200 bg-white p-3">
-            <p className="text-[0.62rem] uppercase tracking-[0.16em] text-slate-500">2. Starter</p>
-            <p className="mt-1 text-sm font-semibold text-slate-950">
-              {isRuleCreation ? "Condition and effect" : isEventCreation ? "Event and payload" : "Trigger and actions"}
-            </p>
-            <p className="mt-1 text-xs leading-5 text-slate-600">
-              {isRuleCreation ? "Pick the state effect first." : "Pick the flow shape first."}
-            </p>
-          </div>
-          <div className="rounded-[0.85rem] border border-blue-200 bg-white p-3">
-            <p className="text-[0.62rem] uppercase tracking-[0.16em] text-slate-500">3. Edit</p>
-            <p className="mt-1 text-sm font-semibold text-slate-950">Refine in editor</p>
-            <p className="mt-1 text-xs leading-5 text-slate-600">Starter opens as a focused editor.</p>
-          </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="app-pill">{currentBehaviorSelectionSummary()}</span>
+          {activeRuntimeScope ? <span className="app-pill">{activeRuntimeScope.label}</span> : null}
+          <span className="text-xs text-slate-600">
+            Pick a starter now; refine conditions, payloads, and actions after it opens.
+          </span>
         </div>
 
         {isRuleCreation ? (
           selectedAuthoring?.kind === "field" && activeBuilderField ? (
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {[
-                { id: "show", label: "Show or hide", detail: "Control whether this field is visible.", starter: { mode: "single" as const, effect: "show" as const } },
-                { id: "require", label: "Require or relax", detail: "Control when this field is required.", starter: { mode: "single" as const, effect: "require" as const } },
-                { id: "disable", label: "Enable or disable", detail: "Control whether this field can be edited.", starter: { mode: "single" as const, effect: "disable" as const } },
-                { id: "show-require", label: "Show and require", detail: "Use one condition for visibility and required state.", starter: { mode: "bundle" as const, effects: ["show", "require"] as ConditionalRule["effect"][] } },
-                { id: "show-lock", label: "Show and lock", detail: "Use one condition for visibility and editability.", starter: { mode: "bundle" as const, effects: ["show", "disable"] as ConditionalRule["effect"][] } },
-              ].map((option) => (
-                <button
-                  key={`creation-rule-${option.id}`}
-                  type="button"
-                  onClick={() => applyBehaviorRuleStarter(option.starter)}
-                  className="rounded-[0.85rem] border border-blue-200 bg-white px-3 py-2.5 text-left transition hover:border-blue-400 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-                >
-                  <p className="text-sm font-semibold text-slate-950">{option.label}</p>
-                  <p className="mt-1 text-xs leading-5 text-slate-600">{option.detail}</p>
-                </button>
-              ))}
+            <div className="mt-3 space-y-2">
+              <p className="text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-slate-500">Recommended starters</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {[
+                  { id: "show-require", label: "Show and require", detail: "Most common: reveal the field and require it from one condition.", starter: { mode: "bundle" as const, effects: ["show", "require"] as ConditionalRule["effect"][] } },
+                  { id: "require", label: "Require when", detail: "Make this field required only when another answer matches.", starter: { mode: "single" as const, effect: "require" as const } },
+                  { id: "show", label: "Show or hide", detail: "Control whether this field is visible.", starter: { mode: "single" as const, effect: "show" as const } },
+                  { id: "disable", label: "Enable or disable", detail: "Control whether this field can be edited.", starter: { mode: "single" as const, effect: "disable" as const } },
+                ].map((option) => (
+                  <button
+                    key={`creation-rule-${option.id}`}
+                    type="button"
+                    onClick={() => applyBehaviorRuleStarter(option.starter)}
+                    className="rounded-[0.85rem] border border-blue-200 bg-white px-3 py-2.5 text-left transition hover:border-blue-400 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                  >
+                    <p className="text-sm font-semibold text-slate-950">{option.label}</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-600">{option.detail}</p>
+                  </button>
+                ))}
+              </div>
             </div>
           ) : (
             <div className="app-muted-card mt-3 p-4 text-sm text-slate-500">Select a field before creating a state rule.</div>
           )
         ) : activeRuntimeScope ? (
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            {visibleFlowPresets.map((preset) => (
-              <button
-                key={`creation-flow-${preset.id}`}
-                type="button"
-                onClick={() => applyBehaviorFlowPreset(preset.id)}
-                className="rounded-[0.85rem] border border-blue-200 bg-white px-3 py-2.5 text-left transition hover:border-blue-400 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-              >
-                <p className="text-sm font-semibold text-slate-950">{preset.label}</p>
-                <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">{preset.description}</p>
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => createBlankBehaviorStudioListener(isEventCreation ? "event" : "listener")}
-              className="rounded-[0.85rem] border border-dashed border-blue-300 bg-white px-3 py-2.5 text-left transition hover:border-blue-400 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-            >
-              <p className="text-sm font-semibold text-slate-950">{isEventCreation ? "Blank event flow" : "Blank listener"}</p>
-              <p className="mt-1 text-xs leading-5 text-slate-600">
-                Start with {formatLabel(defaultBehaviorTriggerName())} and refine the action chain manually.
+          <div className="relative z-10 mt-3 rounded-[0.9rem] border border-blue-100 bg-white/80 p-2.5">
+            <label htmlFor="behavior-preset-search" className="sr-only">
+              Search behavior presets or raw triggers
+            </label>
+            <input
+              id="behavior-preset-search"
+              type="search"
+              value={behaviorPresetSearch}
+              onChange={(event) => setBehaviorPresetSearch(event.target.value)}
+              placeholder="Search presets or triggers..."
+              className="w-full rounded-[0.8rem] border border-soft bg-white px-3 py-2 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            />
+            <div className="mt-2 flex flex-wrap gap-1.5" role="toolbar" aria-label="Behavior preset categories">
+              {availableCategories.map((category) => (
+                <button
+                  key={`behavior-preset-category-${category}`}
+                  type="button"
+                  aria-pressed={behaviorPresetCategory === category}
+                  onClick={() => setBehaviorPresetCategory(category)}
+                  className={`rounded-full border px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.14em] transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+                    behaviorPresetCategory === category
+                      ? "border-blue-500 bg-blue-600 text-white shadow-sm"
+                      : "border-soft bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"
+                  }`}
+                >
+                  {behaviorPresetCategoryLabels[category]}
+                </button>
+              ))}
+            </div>
+            <div className="mt-2">
+              {!shouldShowRawTriggers ? (
+                <div className="grid gap-2">
+                  {visibleFlowPresets.map((preset) => (
+                    <button
+                      key={`creation-flow-${preset.id}`}
+                      type="button"
+                      onClick={() => applyBehaviorFlowPreset(preset.id)}
+                      className="rounded-[0.85rem] border border-blue-200 bg-white px-3 py-2.5 text-left transition hover:border-blue-400 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-slate-950">{preset.label}</p>
+                          <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">{preset.description}</p>
+                        </div>
+                        {recommendedPresetIds.has(preset.id) ? <span className="app-pill shrink-0">Suggested</span> : null}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <span className="app-pill">When {formatLabel(preset.triggerName)}</span>
+                        <span className="app-pill">Then {preset.actionSummary}</span>
+                        <span className="app-pill">{behaviorPresetCategoryLabels[preset.category]}</span>
+                      </div>
+                    </button>
+                  ))}
+                  {!visibleFlowPresets.length ? (
+                    <div className="app-muted-card p-3 text-sm text-slate-500">
+                      No matching presets. Use Advanced to choose an exact trigger and build the chain manually.
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="grid gap-2">
+                  <div className="rounded-[0.85rem] border border-dashed border-blue-200 bg-blue-50/70 px-3 py-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Exact triggers</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-600">
+                      Advanced mode starts from the raw trigger. You can add conditions and actions after the listener opens.
+                    </p>
+                  </div>
+                  {visibleRawTriggers.map((triggerName) => (
+                    <button
+                      key={`creation-trigger-${triggerName}`}
+                      type="button"
+                      onClick={() => createBlankBehaviorStudioListener(isEventCreation ? "event" : "listener", triggerName)}
+                      className="rounded-[0.85rem] border border-blue-200 bg-white px-3 py-2.5 text-left transition hover:border-blue-400 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                    >
+                      <p className="text-sm font-semibold text-slate-950">When {formatLabel(triggerName)}</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-600">
+                        Create a {isEventCreation ? "custom event flow" : "custom listener"} from `{triggerName}`.
+                      </p>
+                    </button>
+                  ))}
+                  {!visibleRawTriggers.length ? (
+                    <div className="app-muted-card p-3 text-sm text-slate-500">No matching triggers for this scope.</div>
+                  ) : null}
+                </div>
+              )}
+            </div>
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-[0.8rem] border border-soft bg-slate-50 px-3 py-2">
+              <p className="text-xs leading-5 text-slate-600">
+                Start from intent first; use Advanced only when you need the exact runtime trigger.
               </p>
-            </button>
+              <button
+                type="button"
+                onClick={() => createBlankBehaviorStudioListener(isEventCreation ? "event" : "listener")}
+                className={actionButtonClass("secondary")}
+              >
+                {isEventCreation ? "Custom event flow" : "Custom listener"}
+              </button>
+            </div>
           </div>
         ) : (
           <div className="app-muted-card mt-3 p-4 text-sm text-slate-500">Select a form, button, or interactive field before creating a listener.</div>
         )}
-        <div className="sticky bottom-0 -mx-3 mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-blue-100 bg-blue-50/95 px-3 py-2 backdrop-blur">
-          <span className="text-xs text-slate-600">Pick a starter to create the behavior object.</span>
-          <button type="button" onClick={() => setBehaviorStudioCreationKind(null)} className={actionButtonClass("secondary")}>
-            Cancel setup
-          </button>
-        </div>
       </div>
     );
   }
@@ -7783,7 +8549,7 @@ export default function App() {
     const studioBehaviorSummary = currentBehaviorSelectionSummary(selectedRule, selectedListener);
 
     return (
-      <div className="mx-auto max-w-3xl space-y-3">
+      <div className="mx-auto max-w-[52rem] space-y-3">
         {behaviorStudioCreationKind ? (
           renderBehaviorCreationGuide()
         ) : (
@@ -12718,22 +13484,25 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                     <div key={step.id} className="space-y-2">
                       {renderDropMarker({ kind: "step-list", index: stepIndex }, { label: "Insert step here" })}
                       <div
-                        draggable
-                        onDragStart={() => handleSelectionDragStart({ kind: "step", stepId: step.id })}
-                        onDragEnd={clearDragInteraction}
-                        onDragOver={(event) => handleDropZoneDragOver(event, { kind: "step-list", index: stepIndex })}
+                        {...dropTargetAttributes({ kind: "step-list", index: stepIndex })}
+                        onDragOver={(event) => handleDropZoneDragOver(event, { kind: "step-list", index: stepIndex }, { positionByPointer: true })}
                         onDragLeave={() => handleDropZoneDragLeave({ kind: "step-list", index: stepIndex })}
-                        onDrop={(event) => handleDropTarget(event, { kind: "step-list", index: stepIndex })}
-                        className="min-w-0"
+                        onDrop={(event) => handleDropTarget(event, { kind: "step-list", index: stepIndex }, { positionByPointer: true })}
+                        className={`flex min-w-0 items-stretch gap-2 rounded-[1rem] border p-2 transition ${
+                          selectedAuthoring?.stepId === step.id
+                            ? "border-blue-300 bg-[#e8f0ff] shadow-[0_12px_24px_rgba(37,99,235,0.10)]"
+                            : "border-soft bg-white hover:border-slate-300"
+                        } ${
+                          dragPayloadMatchesSelection(dragPayload, { kind: "step", stepId: step.id })
+                            ? "scale-[0.99] opacity-55 shadow-[0_18px_34px_rgba(37,99,235,0.16)]"
+                            : ""
+                        }`}
                       >
+                        {renderDragHandle(`Drag step ${stepIndex + 1}`, { kind: "step", stepId: step.id }, { compact: true })}
                         <button
                           type="button"
                           onClick={() => setSelectedAuthoring({ kind: "step", stepId: step.id })}
-                          className={`flex w-full min-w-0 items-start gap-3 rounded-[1rem] border px-2.5 py-2.5 text-left transition ${
-                            selectedAuthoring?.stepId === step.id
-                              ? "border-blue-300 bg-[#e8f0ff] shadow-[0_12px_24px_rgba(37,99,235,0.10)]"
-                              : "border-soft bg-white hover:border-slate-300"
-                          }`}
+                          className="flex min-w-0 flex-1 items-start gap-3 rounded-[0.8rem] px-1 py-0.5 text-left transition hover:bg-white/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
                         >
                           <PageIcon />
                           <span className="min-w-0 flex-1">
@@ -12853,7 +13622,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                       </div>
                     ) : null}
 
-                    <div className="rounded-xl border border-soft bg-white px-4 py-3">
+                    <div data-behavior-studio-surface className="rounded-xl border border-soft bg-white px-4 py-3">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <button
                           type="button"
@@ -12884,6 +13653,9 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                           <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">{guidanceForStep(activeStep)}</p>
                         </button>
                         <div className="flex flex-wrap items-center gap-2">
+                          {selectedAuthoring?.kind === "step" && selectedAuthoring.stepId === activeStep.id
+                            ? renderBehaviorQuickToolbar({ compact: true, stopPropagation: true, label: "Step behavior" })
+                            : null}
                           <div className="app-pill">
                             Step {activeStepIndex + 1} of {activeDocument.steps.length}
                           </div>
@@ -12947,15 +13719,18 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                   { label: "Insert section here" },
                                 )}
                                 <section
-                                  draggable
-                                  onDragStart={() => handleSelectionDragStart({ kind: "section", stepId: activeStep.id, sectionId: section.id })}
-                                  onDragEnd={clearDragInteraction}
+                                  data-behavior-studio-surface
+                                  {...dropTargetAttributes({
+                                    kind: "section-list",
+                                    stepId: activeStep.id,
+                                    index: sectionIndex,
+                                  })}
                                   onDragOver={(event) =>
                                     handleDropZoneDragOver(event, {
                                       kind: "section-list",
                                       stepId: activeStep.id,
                                       index: sectionIndex,
-                                    })}
+                                    }, { positionByPointer: true })}
                                   onDragLeave={() =>
                                     handleDropZoneDragLeave({
                                       kind: "section-list",
@@ -12967,16 +13742,22 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                       kind: "section-list",
                                       stepId: activeStep.id,
                                       index: sectionIndex,
-                                    })}
+                                    }, { positionByPointer: true })}
                                   onClick={() => setSelectedAuthoring({ kind: "section", stepId: activeStep.id, sectionId: section.id })}
                                   className={`cursor-pointer rounded-[1.45rem] border p-5 ${
                                     selectedAuthoring?.kind === "section" && selectedAuthoring.sectionId === section.id
                                       ? "border-blue-300 bg-[#f6f9ff]"
                                       : "border-soft bg-[#fbfcff]"
+                                  } ${
+                                    dragPayloadMatchesSelection(dragPayload, { kind: "section", stepId: activeStep.id, sectionId: section.id })
+                                      ? "scale-[0.995] opacity-55 shadow-[0_18px_34px_rgba(37,99,235,0.16)]"
+                                      : ""
                                   }`}
                                 >
                                   <div className="flex flex-wrap items-start justify-between gap-3">
-                                    <div>
+                                    <div className="flex min-w-0 items-start gap-3">
+                                      {renderDragHandle("Drag section", { kind: "section", stepId: activeStep.id, sectionId: section.id })}
+                                      <div className="min-w-0">
                                       <h4 className="text-xl font-semibold text-slate-950">{section.title}</h4>
                                       {section.description ? (
                                         <p className="mt-2 text-sm leading-6 text-slate-600">{section.description}</p>
@@ -12990,6 +13771,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                           </div>
                                         ) : null;
                                       })()}
+                                      </div>
                                     </div>
                                     <div className="flex flex-wrap items-center justify-end gap-2">
                                       {selectedAuthoring?.kind === "section" && selectedAuthoring.sectionId === section.id
@@ -13021,16 +13803,20 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                             { label: "Insert group here" },
                                           )}
                                           <div
-                                            draggable
-                                            onDragStart={() => handleSelectionDragStart({ kind: "group", stepId: activeStep.id, sectionId: section.id, groupId: group.id })}
-                                            onDragEnd={clearDragInteraction}
+                                            data-behavior-studio-surface
+                                            {...dropTargetAttributes({
+                                              kind: "group-list",
+                                              stepId: activeStep.id,
+                                              sectionId: section.id,
+                                              index: groupIndex,
+                                            })}
                                             onDragOver={(event) =>
                                               handleDropZoneDragOver(event, {
                                                 kind: "group-list",
                                                 stepId: activeStep.id,
                                                 sectionId: section.id,
                                                 index: groupIndex,
-                                              })}
+                                              }, { positionByPointer: true })}
                                             onDragLeave={() =>
                                               handleDropZoneDragLeave({
                                                 kind: "group-list",
@@ -13044,30 +13830,37 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                                 stepId: activeStep.id,
                                                 sectionId: section.id,
                                                 index: groupIndex,
-                                              })
+                                              }, { positionByPointer: true })
                                             }
                                             onClick={() => setSelectedAuthoring({ kind: "group", stepId: activeStep.id, sectionId: section.id, groupId: group.id })}
                                             className={`cursor-pointer rounded-[1.2rem] border p-4 ${
                                               selectedAuthoring?.kind === "group" && selectedAuthoring.groupId === group.id
                                                 ? "border-blue-300 bg-white"
                                                 : "border-soft bg-white"
+                                            } ${
+                                              dragPayloadMatchesSelection(dragPayload, { kind: "group", stepId: activeStep.id, sectionId: section.id, groupId: group.id })
+                                                ? "scale-[0.995] opacity-55 shadow-[0_18px_34px_rgba(37,99,235,0.16)]"
+                                                : ""
                                             }`}
                                           >
                                             <div className="flex flex-wrap items-start justify-between gap-3">
-                                              <div>
-                                                <p className="text-sm font-semibold text-slate-950">{group.label}</p>
-                                                {group.description ? (
-                                                  <p className="mt-1 text-sm leading-6 text-slate-600">{group.description}</p>
-                                                ) : null}
-                                                {(() => {
-                                                  const behaviorSummary = summarizeGroupBehavior(group);
-                                                  return behaviorSummary.ruleCount || behaviorSummary.flowCount ? (
-                                                    <div className="mt-3 flex flex-wrap gap-2">
-                                                      {behaviorSummary.ruleCount ? <span className="app-pill">{behaviorSummary.ruleCount} rules</span> : null}
-                                                      {behaviorSummary.flowCount ? <span className="app-pill">{behaviorSummary.flowCount} flows</span> : null}
-                                                    </div>
-                                                  ) : null;
-                                                })()}
+                                              <div className="flex min-w-0 items-start gap-3">
+                                                {renderDragHandle("Drag group", { kind: "group", stepId: activeStep.id, sectionId: section.id, groupId: group.id })}
+                                                <div className="min-w-0">
+                                                  <p className="text-sm font-semibold text-slate-950">{group.label}</p>
+                                                  {group.description ? (
+                                                    <p className="mt-1 text-sm leading-6 text-slate-600">{group.description}</p>
+                                                  ) : null}
+                                                  {(() => {
+                                                    const behaviorSummary = summarizeGroupBehavior(group);
+                                                    return behaviorSummary.ruleCount || behaviorSummary.flowCount ? (
+                                                      <div className="mt-3 flex flex-wrap gap-2">
+                                                        {behaviorSummary.ruleCount ? <span className="app-pill">{behaviorSummary.ruleCount} rules</span> : null}
+                                                        {behaviorSummary.flowCount ? <span className="app-pill">{behaviorSummary.flowCount} flows</span> : null}
+                                                      </div>
+                                                    ) : null;
+                                                  })()}
+                                                </div>
                                               </div>
                                               <div className="flex flex-wrap items-center justify-end gap-2">
                                                 {selectedAuthoring?.kind === "group" && selectedAuthoring.groupId === group.id
@@ -13082,6 +13875,13 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                               </div>
                                             </div>
                                             <div
+                                              {...dropTargetAttributes({
+                                                kind: "field-list",
+                                                stepId: activeStep.id,
+                                                sectionId: section.id,
+                                                groupId: group.id,
+                                                index: group.fields.length,
+                                              }, { exact: true })}
                                               className="mt-4 grid gap-4 md:grid-cols-2"
                                               onDragOver={(event) =>
                                                 handleDropZoneDragOver(event, {
@@ -13184,6 +13984,12 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                       : null}
 
                                     <div
+                                      {...dropTargetAttributes({
+                                        kind: "field-list",
+                                        stepId: activeStep.id,
+                                        sectionId: section.id,
+                                        index: section.fields.length,
+                                      }, { exact: true })}
                                       className="grid gap-4 md:grid-cols-2"
                                       onDragOver={(event) =>
                                         handleDropZoneDragOver(event, {
@@ -13941,11 +14747,14 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                   <div className="app-muted-card p-6 text-sm text-slate-500">No project selected.</div>
                 )}
               </PanelCard>
-              {behaviorStudioOpen && activeDocument ? (
+              {behaviorStudioOpen && activeDocument && typeof document !== "undefined" ? createPortal((
                 <div
-                  className={`fixed inset-0 z-[55] overflow-hidden overscroll-contain bg-slate-950/28 p-2 pt-3 sm:p-4 ${
-                    behaviorStudioPosition.anchored ? "" : "flex items-start justify-center"
-                  }`}
+                  className="fixed inset-0 z-[55] flex items-center justify-center overflow-hidden overscroll-contain bg-slate-950/28 p-2 pt-3 sm:p-4"
+                  onMouseDown={(event) => {
+                    if (event.target === event.currentTarget) {
+                      closeBehaviorStudio();
+                    }
+                  }}
                   onKeyDown={(event) => {
                     if (event.key === "Escape") {
                       closeBehaviorStudio();
@@ -13961,15 +14770,15 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                     style={behaviorStudioPosition.dialogStyle}
                     className={`relative flex w-full flex-col overflow-hidden rounded-[1.15rem] border border-soft bg-[#f5f7fb] shadow-[0_24px_64px_rgba(15,23,42,0.24)] outline-none ${
                       behaviorStudioMode === "graph"
-                        ? "h-[calc(100dvh-2rem)] max-w-[84rem]"
+                        ? "h-[min(86dvh,47.5rem)] max-w-[70rem]"
                         : behaviorStudioWorkspaceShell
                           ? behaviorStudioMode === "test"
-                            ? "h-[min(74dvh,38.75rem)] max-w-[56rem]"
-                            : "h-[min(82dvh,45rem)] max-w-[70rem]"
-                          : "h-[min(72dvh,33.75rem)] max-w-[47rem]"
+                            ? "h-[min(82dvh,42rem)] max-w-[60rem]"
+                            : "h-[min(84dvh,46rem)] max-w-[70rem]"
+                          : "h-[min(78dvh,39rem)] max-w-[56rem]"
                     }`}
                   >
-                    {behaviorStudioPosition.anchored ? (
+                    {behaviorStudioPosition.anchored && behaviorStudioPosition.arrowStyle ? (
                       <span
                         aria-hidden="true"
                         style={behaviorStudioPosition.arrowStyle}
@@ -14036,13 +14845,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                           </button>
                           <button
                             type="button"
-                            onClick={() => {
-                              setBehaviorStudioCreationKind(null);
-                              setBehaviorFocusTarget(null);
-                              setBehaviorStudioAnchor(null);
-                              setBehaviorStudioMode("graph");
-                              setBehaviorStudioView("advanced");
-                            }}
+                            onClick={openGraphInspectorSurface}
                             className={actionButtonClass(behaviorStudioMode === "graph" ? "primary" : "secondary")}
                           >
                             Graph
@@ -14064,7 +14867,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                     </div>
                   </div>
                 </div>
-              ) : null}
+              ), document.body) : null}
               {sourceDrawerOpen && sourceContextDraft ? (
                 <div className="fixed inset-0 z-50 bg-slate-950/35 p-4 backdrop-blur-sm">
                   <div className="mx-auto flex h-full max-w-[92rem] flex-col overflow-hidden rounded-[1.5rem] border border-soft bg-white shadow-[0_32px_90px_rgba(15,23,42,0.28)]">

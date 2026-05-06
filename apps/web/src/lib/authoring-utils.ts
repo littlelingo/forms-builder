@@ -238,9 +238,9 @@ function moveStep(document: AuthoringDocument, stepId: string, targetIndex: numb
   if (currentIndex < 0) {
     return false;
   }
-  const nextIndex = clampIndex(targetIndex, document.steps.length - 1);
   const [step] = document.steps.splice(currentIndex, 1);
-  document.steps.splice(currentIndex < nextIndex ? nextIndex : nextIndex, 0, step);
+  const insertIndex = clampIndex(currentIndex < targetIndex ? targetIndex - 1 : targetIndex, document.steps.length);
+  document.steps.splice(insertIndex, 0, step);
   return true;
 }
 
@@ -261,7 +261,10 @@ function moveSection(
     return false;
   }
   const [section] = sourceStep.sections.splice(sectionIndex, 1);
-  const insertIndex = clampIndex(targetIndex, targetStep.sections.length);
+  const insertIndex = clampIndex(
+    sourceStep === targetStep && sectionIndex < targetIndex ? targetIndex - 1 : targetIndex,
+    targetStep.sections.length,
+  );
   targetStep.sections.splice(insertIndex, 0, section);
   return true;
 }
@@ -285,36 +288,31 @@ function moveGroup(
     return false;
   }
   const [group] = sourceSection.groups.splice(groupIndex, 1);
-  const insertIndex = clampIndex(targetIndex, targetSection.groups.length);
+  const insertIndex = clampIndex(
+    sourceSection === targetSection && groupIndex < targetIndex ? targetIndex - 1 : targetIndex,
+    targetSection.groups.length,
+  );
   targetSection.groups.splice(insertIndex, 0, group);
   return true;
 }
 
 function moveField(document: AuthoringDocument, payload: Extract<DragPayload, { kind: "field" }>, target: Extract<DropTarget, { kind: "field-list" }>): boolean {
-  const extracted = extractField(document, payload);
-  if (!extracted) {
-    return false;
-  }
+  const sourceFields = getFieldContainer(document, payload.stepId, payload.sectionId, payload.groupId);
   const targetFields = getFieldContainer(document, target.stepId, target.sectionId, target.groupId);
-  if (!targetFields) {
+  if (!sourceFields || !targetFields) {
     return false;
   }
-  const insertIndex = clampIndex(target.index, targetFields.length);
-  targetFields.splice(insertIndex, 0, extracted.field);
+  const sourceIndex = sourceFields.findIndex((field) => field.id === payload.fieldId);
+  if (sourceIndex < 0) {
+    return false;
+  }
+  const [field] = sourceFields.splice(sourceIndex, 1);
+  const insertIndex = clampIndex(
+    sourceFields === targetFields && sourceIndex < target.index ? target.index - 1 : target.index,
+    targetFields.length,
+  );
+  targetFields.splice(insertIndex, 0, field);
   return true;
-}
-
-function extractField(document: AuthoringDocument, payload: Extract<DragPayload, { kind: "field" }>): { field: AuthoringField } | null {
-  const fields = getFieldContainer(document, payload.stepId, payload.sectionId, payload.groupId);
-  if (!fields) {
-    return null;
-  }
-  const index = fields.findIndex((field) => field.id === payload.fieldId);
-  if (index < 0) {
-    return null;
-  }
-  const [field] = fields.splice(index, 1);
-  return { field };
 }
 
 function getSection(document: AuthoringDocument, stepId: string, sectionId: string): AuthoringSection | null {
