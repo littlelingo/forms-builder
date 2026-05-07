@@ -1,14 +1,5 @@
-import type {
-  ChoiceOption,
-  ExtractionIssue,
-  FieldNode,
-  FormDefinition,
-  ValidationRule,
-} from "./generated";
-import type {
-  RuntimeDocumentBehavior,
-  RuntimeNodeBehavior,
-} from "./runtime";
+import type { ChoiceOption, ExtractionIssue, FieldNode, FormDefinition, ValidationRule } from "./generated";
+import type { RuntimeDocumentBehavior, RuntimeNodeBehavior } from "./runtime";
 
 export type ProjectStatus = "draft" | "published";
 export type DocumentClass = FormDefinition["documentClass"];
@@ -17,6 +8,7 @@ export type SemanticType = FieldNode["semanticType"];
 
 export interface AuthoringField {
   id: string;
+  dispatchKey?: string | null;
   stableKey: string;
   label: string;
   helpText?: string | null;
@@ -37,6 +29,7 @@ export interface AuthoringField {
 
 export interface AuthoringGroup {
   id: string;
+  dispatchKey?: string | null;
   label: string;
   description?: string | null;
   layoutHints: Record<string, string>;
@@ -50,6 +43,7 @@ export interface AuthoringGroup {
 
 export interface AuthoringSection {
   id: string;
+  dispatchKey?: string | null;
   title: string;
   description?: string | null;
   layoutHints: Record<string, string>;
@@ -63,6 +57,7 @@ export interface AuthoringSection {
 
 export interface AuthoringStep {
   id: string;
+  dispatchKey?: string | null;
   title: string;
   description?: string | null;
   kind: string;
@@ -75,6 +70,7 @@ export interface AuthoringStep {
 
 export interface AuthoringDocument {
   id: string;
+  dispatchKey?: string | null;
   title: string;
   documentClass: DocumentClass;
   reviewStatus: ReviewStatus;

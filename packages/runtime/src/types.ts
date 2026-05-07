@@ -1,8 +1,10 @@
 import type {
   RuntimeActionDefinition,
   AuthoringDocument,
+  RuntimeConditionDefinition,
   RuntimeEventEnvelope,
   RuntimeHostContext,
+  RuntimeNodeType,
   RuntimeSessionState,
   RuntimeSubmitPayload,
   RuntimeValidationState,
@@ -25,10 +27,64 @@ export interface RuntimeTraceEntry {
   event: RuntimeEventEnvelope;
 }
 
+export interface RuntimeConditionDiagnostic {
+  conditionId: string;
+  label?: string | null;
+  enabled: boolean;
+  source: RuntimeConditionDefinition["source"];
+  operator: RuntimeConditionDefinition["operator"];
+  expectedValue?: unknown;
+  actualValue?: unknown;
+  passed: boolean;
+}
+
+export interface RuntimeActionDiagnostic {
+  actionId: string;
+  label?: string | null;
+  kind: RuntimeActionDefinition["kind"];
+  target?: RuntimeActionDefinition["target"] | null;
+  config: Record<string, unknown>;
+  status: "executed" | "error";
+  errorMessage?: string;
+}
+
+export interface RuntimeListenerDiagnostic {
+  listenerId: string;
+  label?: string | null;
+  type: string;
+  dispatcherId: string;
+  dispatcherType: RuntimeNodeType;
+  eventPhase: RuntimeEventEnvelope["eventPhase"];
+  enabled: boolean;
+  matched: boolean;
+  skippedReason?: "disabled" | "event_type" | "conditions_failed";
+  conditions: RuntimeConditionDiagnostic[];
+  actions: RuntimeActionDiagnostic[];
+}
+
+export interface RuntimeStateDiff {
+  currentStepChanged: boolean;
+  valuesChanged: string[];
+  nodesChanged: string[];
+  validationChanged: boolean;
+  submitChanged: boolean;
+}
+
+export interface RuntimeDispatchReport {
+  event: RuntimeEventEnvelope;
+  stateBefore: RuntimeSessionState;
+  stateAfter: RuntimeSessionState;
+  listeners: RuntimeListenerDiagnostic[];
+  traceEntries: RuntimeTraceEntry[];
+  emittedEvents: RuntimeEventEnvelope[];
+  stateDiff: RuntimeStateDiff;
+}
+
 export interface RuntimeEngine {
   mount(document: AuthoringDocument, options?: RuntimeEngineMountOptions): RuntimeSessionState;
   unmount(): void;
   dispatch(event: RuntimeEventEnvelope): RuntimeSessionState;
+  dispatchWithReport(event: RuntimeEventEnvelope): RuntimeDispatchReport;
   invoke(action: RuntimeActionDefinition): RuntimeSessionState;
   subscribe(handler: RuntimeEventHandler): () => void;
   getState(): RuntimeSessionState;

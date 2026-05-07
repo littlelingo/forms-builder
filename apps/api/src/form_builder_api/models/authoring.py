@@ -26,6 +26,7 @@ class ProjectStatus(str, Enum):
 
 class AuthoringField(CamelModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
+    dispatch_key: str | None = None
     stable_key: str
     label: str
     help_text: str | None = None
@@ -46,6 +47,7 @@ class AuthoringField(CamelModel):
 
 class AuthoringGroup(CamelModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
+    dispatch_key: str | None = None
     label: str
     description: str | None = None
     layout_hints: dict[str, str] = Field(default_factory=dict)
@@ -59,6 +61,7 @@ class AuthoringGroup(CamelModel):
 
 class AuthoringSection(CamelModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
+    dispatch_key: str | None = None
     title: str
     description: str | None = None
     layout_hints: dict[str, str] = Field(default_factory=dict)
@@ -72,6 +75,7 @@ class AuthoringSection(CamelModel):
 
 class AuthoringStep(CamelModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
+    dispatch_key: str | None = None
     title: str
     description: str | None = None
     kind: str = "collect"
@@ -84,6 +88,7 @@ class AuthoringStep(CamelModel):
 
 class AuthoringDocument(CamelModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
+    dispatch_key: str | None = None
     title: str
     document_class: DocumentClass
     review_status: ReviewStatus = ReviewStatus.REVIEWED

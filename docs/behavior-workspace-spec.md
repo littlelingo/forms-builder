@@ -25,6 +25,9 @@ The core item events exposed in Behavior Studio are documented in
   - overviewing behavior
 - Keep only one graph system in the product.
 - Reframe runtime testing as a simulator, not a dev-only utility.
+- Give every event-capable item a readable dispatch key in addition to its
+  immutable id, so source/dispatcher/target choices are recognizable in dense
+  forms.
 - Reduce source reference to a small provenance helper by default.
 - Use a full-width split workspace when the user explicitly enters source
   compare mode.
@@ -127,7 +130,7 @@ When a node is selected:
 
 1. open `Behavior`
 2. show a concise summary of existing behavior
-3. use Behavior Studio for guided listener and dispatch-chain creation
+3. use Behavior Studio for guided behavior creation
 4. manage existing objects through Behavior Manager
 5. use the graph for overview, tracing, and focused handoff
 
@@ -139,10 +142,11 @@ Quick-start examples:
 - `On button click, submit`
 - `On submit, request host action`
 
-These should create first-class listeners and dispatch chains. Conditional
-logic is stored inline on listeners rather than as standalone rule objects. The
-graph should visualize those objects after creation rather than acting as the
-creation surface.
+These should create first-class behavior flows backed by listeners, inline
+conditions, and ordered actions. Conditional logic is stored inline on the
+behavior listener rather than as standalone rule objects. The graph should
+visualize those objects after creation rather than acting as the creation
+surface.
 
 ### Starter palette before graph
 
@@ -159,8 +163,10 @@ language for visualization and debugging.
 
 ## Behavior Manager Ownership
 
-Event listeners and dispatch chains are first-class objects. Listener
-conditions are edited inside their owning listener.
+Behavior flows are first-class objects. Under the hood, each flow is an event
+listener with optional conditions and ordered actions. Dispatching an event and
+requesting host work are actions inside that flow, not separate primary creation
+modes.
 
 Behavior Manager owns:
 
@@ -200,8 +206,8 @@ Studio and lifecycle management to Behavior Manager.
 
 Selection must remain stable while authoring behavior.
 
-- Adding a listener or dispatch chain should not bounce selection away from the active
-  field or node.
+- Adding behavior should not bounce selection away from the active field or
+  node.
 - The currently selected authored node should stay pinned in the behavior
   surface while behavior is being edited.
 - Editing should happen inline or in a docked detail region, not in a detached
@@ -221,12 +227,16 @@ Show compact visual indicators on:
 
 Indicator categories:
 
-- has conditional listener flows
+- has conditional behavior
 - has interaction flows
 - has runtime/host behavior
 
 These indicators should be visible in both the hierarchy strip and the preview
 canvas so the user can see where behavior exists before opening the inspector.
+
+Selected items should also expose their dispatch key in preview. The key should
+be copyable and visible near selected step, section, group, field, and component
+behavior controls.
 
 ## Simulator
 
@@ -244,6 +254,10 @@ Use a dedicated simulator panel or bottom drawer, not a property-editor modal.
 
 ### Primary controls
 
+- guided selected-behavior test with source, dispatcher, target, and value
+  controls
+- behavior match report with condition actual/expected values
+- action execution and state-diff report
 - reset session
 - seed/fill required values
 - run current step
@@ -260,6 +274,10 @@ Use a dedicated simulator panel or bottom drawer, not a property-editor modal.
 
 Advanced debug should remain available, but it should not be the first thing the
 author sees.
+
+The simulator should keep the guided behavior test and raw runtime lab on the
+same diagnostic foundation. A later preview-based test mode should reuse the
+dispatch report while the author interacts with the rendered preview directly.
 
 ## Source Provenance And Compare
 
@@ -303,7 +321,7 @@ Keep prominent:
 - `Behavior Studio` for guided creation and focused wiring
 - `Behavior Manager` for search, filters, lifecycle, and field-centric impact
   views
-- `Runtime lab` for testing the selected listener or event chain
+- `Runtime lab` for testing the selected behavior
 - lightweight provenance in the inspector
 
 Keep, but tuck behind secondary affordances:
@@ -355,8 +373,8 @@ workspace. It should act like a bounded workbench.
 Implemented direction:
 
 - Behavior actions are now available directly on the selected section, group,
-  or field card through a compact selected-context toolbar: add event listener,
-  dispatch event, and test.
+  or field card through a compact selected-context toolbar: add behavior and
+  test.
 - The right rail stays inspection-oriented and no longer repeats full-width
   creation controls.
 - Studio is viewport-bound with a fixed shell, body-scroll lock, internal
@@ -364,9 +382,8 @@ Implemented direction:
   restoration to the opener.
 - Create/Test/Manage now use smaller mode-sized shells that anchor to the
   selected behavior toolbar when viewport space allows. Placement is based on
-  the toolbar container, not the individual icon, so event-listener, dispatch
-  event, and test actions open in the same predictable position for a selected
-  object.
+  the toolbar container, not the individual icon, so create, manage, and test
+  actions open in the same predictable position for a selected object.
 - The anchored shell is now stable across `Create`, scoped `Manage`, and scoped
   `Test`; switching those modes should not resize, re-anchor, or expose the
   broader graph/simulator stack.
@@ -376,7 +393,7 @@ Implemented direction:
   latest runtime effect. Raw traces, host-loop tools, and session JSON live
   behind `Open runtime lab`.
 - Studio mode is explicit:
-  - `Create` for one focused event-listener/dispatch-chain flow
+  - `Create` for one focused behavior flow
   - `Manage` for selected-object behavior, with full manager as secondary
   - `Test` for selected-object simulator checks, with runtime lab as secondary
   - `Graph` for secondary graph/debug work in a centered workspace shell
@@ -414,9 +431,9 @@ Implemented direction:
 - The right rail no longer shows a generic `Behavior launchpad` for selected
   section, group, field, or selected step scopes.
 - Selected element scopes use the inline behavior toolbar on the selected card
-  as the primary entry point for add event listener, dispatch event, and test.
+  as the primary entry point for add behavior and test.
 - The selected current-step header now exposes its own compact `Step behavior`
-  toolbar for step listeners, dispatch chains, and tests.
+  toolbar for step behavior and tests.
 - The right rail stays passive for selected steps and element scopes: current
   selection, counts, and status only.
 - Form-level behavior still keeps a small `Scope behavior` fallback until the
@@ -429,34 +446,37 @@ Recommended next simplification:
 - Keep the rail as status/provenance/inspection only once all active scopes have
   a direct in-preview behavior affordance.
 
-## Event Listener Simplification
+## Behavior Creation Simplification
 
 The current model is technically capable, but the creation experience still
 exposes too many implementation concepts too early. The preferred model should
 be:
 
-- `Listener condition` = inline conditional gate on a listener.
-- `Dispatch chain` = dispatch a named event with guided payload.
-- `Event listener` = react to an event and run one or more actions.
-- `Custom` = advanced path, still guided, never just a blank empty object.
+- `Behavior` = react to an event and run one or more actions.
+- `Condition` = optional inline gate on the behavior.
+- `Dispatch event` = an action that broadcasts a named event with guided
+  payload.
+- `Request host action` = an action that asks the embedding host to do work.
+- `Custom behavior` = advanced path, still guided, never just a blank empty
+  object.
 - `React to another item` = start from the target item, choose a source item
-  and source event, then let the builder attach the listener to the nearest
-  shared dispatcher.
+  and source event, then let the builder attach the underlying listener to the
+  nearest shared dispatcher.
 
 Implemented first cleanup:
 
-- The guided setup no longer repeats separate scope/starter/edit cards.
+- The selected toolbar now exposes one primary `Add behavior` command.
+- The guided setup uses `This item`, `Another item`, action categories, and
+  `Advanced` instead of separate listener and dispatch creation commands.
+- `Host` is no longer a preset category. Host work appears only as the
+  `Request host action` action or as Data/Validation starters that include that
+  action.
 - The sticky duplicate cancel footer was removed.
-- Starters are grouped under `Recommended starters`.
-- Blank listener/event creation now reads as `Custom listener` or `Custom event
-  flow` so the escape hatch feels intentional instead of unfinished.
+- Blank creation now reads as `Custom behavior` so the escape hatch feels
+  intentional instead of unfinished.
 
 Recommended next cleanup:
 
-- Keep `Add event listener` as the user-facing command while preserving
-  `listener` as the underlying schema term.
-- Rename `Add event` to `Dispatch event`, because users are dispatching event
-  instances from a dispatcher rather than defining core event types.
 - Split custom creation into a small wizard: trigger -> condition/payload ->
   action -> review, with live summary always visible.
 - Keep graph and full manager out of the first-create path. They should appear

@@ -186,6 +186,7 @@ class RuntimeEventEnvelopeSource(CamelModel):
     form_id: str
     project_id: str | None = None
     node_id: str | None = None
+    node_key: str | None = None
     node_type: RuntimeNodeType | None = None
 
 

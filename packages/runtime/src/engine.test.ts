@@ -477,9 +477,7 @@ test("runtime emits validation_failed when submit is blocked", () => {
   assert.equal(result.submit.message, "Validation failed.");
   assert.equal(result.submit.fieldErrors?.["field-name"], "Applicant name is required.");
 
-  const validationFailedEvents = engine
-    .getTrace()
-    .filter((entry) => entry.event.type === "form.validation_failed");
+  const validationFailedEvents = engine.getTrace().filter((entry) => entry.event.type === "form.validation_failed");
   assert.equal(validationFailedEvents.length, 1);
 });
 
@@ -540,9 +538,7 @@ test("explicit button listeners override the implicit compatibility listener pat
 
   assert.equal(result.currentStepId, "step-1");
 
-  const customEvents = engine
-    .getTrace()
-    .filter((entry) => entry.event.type === "custom.button_clicked");
+  const customEvents = engine.getTrace().filter((entry) => entry.event.type === "custom.button_clicked");
   assert.equal(customEvents.length, 1);
   assert.deepEqual(customEvents[0]?.event.payload, { mode: "explicit" });
 });
@@ -644,20 +640,17 @@ test("runtime payload references resolve against live session context", () => {
   const hostRequest = engine.getTrace().findLast((entry) => entry.event.type === "host.action_requested");
   assert.ok(hostRequest);
   assert.equal(hostRequest.event.payload.handlerKey, "host.lookup");
-  assert.deepEqual(
-    (hostRequest.event.payload.config as RuntimeActionDefinition["config"]).payload,
-    {
-      fieldId: "field-name",
-      query: "Jane Doe",
-      meta: {
-        fieldKey: "field-name",
-        stepId: "step-1",
-        stepTitle: "Step 1",
-        projectId: "project-test",
-        sourceNodeType: "field",
-      },
+  assert.deepEqual((hostRequest.event.payload.config as RuntimeActionDefinition["config"]).payload, {
+    fieldId: "field-name",
+    query: "Jane Doe",
+    meta: {
+      fieldKey: "field-name",
+      stepId: "step-1",
+      stepTitle: "Step 1",
+      projectId: "project-test",
+      sourceNodeType: "field",
     },
-  );
+  });
 });
 
 test("disabled inline listener conditions do not gate runtime listeners", () => {
@@ -1020,12 +1013,10 @@ test("AS3-style dispatch runs capture, target, and bubble listeners with event c
     .getTrace()
     .filter((entry) => ["capture.heard", "target.heard", "bubble.high", "bubble.low"].includes(entry.event.type));
 
-  assert.deepEqual(heardEvents.map((entry) => entry.event.type), [
-    "capture.heard",
-    "target.heard",
-    "bubble.high",
-    "bubble.low",
-  ]);
+  assert.deepEqual(
+    heardEvents.map((entry) => entry.event.type),
+    ["capture.heard", "target.heard", "bubble.high", "bubble.low"],
+  );
   assert.deepEqual(heardEvents[0]?.event.payload, {
     targetId: "field-name",
     currentTargetId: "form-test",
@@ -1103,7 +1094,10 @@ test("non-bubbling events do not invoke ancestor bubble listeners", () => {
     timestamp: "2026-05-01T12:00:31.000Z",
   });
 
-  assert.equal(engine.getTrace().some((entry) => entry.event.type === "bubble.should_not_fire"), false);
+  assert.equal(
+    engine.getTrace().some((entry) => entry.event.type === "bubble.should_not_fire"),
+    false,
+  );
 });
 
 test("cross-item listeners stored on a target node can listen at a shared dispatcher", () => {
@@ -1197,4 +1191,135 @@ test("cross-item listeners stored on a target node can listen at a shared dispat
   });
 
   assert.equal(result.values["field-radio"], "education");
+});
+
+test("dispatchWithReport explains matched listeners, conditions, actions, and state changes", () => {
+  const document = createDocument();
+  document.dispatchKey = "form.runtime-test";
+  document.steps[0]!.dispatchKey = "p1.step.step-1";
+  document.steps[0]!.sections[0]!.dispatchKey = "p1.section.section-1";
+  const field = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "field-name");
+  assert.ok(field);
+  field.dispatchKey = "p1.text.applicant-name";
+  field.runtime = {
+    eventSources: [],
+    listeners: [
+      {
+        id: "listener-report-match",
+        label: "Report matched listener",
+        type: "field.change",
+        dispatcherId: "field-name",
+        dispatcherType: "field",
+        useCapture: false,
+        priority: 0,
+        eventName: "field.change",
+        enabled: true,
+        conditions: [
+          {
+            id: "condition-report-allowed",
+            label: "Allowed value",
+            enabled: true,
+            source: { kind: "field_value", fieldId: "field-name" },
+            operator: "equals",
+            expectedValue: "allowed",
+          },
+        ],
+        actions: [
+          {
+            id: "action-report-allowed",
+            kind: "dispatch_event",
+            config: { eventType: "report.allowed", payload: { sourceKey: { $runtime: "current.source.node.key" } } },
+            continueOnError: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const report = engine.dispatchWithReport(fieldChangeEvent("field-name", "allowed"));
+  const listener = report.listeners.find((entry) => entry.listenerId === "listener-report-match");
+
+  assert.equal(report.event.target?.nodeKey, "p1.text.applicant-name");
+  assert.ok(listener);
+  assert.equal(listener.matched, true);
+  assert.equal(listener.conditions[0]?.passed, true);
+  assert.equal(listener.conditions[0]?.actualValue, "allowed");
+  assert.equal(listener.actions[0]?.status, "executed");
+  assert.deepEqual(report.stateDiff.valuesChanged, ["field-name"]);
+  assert.equal(
+    report.emittedEvents.some((event) => event.type === "report.allowed"),
+    true,
+  );
+
+  const emittedEvent = report.traceEntries.find((entry) => entry.event.type === "report.allowed");
+  assert.deepEqual(emittedEvent?.event.payload, { sourceKey: "p1.text.applicant-name" });
+});
+
+test("dispatchWithReport explains skipped listeners when conditions fail", () => {
+  const document = createDocument();
+  const field = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "field-name");
+  assert.ok(field);
+  field.runtime = {
+    eventSources: [],
+    listeners: [
+      {
+        id: "listener-report-skip",
+        label: "Report skipped listener",
+        type: "field.change",
+        dispatcherId: "field-name",
+        dispatcherType: "field",
+        useCapture: false,
+        priority: 0,
+        eventName: "field.change",
+        enabled: true,
+        conditions: [
+          {
+            id: "condition-report-blocked",
+            enabled: true,
+            source: { kind: "field_value", fieldId: "field-name" },
+            operator: "equals",
+            expectedValue: "allowed",
+          },
+        ],
+        actions: [
+          {
+            id: "action-report-blocked",
+            kind: "dispatch_event",
+            config: { eventType: "report.should_not_emit", payload: {} },
+            continueOnError: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const report = engine.dispatchWithReport(fieldChangeEvent("field-name", "blocked"));
+  const listener = report.listeners.find((entry) => entry.listenerId === "listener-report-skip");
+
+  assert.ok(listener);
+  assert.equal(listener.matched, false);
+  assert.equal(listener.skippedReason, "conditions_failed");
+  assert.equal(listener.conditions[0]?.passed, false);
+  assert.equal(listener.conditions[0]?.actualValue, "blocked");
+  assert.equal(listener.actions.length, 0);
+  assert.equal(
+    report.emittedEvents.some((event) => event.type === "report.should_not_emit"),
+    false,
+  );
 });

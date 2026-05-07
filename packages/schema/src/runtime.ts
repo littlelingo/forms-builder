@@ -252,6 +252,7 @@ export interface RuntimeEventTarget {
   formId: string;
   projectId?: string | null;
   nodeId?: string | null;
+  nodeKey?: string | null;
   nodeType?: RuntimeNodeType | null;
 }
 
@@ -263,13 +264,7 @@ export interface RuntimeEventEnvelope {
   eventPhase?: RuntimeEventPhase;
   bubbles?: boolean;
   /** @deprecated use target */
-  source: {
-    runtimeId: string;
-    formId: string;
-    projectId?: string | null;
-    nodeId?: string | null;
-    nodeType?: RuntimeNodeType | null;
-  };
+  source: RuntimeEventTarget;
   payload: Record<string, unknown>;
   correlationId: string;
   timestamp: string;
@@ -311,13 +306,38 @@ const textInputSemanticTypes = ["text", "textarea"];
 const valueInputSemanticTypes = ["text", "textarea", "date", "number", "phone", "email"];
 
 export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
-  { type: "component.mount", label: "Component mounted", dispatcherTypes: ["form", "step", "section", "group", "field", "component"], bubbles: false },
-  { type: "component.unmount", label: "Component unmounted", dispatcherTypes: ["form", "step", "section", "group", "field", "component"], bubbles: false },
-  { type: "component.show", label: "Component shown", dispatcherTypes: ["section", "group", "field", "component"], bubbles: true },
-  { type: "component.hide", label: "Component hidden", dispatcherTypes: ["section", "group", "field", "component"], bubbles: true },
+  {
+    type: "component.mount",
+    label: "Component mounted",
+    dispatcherTypes: ["form", "step", "section", "group", "field", "component"],
+    bubbles: false,
+  },
+  {
+    type: "component.unmount",
+    label: "Component unmounted",
+    dispatcherTypes: ["form", "step", "section", "group", "field", "component"],
+    bubbles: false,
+  },
+  {
+    type: "component.show",
+    label: "Component shown",
+    dispatcherTypes: ["section", "group", "field", "component"],
+    bubbles: true,
+  },
+  {
+    type: "component.hide",
+    label: "Component hidden",
+    dispatcherTypes: ["section", "group", "field", "component"],
+    bubbles: true,
+  },
   { type: "component.enable", label: "Component enabled", dispatcherTypes: ["field", "component"], bubbles: true },
   { type: "component.disable", label: "Component disabled", dispatcherTypes: ["field", "component"], bubbles: true },
-  { type: "state.change", label: "State changed", dispatcherTypes: ["form", "step", "section", "group", "field", "component"], bubbles: true },
+  {
+    type: "state.change",
+    label: "State changed",
+    dispatcherTypes: ["form", "step", "section", "group", "field", "component"],
+    bubbles: true,
+  },
   { type: "form.load", label: "Form loaded", dispatcherTypes: ["form"], bubbles: false },
   { type: "form.submit", label: "Form submitted", dispatcherTypes: ["form"], bubbles: false },
   { type: "form.submit_success", label: "Submit succeeded", dispatcherTypes: ["form"], bubbles: false },
@@ -342,38 +362,230 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
   { type: "component.pointer_up", label: "Component pointer released", dispatcherTypes: ["component"], bubbles: true },
   { type: "component.key_down", label: "Component key pressed", dispatcherTypes: ["component"], bubbles: true },
   { type: "component.key_up", label: "Component key released", dispatcherTypes: ["component"], bubbles: true },
-  { type: "field.input", label: "Field input received", dispatcherTypes: ["field"], semanticTypes: interactiveFieldSemanticTypes, bubbles: true },
-  { type: "field.change", label: "Field changed", dispatcherTypes: ["field"], semanticTypes: interactiveFieldSemanticTypes, bubbles: true },
-  { type: "field.focus", label: "Field focused", dispatcherTypes: ["field"], semanticTypes: interactiveFieldSemanticTypes, bubbles: true },
-  { type: "field.blur", label: "Field blurred", dispatcherTypes: ["field"], semanticTypes: interactiveFieldSemanticTypes, bubbles: true },
-  { type: "field.invalid", label: "Field invalid", dispatcherTypes: ["field"], semanticTypes: interactiveFieldSemanticTypes, bubbles: true },
-  { type: "field.key_down", label: "Field key pressed", dispatcherTypes: ["field"], semanticTypes: interactiveFieldSemanticTypes, bubbles: true },
-  { type: "field.key_up", label: "Field key released", dispatcherTypes: ["field"], semanticTypes: interactiveFieldSemanticTypes, bubbles: true },
-  { type: "checkboxGroup.change", label: "Checkbox group changed", dispatcherTypes: ["field"], semanticTypes: ["checkbox"], bubbles: true },
-  { type: "checkbox.change", label: "Checkbox changed", dispatcherTypes: ["field"], semanticTypes: ["checkbox"], bubbles: true },
-  { type: "checkbox.checked", label: "Checkbox checked", dispatcherTypes: ["field"], semanticTypes: ["checkbox"], bubbles: true },
-  { type: "checkbox.unchecked", label: "Checkbox unchecked", dispatcherTypes: ["field"], semanticTypes: ["checkbox"], bubbles: true },
-  { type: "radio.change", label: "Radio selection changed", dispatcherTypes: ["field"], semanticTypes: ["radio"], bubbles: true },
-  { type: "radio.selected", label: "Radio option selected", dispatcherTypes: ["field"], semanticTypes: ["radio"], bubbles: true },
-  { type: "radio.cleared", label: "Radio selection cleared", dispatcherTypes: ["field"], semanticTypes: ["radio"], bubbles: true },
-  { type: "select.change", label: "Select changed", dispatcherTypes: ["field"], semanticTypes: ["select"], bubbles: true },
-  { type: "select.selected", label: "Select option selected", dispatcherTypes: ["field"], semanticTypes: ["select"], bubbles: true },
-  { type: "select.cleared", label: "Select cleared", dispatcherTypes: ["field"], semanticTypes: ["select"], bubbles: true },
-  { type: "select.opened", label: "Select opened", dispatcherTypes: ["field"], semanticTypes: ["select"], bubbles: true },
-  { type: "select.closed", label: "Select closed", dispatcherTypes: ["field"], semanticTypes: ["select"], bubbles: true },
-  { type: "input.change", label: "Input changed", dispatcherTypes: ["field"], semanticTypes: valueInputSemanticTypes, bubbles: true },
-  { type: "input.textChange", label: "Input text changed", dispatcherTypes: ["field"], semanticTypes: textInputSemanticTypes, bubbles: true },
-  { type: "input.before_input", label: "Input before value changes", dispatcherTypes: ["field"], semanticTypes: textInputSemanticTypes, bubbles: true },
-  { type: "input.composition_start", label: "Input composition started", dispatcherTypes: ["field"], semanticTypes: textInputSemanticTypes, bubbles: true },
-  { type: "input.composition_update", label: "Input composition updated", dispatcherTypes: ["field"], semanticTypes: textInputSemanticTypes, bubbles: true },
-  { type: "input.composition_end", label: "Input composition ended", dispatcherTypes: ["field"], semanticTypes: textInputSemanticTypes, bubbles: true },
-  { type: "signature.change", label: "Signature changed", dispatcherTypes: ["field"], semanticTypes: ["signature_attestation"], bubbles: true },
-  { type: "signature.attested", label: "Signature attested", dispatcherTypes: ["field"], semanticTypes: ["signature_attestation"], bubbles: true },
-  { type: "signature.cleared", label: "Signature cleared", dispatcherTypes: ["field"], semanticTypes: ["signature_attestation"], bubbles: true },
-  { type: "repeatableGroup.change", label: "Repeatable group changed", dispatcherTypes: ["field"], semanticTypes: ["repeatable_group"], bubbles: true },
-  { type: "repeatableGroup.item_added", label: "Repeatable group item added", dispatcherTypes: ["field"], semanticTypes: ["repeatable_group"], bubbles: true },
-  { type: "repeatableGroup.item_removed", label: "Repeatable group item removed", dispatcherTypes: ["field"], semanticTypes: ["repeatable_group"], bubbles: true },
-  { type: "repeatableGroup.item_moved", label: "Repeatable group item moved", dispatcherTypes: ["field"], semanticTypes: ["repeatable_group"], bubbles: true },
+  {
+    type: "field.input",
+    label: "Field input received",
+    dispatcherTypes: ["field"],
+    semanticTypes: interactiveFieldSemanticTypes,
+    bubbles: true,
+  },
+  {
+    type: "field.change",
+    label: "Field changed",
+    dispatcherTypes: ["field"],
+    semanticTypes: interactiveFieldSemanticTypes,
+    bubbles: true,
+  },
+  {
+    type: "field.focus",
+    label: "Field focused",
+    dispatcherTypes: ["field"],
+    semanticTypes: interactiveFieldSemanticTypes,
+    bubbles: true,
+  },
+  {
+    type: "field.blur",
+    label: "Field blurred",
+    dispatcherTypes: ["field"],
+    semanticTypes: interactiveFieldSemanticTypes,
+    bubbles: true,
+  },
+  {
+    type: "field.invalid",
+    label: "Field invalid",
+    dispatcherTypes: ["field"],
+    semanticTypes: interactiveFieldSemanticTypes,
+    bubbles: true,
+  },
+  {
+    type: "field.key_down",
+    label: "Field key pressed",
+    dispatcherTypes: ["field"],
+    semanticTypes: interactiveFieldSemanticTypes,
+    bubbles: true,
+  },
+  {
+    type: "field.key_up",
+    label: "Field key released",
+    dispatcherTypes: ["field"],
+    semanticTypes: interactiveFieldSemanticTypes,
+    bubbles: true,
+  },
+  {
+    type: "checkboxGroup.change",
+    label: "Checkbox group changed",
+    dispatcherTypes: ["field"],
+    semanticTypes: ["checkbox"],
+    bubbles: true,
+  },
+  {
+    type: "checkbox.change",
+    label: "Checkbox changed",
+    dispatcherTypes: ["field"],
+    semanticTypes: ["checkbox"],
+    bubbles: true,
+  },
+  {
+    type: "checkbox.checked",
+    label: "Checkbox checked",
+    dispatcherTypes: ["field"],
+    semanticTypes: ["checkbox"],
+    bubbles: true,
+  },
+  {
+    type: "checkbox.unchecked",
+    label: "Checkbox unchecked",
+    dispatcherTypes: ["field"],
+    semanticTypes: ["checkbox"],
+    bubbles: true,
+  },
+  {
+    type: "radio.change",
+    label: "Radio selection changed",
+    dispatcherTypes: ["field"],
+    semanticTypes: ["radio"],
+    bubbles: true,
+  },
+  {
+    type: "radio.selected",
+    label: "Radio option selected",
+    dispatcherTypes: ["field"],
+    semanticTypes: ["radio"],
+    bubbles: true,
+  },
+  {
+    type: "radio.cleared",
+    label: "Radio selection cleared",
+    dispatcherTypes: ["field"],
+    semanticTypes: ["radio"],
+    bubbles: true,
+  },
+  {
+    type: "select.change",
+    label: "Select changed",
+    dispatcherTypes: ["field"],
+    semanticTypes: ["select"],
+    bubbles: true,
+  },
+  {
+    type: "select.selected",
+    label: "Select option selected",
+    dispatcherTypes: ["field"],
+    semanticTypes: ["select"],
+    bubbles: true,
+  },
+  {
+    type: "select.cleared",
+    label: "Select cleared",
+    dispatcherTypes: ["field"],
+    semanticTypes: ["select"],
+    bubbles: true,
+  },
+  {
+    type: "select.opened",
+    label: "Select opened",
+    dispatcherTypes: ["field"],
+    semanticTypes: ["select"],
+    bubbles: true,
+  },
+  {
+    type: "select.closed",
+    label: "Select closed",
+    dispatcherTypes: ["field"],
+    semanticTypes: ["select"],
+    bubbles: true,
+  },
+  {
+    type: "input.change",
+    label: "Input changed",
+    dispatcherTypes: ["field"],
+    semanticTypes: valueInputSemanticTypes,
+    bubbles: true,
+  },
+  {
+    type: "input.textChange",
+    label: "Input text changed",
+    dispatcherTypes: ["field"],
+    semanticTypes: textInputSemanticTypes,
+    bubbles: true,
+  },
+  {
+    type: "input.before_input",
+    label: "Input before value changes",
+    dispatcherTypes: ["field"],
+    semanticTypes: textInputSemanticTypes,
+    bubbles: true,
+  },
+  {
+    type: "input.composition_start",
+    label: "Input composition started",
+    dispatcherTypes: ["field"],
+    semanticTypes: textInputSemanticTypes,
+    bubbles: true,
+  },
+  {
+    type: "input.composition_update",
+    label: "Input composition updated",
+    dispatcherTypes: ["field"],
+    semanticTypes: textInputSemanticTypes,
+    bubbles: true,
+  },
+  {
+    type: "input.composition_end",
+    label: "Input composition ended",
+    dispatcherTypes: ["field"],
+    semanticTypes: textInputSemanticTypes,
+    bubbles: true,
+  },
+  {
+    type: "signature.change",
+    label: "Signature changed",
+    dispatcherTypes: ["field"],
+    semanticTypes: ["signature_attestation"],
+    bubbles: true,
+  },
+  {
+    type: "signature.attested",
+    label: "Signature attested",
+    dispatcherTypes: ["field"],
+    semanticTypes: ["signature_attestation"],
+    bubbles: true,
+  },
+  {
+    type: "signature.cleared",
+    label: "Signature cleared",
+    dispatcherTypes: ["field"],
+    semanticTypes: ["signature_attestation"],
+    bubbles: true,
+  },
+  {
+    type: "repeatableGroup.change",
+    label: "Repeatable group changed",
+    dispatcherTypes: ["field"],
+    semanticTypes: ["repeatable_group"],
+    bubbles: true,
+  },
+  {
+    type: "repeatableGroup.item_added",
+    label: "Repeatable group item added",
+    dispatcherTypes: ["field"],
+    semanticTypes: ["repeatable_group"],
+    bubbles: true,
+  },
+  {
+    type: "repeatableGroup.item_removed",
+    label: "Repeatable group item removed",
+    dispatcherTypes: ["field"],
+    semanticTypes: ["repeatable_group"],
+    bubbles: true,
+  },
+  {
+    type: "repeatableGroup.item_moved",
+    label: "Repeatable group item moved",
+    dispatcherTypes: ["field"],
+    semanticTypes: ["repeatable_group"],
+    bubbles: true,
+  },
   { type: "host.context_updated", label: "Host context updated", dispatcherTypes: ["form"], bubbles: false },
 ];
 

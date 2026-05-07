@@ -45,6 +45,15 @@ Events carry a standard envelope:
 - `correlationId`
 - `timestamp`
 
+`target`, `currentTarget`, and legacy `source` can include both:
+
+- `nodeId`: immutable internal id used for persistence and dispatch routing
+- `nodeKey`: human-readable dispatch key used in authoring, traces, payload
+  references, and test reports
+
+`nodeKey` is descriptive, not the primary foreign key. References that change
+runtime behavior still use immutable ids.
+
 Core event types are code-defined and do not need author definitions. Examples:
 
 - universal: `component.show`, `component.hide`, `state.change`
@@ -157,6 +166,22 @@ The runtime still executes from `dispatcherId`, `type`, `useCapture`, and
 radio group is reacting to a checkbox group event through a shared section
 dispatcher.
 
+## Dispatch Keys
+
+Every event-capable authoring item can carry an optional `dispatchKey`:
+
+- document/form
+- step
+- section
+- group
+- field
+- button-like component fields
+
+The builder backfills missing keys with stable readable values such as
+`p4.checkbox-group.type-of-benefits` or `p4.radio.sex`. The immutable `id` stays
+the routing key, while `dispatchKey` gives users a clear target in long source,
+target, listener, payload, and trace lists.
+
 ## Form-Level Behavior
 
 The document itself can declare runtime behavior through a document-level
@@ -216,6 +241,23 @@ It includes:
 - `submitting`
 - `success`
 - `error`
+
+## Dispatch Reports
+
+The runtime exposes `dispatchWithReport(event)` for authoring tools. It runs the
+same dispatch path as `dispatch(event)`, then returns:
+
+- normalized root event
+- state before and after dispatch
+- listener diagnostics for reached listeners
+- condition pass/fail evidence with actual and expected values
+- action diagnostics
+- emitted trace entries
+- a compact state diff
+
+Behavior Studio uses this report for guided behavior tests. The same report
+shape is intended to power a later preview-based test flow where authors test by
+interacting with the rendered form directly.
 
 ## Submit Payload
 

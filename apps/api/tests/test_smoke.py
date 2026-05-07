@@ -15,6 +15,7 @@ client = TestClient(app)
 def _behavior_lifecycle_document_payload():
     return {
         "id": "document-behavior-lifecycle",
+        "dispatchKey": "form.behavior-lifecycle",
         "title": "Behavior Lifecycle Fixture",
         "documentClass": "mixed",
         "reviewStatus": "accepted",
@@ -77,6 +78,7 @@ def _behavior_lifecycle_document_payload():
         "steps": [
             {
                 "id": "step-1",
+                "dispatchKey": "p1.step.step-1",
                 "title": "Step 1",
                 "description": "Exercise behavior lifecycle persistence.",
                 "kind": "collect",
@@ -86,6 +88,7 @@ def _behavior_lifecycle_document_payload():
                 "sections": [
                     {
                         "id": "section-1",
+                        "dispatchKey": "p1.section.section-1",
                         "title": "Section 1",
                         "description": "Runtime section",
                         "layoutHints": {},
@@ -96,6 +99,7 @@ def _behavior_lifecycle_document_payload():
                         "fields": [
                             {
                                 "id": "field-controller",
+                                "dispatchKey": "p1.text.controller",
                                 "stableKey": "field-controller",
                                 "label": "Controller",
                                 "semanticType": "text",
@@ -192,6 +196,7 @@ def _behavior_lifecycle_document_payload():
                             },
                             {
                                 "id": "field-target",
+                                "dispatchKey": "p1.text.target",
                                 "stableKey": "field-target",
                                 "label": "Target",
                                 "semanticType": "text",
@@ -394,6 +399,7 @@ def test_runtime_authoring_survives_project_save_and_disk_reload(monkeypatch, tm
 
     payload = {
         "id": "document-runtime-1",
+        "dispatchKey": "form.runtime-persistence",
         "title": "Runtime Persistence Form",
         "documentClass": "mixed",
         "reviewStatus": "accepted",
@@ -495,6 +501,7 @@ def test_runtime_authoring_survives_project_save_and_disk_reload(monkeypatch, tm
         "steps": [
             {
                 "id": "step-1",
+                "dispatchKey": "p1.step.step-1",
                 "title": "Step 1",
                 "description": "Collect runtime details.",
                 "kind": "collect",
@@ -519,6 +526,7 @@ def test_runtime_authoring_survives_project_save_and_disk_reload(monkeypatch, tm
                 "sections": [
                     {
                         "id": "section-1",
+                        "dispatchKey": "p1.section.section-1",
                         "title": "Section 1",
                         "description": "Runtime section",
                         "layoutHints": {},
@@ -529,6 +537,7 @@ def test_runtime_authoring_survives_project_save_and_disk_reload(monkeypatch, tm
                         "fields": [
                             {
                                 "id": "field-1",
+                                "dispatchKey": "p1.text.applicant-name",
                                 "stableKey": "field-1",
                                 "label": "Applicant name",
                                 "semanticType": "text",
@@ -630,12 +639,14 @@ def test_runtime_authoring_survives_project_save_and_disk_reload(monkeypatch, tm
     detail = reloaded.get_project(project_id)
 
     assert detail is not None
+    assert detail.document.dispatch_key == "form.runtime-persistence"
     assert detail.document.runtime is not None
     assert detail.document.runtime.session_state_shape.fields[1].name == "submitStatus"
     assert detail.document.runtime.host_bindings[0].handler_key == "submit_form"
     assert detail.document.steps[0].runtime is not None
     assert detail.document.steps[0].runtime.event_sources[0].type == "step.enter"
     assert detail.document.steps[0].sections[0].fields[0].runtime is not None
+    assert detail.document.steps[0].sections[0].fields[0].dispatch_key == "p1.text.applicant-name"
     assert detail.document.steps[0].sections[0].fields[0].runtime.listeners[0].event_source_label == "Controller"
     assert detail.document.steps[0].sections[0].fields[0].runtime.listeners[0].wiring_mode == "local"
     assert (

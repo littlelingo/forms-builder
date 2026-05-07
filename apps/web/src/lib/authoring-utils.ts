@@ -32,6 +32,95 @@ export function cloneDocument(document: AuthoringDocument): AuthoringDocument {
   return structuredClone(document);
 }
 
+const dispatchKeyPattern = /^[a-z0-9][a-z0-9._-]*$/;
+
+function dispatchSlug(value: string | null | undefined, fallback: string): string {
+  const normalized = (value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48)
+    .replace(/-+$/g, "");
+  return normalized || fallback;
+}
+
+function dispatchFieldKind(field: AuthoringField): string {
+  if (field.rendererHints.component === "button") {
+    return "button";
+  }
+  if (field.semanticType === "checkbox") {
+    return "checkbox-group";
+  }
+  return field.semanticType;
+}
+
+function normalizeDispatchKey(key: string): string {
+  return key
+    .trim()
+    .replace(/\s+/g, ".")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/[.]{2,}/g, ".")
+    .replace(/[-]{2,}/g, "-")
+    .replace(/^[._-]+|[._-]+$/g, "")
+    .toLowerCase();
+}
+
+function reserveDispatchKey(preferred: string, used: Set<string>): string {
+  const base = normalizeDispatchKey(preferred) || "node";
+  let candidate = base;
+  let index = 2;
+  while (used.has(candidate)) {
+    candidate = `${base}.${index}`;
+    index += 1;
+  }
+  used.add(candidate);
+  return candidate;
+}
+
+function assignDispatchKey(node: { dispatchKey?: string | null }, preferred: string, used: Set<string>): void {
+  const current = normalizeDispatchKey(node.dispatchKey ?? "");
+  if (current && dispatchKeyPattern.test(current) && !used.has(current)) {
+    node.dispatchKey = current;
+    used.add(current);
+    return;
+  }
+  node.dispatchKey = reserveDispatchKey(preferred, used);
+}
+
+export function ensureDocumentDispatchKeys(document: AuthoringDocument): void {
+  const used = new Set<string>();
+  assignDispatchKey(document, `form.${dispatchSlug(document.title, "form")}`, used);
+
+  document.steps.forEach((step, stepIndex) => {
+    const pageKey = `p${stepIndex + 1}`;
+    assignDispatchKey(step, `${pageKey}.step.${dispatchSlug(step.title, "step")}`, used);
+
+    step.sections.forEach((section) => {
+      assignDispatchKey(section, `${pageKey}.section.${dispatchSlug(section.title, "section")}`, used);
+
+      section.groups.forEach((group) => {
+        assignDispatchKey(group, `${pageKey}.group.${dispatchSlug(group.label, "group")}`, used);
+        group.fields.forEach((field) => {
+          assignDispatchKey(
+            field,
+            `${pageKey}.${dispatchFieldKind(field)}.${dispatchSlug(field.label || field.stableKey, "field")}`,
+            used,
+          );
+        });
+      });
+
+      section.fields.forEach((field) => {
+        assignDispatchKey(
+          field,
+          `${pageKey}.${dispatchFieldKind(field)}.${dispatchSlug(field.label || field.stableKey, "field")}`,
+          used,
+        );
+      });
+    });
+  });
+}
+
 export function createField(semanticType: SemanticType = "text"): AuthoringField {
   return {
     id: crypto.randomUUID(),
@@ -204,11 +293,7 @@ export function refreshChoiceOptions(field: AuthoringField, semanticType: Semant
   }
 }
 
-export function applyDragMove(
-  document: AuthoringDocument,
-  payload: DragPayload,
-  target: DropTarget,
-): boolean {
+export function applyDragMove(document: AuthoringDocument, payload: DragPayload, target: DropTarget): boolean {
   if (payload.kind === "step" && target.kind === "step-list") {
     return moveStep(document, payload.stepId, target.index);
   }
@@ -295,7 +380,11 @@ function moveGroup(
   return true;
 }
 
-function moveField(document: AuthoringDocument, payload: Extract<DragPayload, { kind: "field" }>, target: Extract<DropTarget, { kind: "field-list" }>): boolean {
+function moveField(
+  document: AuthoringDocument,
+  payload: Extract<DragPayload, { kind: "field" }>,
+  target: Extract<DropTarget, { kind: "field-list" }>,
+): boolean {
   const sourceFields = getFieldContainer(document, payload.stepId, payload.sectionId, payload.groupId);
   const targetFields = getFieldContainer(document, target.stepId, target.sectionId, target.groupId);
   if (!sourceFields || !targetFields) {
