@@ -23,7 +23,7 @@ The runtime:
 
 - loads authored form JSON
 - manages runtime session state
-- emits runtime events outward
+- dispatches runtime events outward
 - ingests host events inward
 
 The host:
@@ -112,11 +112,16 @@ The host should expect outbound events such as:
 - `step.enter`
 - `step.leave`
 - `field.change`
+- `checkboxGroup.change`
+- `radio.change`
+- `select.change`
+- `input.change`
 - `component.click`
+- `button.click`
 - `form.validation_failed`
 - `form.submit`
 - `host.action_requested`
-- custom events emitted through `emit_event`
+- custom events dispatched through `dispatch_event`
 
 Some events are authored behavior. Others are runtime lifecycle signals.
 
@@ -135,6 +140,16 @@ Example:
 engine.dispatch({
   type: "form.submit_success",
   version: "1.0",
+  target: {
+    runtimeId: "runtime_preview",
+    formId: document.id,
+    projectId: "project_123",
+    nodeId: document.id,
+    nodeType: "form",
+  },
+  currentTarget: null,
+  eventPhase: "target",
+  bubbles: false,
   source: {
     runtimeId: "runtime_preview",
     formId: document.id,
@@ -158,8 +173,8 @@ The current submit model uses the event-driven baseline.
 
 1. authored behavior triggers `submit_form`
 2. runtime validates
-3. if invalid, runtime emits `form.validation_failed`
-4. if valid, runtime emits `form.submit`
+3. if invalid, runtime dispatches `form.validation_failed`
+4. if valid, runtime dispatches `form.submit`
 
 ### Host side
 
@@ -176,7 +191,7 @@ differently.
 
 ## Submit Payload
 
-The runtime currently emits:
+The runtime currently dispatches:
 
 - `formId`
 - `projectId`
@@ -194,7 +209,7 @@ The runtime currently supports a `host_action` action kind.
 
 This does not execute arbitrary code inside the runtime.
 
-Instead, it emits:
+Instead, it dispatches:
 
 - `host.action_requested`
 
@@ -210,7 +225,7 @@ Recommended host flow:
 1. observe `host.action_requested`
 2. route by `handlerKey`
 3. execute host-owned behavior
-4. optionally emit additional runtime events if the host wants to inform the
+4. optionally dispatch additional runtime events if the host wants to inform the
    runtime about the outcome
 
 Current limitation:

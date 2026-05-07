@@ -1,8 +1,11 @@
+import { runtimeCoreEventType } from "@form-builder/schema";
 import type {
   AuthoringDocument,
   ConditionalRule,
   RuntimeActionDefinition,
   RuntimeEventEnvelope,
+  RuntimeEventPhase,
+  RuntimeEventTarget,
   RuntimeHostContext,
   RuntimeListenerDefinition,
   RuntimeNodeType,
@@ -11,7 +14,11 @@ import type {
   RuntimeValidationState,
 } from "@form-builder/schema";
 
-import { createRuntimeDocumentIndex, type RuntimeDocumentIndex } from "./document-index";
+import {
+  createRuntimeDocumentIndex,
+  type IndexedRuntimeListener,
+  type RuntimeDocumentIndex,
+} from "./document-index";
 import { RuntimeEventBus } from "./event-bus";
 import { createInitialSessionState, mergeSessionState } from "./session-state";
 import type {
@@ -32,6 +39,12 @@ const runtimePayloadReferenceKeys = [
   "current.project.id",
   "current.source.node.id",
   "current.source.node.type",
+  "current.event.type",
+  "current.event.target.id",
+  "current.event.target.type",
+  "current.event.currentTarget.id",
+  "current.event.currentTarget.type",
+  "current.event.phase",
   "current.runtime.value",
 ] as const;
 
@@ -61,21 +74,27 @@ export function createRuntimeEngine(): RuntimeEngine {
     type: string,
     payload: Record<string, unknown>,
     _direction: RuntimeTraceEntry["direction"],
-    source?: { nodeId?: string | null; nodeType?: RuntimeNodeType | null; correlationId?: string | null },
+    source?: { nodeId?: string | null; nodeType?: RuntimeNodeType | null; correlationId?: string | null; bubbles?: boolean | null },
   ): RuntimeEventEnvelope => {
     if (!document) {
       throw new Error("Runtime engine is not mounted.");
     }
+    const target = {
+      runtimeId,
+      formId: document.id,
+      projectId,
+      nodeId: source?.nodeId ?? null,
+      nodeType: source?.nodeType ?? null,
+    };
+    const bubbles = typeof source?.bubbles === "boolean" ? source.bubbles : defaultEventBubbles(type);
     return {
       type,
       version: RUNTIME_VERSION,
-      source: {
-        runtimeId,
-        formId: document.id,
-        projectId,
-        nodeId: source?.nodeId ?? null,
-        nodeType: source?.nodeType ?? null,
-      },
+      target,
+      currentTarget: target,
+      eventPhase: "target",
+      bubbles,
+      source: target,
       payload,
       correlationId: source?.correlationId ?? randomId(),
       timestamp: clock().toISOString(),
@@ -175,11 +194,9 @@ export function createRuntimeEngine(): RuntimeEngine {
 
   const ruleIsEnabled = (rule: ConditionalRule): boolean => rule.enabled !== false;
 
-  const listenerMatches = (listener: RuntimeListenerDefinition, event: RuntimeEventEnvelope): boolean => {
-    if (!listener.enabled || listener.eventName !== event.type) {
-      return false;
-    }
-    if (listener.sourceNodeId && listener.sourceNodeId !== event.source.nodeId) {
+  const listenerMatches = (indexedListener: IndexedRuntimeListener, event: RuntimeEventEnvelope): boolean => {
+    const listener = indexedListener.listener;
+    if (!listener.enabled || listenerEventType(listener) !== event.type) {
       return false;
     }
     if (!index) {
@@ -293,16 +310,21 @@ export function createRuntimeEngine(): RuntimeEngine {
           }
           break;
         }
+        case "dispatch_event":
         case "emit_event": {
-          const eventName =
-            typeof action.config.eventName === "string" && action.config.eventName.trim().length > 0
-              ? action.config.eventName
+          const eventType =
+            typeof action.config.eventType === "string" && action.config.eventType.trim().length > 0
+              ? action.config.eventType
+              : typeof action.config.eventName === "string" && action.config.eventName.trim().length > 0
+                ? action.config.eventName
               : "custom.event";
+          const bubbles = typeof action.config.bubbles === "boolean" ? action.config.bubbles : defaultEventBubbles(eventType);
           const payload = resolveRuntimePayload(isRecord(action.config.payload) ? action.config.payload : {}, event, document, index, state);
           routeEvent(
-            buildEvent(eventName, payload, "outbound", {
-              nodeId: event.source.nodeId,
-              nodeType: event.source.nodeType,
+            buildEvent(eventType, payload, "outbound", {
+              nodeId: event.target?.nodeId ?? event.source.nodeId,
+              nodeType: event.target?.nodeType ?? event.source.nodeType,
+              bubbles,
             }),
             true,
             false,
@@ -331,8 +353,8 @@ export function createRuntimeEngine(): RuntimeEngine {
               },
               "outbound",
               {
-                nodeId: event.source.nodeId,
-                nodeType: event.source.nodeType,
+                nodeId: event.target?.nodeId ?? event.source.nodeId,
+                nodeType: event.target?.nodeType ?? event.source.nodeType,
               },
             ),
             true,
@@ -406,12 +428,26 @@ export function createRuntimeEngine(): RuntimeEngine {
 
   const applyInboundState = (event: RuntimeEventEnvelope): void => {
     switch (event.type) {
+      case "checkboxGroup.change":
+      case "checkbox.change":
+      case "checkbox.checked":
+      case "checkbox.unchecked":
+      case "radio.change":
+      case "radio.selected":
+      case "radio.cleared":
+      case "select.change":
+      case "select.selected":
+      case "select.cleared":
+      case "input.change":
+      case "input.textChange":
       case "field.change": {
         const fieldId =
           typeof event.payload.fieldId === "string"
             ? event.payload.fieldId
-            : typeof event.source.nodeId === "string"
-              ? event.source.nodeId
+            : typeof event.target?.nodeId === "string"
+              ? event.target.nodeId
+              : typeof event.source.nodeId === "string"
+                ? event.source.nodeId
               : null;
         if (!fieldId) {
           return;
@@ -479,17 +515,21 @@ export function createRuntimeEngine(): RuntimeEngine {
   };
 
   const routeEvent = (event: RuntimeEventEnvelope, executeListeners: boolean, inbound: boolean): RuntimeSessionState => {
-    trace.push({ direction: inbound ? "inbound" : "internal", event });
-    eventBus.emit(event);
-    applyInboundState(event);
+    if (!document || !index) {
+      return structuredClone(state);
+    }
+    const normalizedEvent = normalizeRuntimeEvent(event, document.id, runtimeId, projectId);
+    trace.push({ direction: inbound ? "inbound" : "internal", event: normalizedEvent });
+    eventBus.emit(normalizedEvent);
+    applyInboundState(normalizedEvent);
 
-    if (executeListeners && index) {
-      for (const listener of index.listeners) {
-        if (!listenerMatches(listener, event)) {
+    if (executeListeners) {
+      for (const listenerInvocation of collectListenerInvocations(normalizedEvent, index)) {
+        if (!listenerMatches(listenerInvocation.listener, listenerInvocation.event)) {
           continue;
         }
-        for (const action of listener.actions) {
-          executeAction(action, event);
+        for (const action of listenerInvocation.listener.listener.actions) {
+          executeAction(action, listenerInvocation.event);
         }
       }
     }
@@ -627,6 +667,131 @@ function isStringRecord(value: unknown): value is Record<string, string> {
   return Object.values(value).every((entry) => typeof entry === "string");
 }
 
+function defaultEventBubbles(type: string): boolean {
+  return runtimeCoreEventType(type)?.bubbles ?? true;
+}
+
+function listenerEventType(listener: RuntimeListenerDefinition): string {
+  return listener.type ?? listener.eventName;
+}
+
+function normalizeRuntimeEvent(
+  event: RuntimeEventEnvelope,
+  formId: string,
+  runtimeId: string,
+  projectId: string | null,
+): RuntimeEventEnvelope {
+  const target: RuntimeEventTarget = {
+    runtimeId: event.target?.runtimeId ?? event.source.runtimeId ?? runtimeId,
+    formId: event.target?.formId ?? event.source.formId ?? formId,
+    projectId: event.target?.projectId ?? event.source.projectId ?? projectId,
+    nodeId: event.target?.nodeId ?? event.source.nodeId ?? null,
+    nodeType: event.target?.nodeType ?? event.source.nodeType ?? null,
+  };
+  const currentTarget = event.currentTarget
+    ? {
+        runtimeId: event.currentTarget.runtimeId ?? target.runtimeId,
+        formId: event.currentTarget.formId ?? target.formId,
+        projectId: event.currentTarget.projectId ?? target.projectId,
+        nodeId: event.currentTarget.nodeId ?? target.nodeId,
+        nodeType: event.currentTarget.nodeType ?? target.nodeType,
+      }
+    : target;
+  return {
+    ...event,
+    target,
+    currentTarget,
+    eventPhase: event.eventPhase ?? "target",
+    bubbles: typeof event.bubbles === "boolean" ? event.bubbles : defaultEventBubbles(event.type),
+    source: target,
+  };
+}
+
+interface RuntimeListenerInvocation {
+  listener: IndexedRuntimeListener;
+  event: RuntimeEventEnvelope;
+}
+
+function collectListenerInvocations(
+  event: RuntimeEventEnvelope,
+  index: RuntimeDocumentIndex,
+): RuntimeListenerInvocation[] {
+  const targetNodeId = event.target?.nodeId ?? event.source.nodeId ?? index.documentId;
+  const eventPath = targetNodeId ? dispatcherPath(index, targetNodeId) : [index.documentId];
+  const targetId = eventPath[eventPath.length - 1] ?? index.documentId;
+  const capturePath = eventPath.slice(0, -1);
+  const bubblePath = eventPath.slice(0, -1).reverse();
+  const invocations: RuntimeListenerInvocation[] = [];
+
+  for (const dispatcherId of capturePath) {
+    invocations.push(...listenersForDispatcher(index, dispatcherId, event, "capture", true));
+  }
+
+  invocations.push(...listenersForDispatcher(index, targetId, event, "target", null));
+
+  if (event.bubbles !== false) {
+    for (const dispatcherId of bubblePath) {
+      invocations.push(...listenersForDispatcher(index, dispatcherId, event, "bubble", false));
+    }
+  }
+
+  return invocations;
+}
+
+function listenersForDispatcher(
+  index: RuntimeDocumentIndex,
+  dispatcherId: string,
+  event: RuntimeEventEnvelope,
+  eventPhase: RuntimeEventPhase,
+  useCapture: boolean | null,
+): RuntimeListenerInvocation[] {
+  const dispatcherNode = index.nodes.get(dispatcherId);
+  const target = {
+    runtimeId: event.target?.runtimeId ?? event.source.runtimeId,
+    formId: event.target?.formId ?? event.source.formId,
+    projectId: event.target?.projectId ?? event.source.projectId ?? null,
+    nodeId: dispatcherId,
+    nodeType: dispatcherNode?.nodeType ?? null,
+  };
+  const phaseEvent: RuntimeEventEnvelope = {
+    ...event,
+    currentTarget: target,
+    eventPhase,
+  };
+  return index.listeners
+    .filter((indexedListener) => {
+      if (indexedListener.dispatcherId !== dispatcherId) {
+        return false;
+      }
+      if (useCapture === null) {
+        return true;
+      }
+      return Boolean(indexedListener.listener.useCapture) === useCapture;
+    })
+    .sort(compareIndexedListeners)
+    .map((listener) => ({ listener, event: phaseEvent }));
+}
+
+function compareIndexedListeners(left: IndexedRuntimeListener, right: IndexedRuntimeListener): number {
+  const priorityDelta = (right.listener.priority ?? 0) - (left.listener.priority ?? 0);
+  return priorityDelta || left.order - right.order;
+}
+
+function dispatcherPath(index: RuntimeDocumentIndex, targetNodeId: string): string[] {
+  const path: string[] = [];
+  const visited = new Set<string>();
+  let currentId: string | null | undefined = targetNodeId;
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId);
+    path.unshift(currentId);
+    currentId = index.nodes.get(currentId)?.parentId ?? null;
+  }
+  if (!path.length || path[0] !== index.documentId) {
+    path.unshift(index.documentId);
+  }
+  return path;
+}
+
 function isRuntimePayloadReference(value: unknown): value is { $runtime: RuntimePayloadReferenceKey } {
   return (
     isRecord(value) &&
@@ -675,7 +840,12 @@ function resolveRuntimePayloadReference(
   index: RuntimeDocumentIndex,
   state: RuntimeSessionState,
 ): unknown {
-  const sourceNodeId = typeof event.source.nodeId === "string" ? event.source.nodeId : null;
+  const sourceNodeId =
+    typeof event.target?.nodeId === "string"
+      ? event.target.nodeId
+      : typeof event.source.nodeId === "string"
+        ? event.source.nodeId
+        : null;
   const sourceNode = sourceNodeId ? index.nodes.get(sourceNodeId) ?? null : null;
   const activeStepNode = state.currentStepId ? index.nodes.get(state.currentStepId) ?? null : null;
   switch (referenceKey) {
@@ -692,11 +862,23 @@ function resolveRuntimePayloadReference(
     case "current.form.title":
       return document.title;
     case "current.project.id":
-      return event.source.projectId ?? null;
+      return event.target?.projectId ?? event.source.projectId ?? null;
     case "current.source.node.id":
       return sourceNodeId;
     case "current.source.node.type":
-      return sourceNode?.nodeType ?? event.source.nodeType ?? null;
+      return sourceNode?.nodeType ?? event.target?.nodeType ?? event.source.nodeType ?? null;
+    case "current.event.type":
+      return event.type;
+    case "current.event.target.id":
+      return event.target?.nodeId ?? event.source.nodeId ?? null;
+    case "current.event.target.type":
+      return event.target?.nodeType ?? event.source.nodeType ?? null;
+    case "current.event.currentTarget.id":
+      return event.currentTarget?.nodeId ?? null;
+    case "current.event.currentTarget.type":
+      return event.currentTarget?.nodeType ?? null;
+    case "current.event.phase":
+      return event.eventPhase ?? "target";
     case "current.runtime.value": {
       const fieldId = sourceNode?.fieldId ?? null;
       return fieldId ? structuredClone(state.values[fieldId] ?? null) : null;

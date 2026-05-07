@@ -24,9 +24,9 @@ Authoring recipe:
 
 Expected runtime result:
 
-- emits `component.click`
-- emits `step.leave`
-- emits `step.enter`
+- dispatches `component.click`
+- dispatches `step.leave`
+- dispatches `step.enter`
 
 ## Navigate To The Previous Step
 
@@ -53,21 +53,22 @@ Authoring recipe:
 Expected outcomes:
 
 - if invalid:
-  - runtime emits `form.validation_failed`
+  - runtime dispatches `form.validation_failed`
 - if valid:
-  - runtime emits `form.submit`
+  - runtime dispatches `form.submit`
   - host responds with `form.submit_success` or `form.submit_error`
 
-## Emit A Custom Event
+## Dispatch A Custom Event
 
 Use when the runtime should broadcast intent without directly owning the result.
 
 Authoring recipe:
 
 1. add or edit a listener
-2. choose action `emit_event`
-3. set `eventName`
-4. optionally add payload fields
+2. choose action `dispatch_event`
+3. set `eventType`
+4. choose whether it bubbles
+5. optionally add payload fields
 
 Good uses:
 

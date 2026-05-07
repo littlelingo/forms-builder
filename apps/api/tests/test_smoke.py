@@ -30,6 +30,11 @@ def _behavior_lifecycle_document_payload():
                 {
                     "id": "listener-form-submit",
                     "label": "Submit through host",
+                    "type": "form.submit",
+                    "dispatcherId": "document-behavior-lifecycle",
+                    "dispatcherType": "form",
+                    "useCapture": False,
+                    "priority": 0,
                     "eventName": "form.submit",
                     "enabled": True,
                     "ruleGuards": [],
@@ -46,15 +51,20 @@ def _behavior_lifecycle_document_payload():
                 {
                     "id": "listener-delete-me",
                     "label": "Temporary listener",
+                    "type": "form.validation_failed",
+                    "dispatcherId": "document-behavior-lifecycle",
+                    "dispatcherType": "form",
+                    "useCapture": False,
+                    "priority": 0,
                     "eventName": "form.validation_failed",
                     "enabled": True,
                     "ruleGuards": [],
                     "actions": [
                         {
                             "id": "action-delete-me",
-                            "kind": "emit_event",
+                            "kind": "dispatch_event",
                             "target": {"nodeId": "document-behavior-lifecycle", "nodeType": "form"},
-                            "config": {"eventName": "temporary.deleted"},
+                            "config": {"eventType": "temporary.deleted", "bubbles": True},
                             "continueOnError": False,
                         }
                     ],
@@ -105,6 +115,10 @@ def _behavior_lifecycle_document_payload():
                                     "eventSources": [
                                         {
                                             "id": "event-controller-change",
+                                            "type": "field.change",
+                                            "dispatcherId": "field-controller",
+                                            "dispatcherType": "field",
+                                            "bubbles": True,
                                             "name": "field.change",
                                             "sourceNodeId": "field-controller",
                                             "sourceNodeType": "field",
@@ -113,7 +127,12 @@ def _behavior_lifecycle_document_payload():
                                     "listeners": [
                                         {
                                             "id": "flow-field-change",
-                                            "label": "Emit field changed",
+                                            "label": "Dispatch field changed",
+                                            "type": "field.change",
+                                            "dispatcherId": "field-controller",
+                                            "dispatcherType": "field",
+                                            "useCapture": False,
+                                            "priority": 0,
                                             "eventName": "field.change",
                                             "sourceNodeId": "field-controller",
                                             "enabled": True,
@@ -121,10 +140,11 @@ def _behavior_lifecycle_document_payload():
                                             "actions": [
                                                 {
                                                     "id": "action-field-change",
-                                                    "kind": "emit_event",
+                                                    "kind": "dispatch_event",
                                                     "target": {"nodeId": "field-controller", "nodeType": "field"},
                                                     "config": {
-                                                        "eventName": "field.controller.changed",
+                                                        "eventType": "field.controller.changed",
+                                                        "bubbles": True,
                                                         "payload": {"fieldId": "field-controller"},
                                                     },
                                                     "continueOnError": False,
@@ -134,6 +154,11 @@ def _behavior_lifecycle_document_payload():
                                         {
                                             "id": "flow-delete-me",
                                             "label": "Temporary event flow",
+                                            "type": "field.blur",
+                                            "dispatcherId": "field-controller",
+                                            "dispatcherType": "field",
+                                            "useCapture": False,
+                                            "priority": 0,
                                             "eventName": "field.blur",
                                             "sourceNodeId": "field-controller",
                                             "enabled": True,
@@ -141,9 +166,9 @@ def _behavior_lifecycle_document_payload():
                                             "actions": [
                                                 {
                                                     "id": "action-flow-delete-me",
-                                                    "kind": "emit_event",
+                                                    "kind": "dispatch_event",
                                                     "target": {"nodeId": "field-controller", "nodeType": "field"},
-                                                    "config": {"eventName": "temporary.flow"},
+                                                    "config": {"eventType": "temporary.flow", "bubbles": True},
                                                     "continueOnError": False,
                                                 }
                                             ],
@@ -385,6 +410,10 @@ def test_runtime_authoring_survives_project_save_and_disk_reload(monkeypatch, tm
             "formEvents": [
                 {
                     "id": "event-form-loaded",
+                    "type": "form.load",
+                    "dispatcherId": "document-runtime-1",
+                    "dispatcherType": "form",
+                    "bubbles": False,
                     "name": "form.load",
                     "payloadShape": {
                         "mode": "key_value",
@@ -404,17 +433,23 @@ def test_runtime_authoring_survives_project_save_and_disk_reload(monkeypatch, tm
             "formListeners": [
                 {
                     "id": "listener-form-load",
-                    "label": "Emit project loaded event",
+                    "label": "Dispatch project loaded event",
+                    "type": "form.load",
+                    "dispatcherId": "document-runtime-1",
+                    "dispatcherType": "form",
+                    "useCapture": False,
+                    "priority": 0,
                     "eventName": "form.load",
                     "enabled": True,
                     "ruleGuards": [],
                     "actions": [
                         {
                             "id": "action-form-load",
-                            "kind": "emit_event",
+                            "kind": "dispatch_event",
                             "target": {"nodeId": "document-runtime-1", "nodeType": "form"},
                             "config": {
-                                "eventName": "project.loaded",
+                                "eventType": "project.loaded",
+                                "bubbles": True,
                                 "payload": {"source": "disk-reload"},
                             },
                             "continueOnError": False,
@@ -425,6 +460,7 @@ def test_runtime_authoring_survives_project_save_and_disk_reload(monkeypatch, tm
             "hostBindings": [
                 {
                     "id": "binding-form-submit",
+                    "type": "form.submit",
                     "eventName": "form.submit",
                     "direction": "outbound",
                     "handlerKey": "submit_form",
@@ -472,6 +508,10 @@ def test_runtime_authoring_survives_project_save_and_disk_reload(monkeypatch, tm
                     "eventSources": [
                         {
                             "id": "event-step-enter",
+                            "type": "step.enter",
+                            "dispatcherId": "step-1",
+                            "dispatcherType": "step",
+                            "bubbles": True,
                             "name": "step.enter",
                             "sourceNodeId": "step-1",
                             "sourceNodeType": "step",
@@ -511,6 +551,10 @@ def test_runtime_authoring_survives_project_save_and_disk_reload(monkeypatch, tm
                                     "eventSources": [
                                         {
                                             "id": "event-field-change",
+                                            "type": "field.change",
+                                            "dispatcherId": "field-1",
+                                            "dispatcherType": "field",
+                                            "bubbles": True,
                                             "name": "field.change",
                                             "sourceNodeId": "field-1",
                                             "sourceNodeType": "field",
@@ -520,6 +564,11 @@ def test_runtime_authoring_survives_project_save_and_disk_reload(monkeypatch, tm
                                         {
                                             "id": "listener-field-change",
                                             "label": "Mirror field value",
+                                            "type": "field.change",
+                                            "dispatcherId": "field-1",
+                                            "dispatcherType": "field",
+                                            "useCapture": False,
+                                            "priority": 0,
                                             "eventName": "field.change",
                                             "sourceNodeId": "field-1",
                                             "enabled": True,
@@ -583,7 +632,7 @@ def test_runtime_authoring_survives_project_save_and_disk_reload(monkeypatch, tm
     assert detail.document.runtime.session_state_shape.fields[1].name == "submitStatus"
     assert detail.document.runtime.host_bindings[0].handler_key == "submit_form"
     assert detail.document.steps[0].runtime is not None
-    assert detail.document.steps[0].runtime.event_sources[0].name == "step.enter"
+    assert detail.document.steps[0].runtime.event_sources[0].type == "step.enter"
     assert detail.document.steps[0].sections[0].fields[0].runtime is not None
     assert (
         detail.document.steps[0].sections[0].fields[0].runtime.listeners[0].actions[0].config["value"]
@@ -633,7 +682,7 @@ def test_behavior_lifecycle_edits_survive_project_save_and_disk_reload(monkeypat
     duplicated_event_flow["id"] = "flow-field-change-copy"
     duplicated_event_flow["enabled"] = True
     duplicated_event_flow["actions"][0]["id"] = "action-field-change-copy"
-    duplicated_event_flow["actions"][0]["config"]["eventName"] = "field.controller.changed.copy"
+    duplicated_event_flow["actions"][0]["config"]["eventType"] = "field.controller.changed.copy"
     field_flows.insert(1, duplicated_event_flow)
     controller_field["runtime"]["listeners"] = [
         listener for listener in field_flows if listener["id"] != "flow-delete-me"
@@ -669,7 +718,7 @@ def test_behavior_lifecycle_edits_survive_project_save_and_disk_reload(monkeypat
     assert set(persisted_field_flows_by_id) == {"flow-field-change", "flow-field-change-copy"}
     assert persisted_field_flows_by_id["flow-field-change"]["enabled"] is False
     assert (
-        persisted_field_flows_by_id["flow-field-change-copy"]["actions"][0]["config"]["eventName"]
+        persisted_field_flows_by_id["flow-field-change-copy"]["actions"][0]["config"]["eventType"]
         == "field.controller.changed.copy"
     )
 

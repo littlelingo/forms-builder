@@ -21,9 +21,11 @@ RuntimeActionKind = Literal[
     "disable_node",
     "mark_required",
     "mark_optional",
+    "dispatch_event",
     "emit_event",
     "host_action",
 ]
+RuntimeEventPhase = Literal["capture", "target", "bubble"]
 RuntimeHostBindingDirection = Literal["inbound", "outbound", "bidirectional"]
 RuntimePayloadMode = Literal["key_value", "json"]
 RuntimeValueType = Literal["string", "number", "boolean", "object", "array", "unknown"]
@@ -64,18 +66,30 @@ class RuntimeActionDefinition(CamelModel):
     continue_on_error: bool = False
 
 
-class RuntimeEventDefinition(CamelModel):
+class RuntimeEventTypeDefinition(CamelModel):
     id: str
-    name: str
-    source_node_id: str | None = None
-    source_node_type: RuntimeNodeType | None = None
+    type: str | None = None
+    dispatcher_id: str | None = None
+    dispatcher_type: RuntimeNodeType | None = None
+    bubbles: bool | None = None
     payload_shape: RuntimePayloadShape | None = None
     description: str | None = None
+    name: str | None = None
+    source_node_id: str | None = None
+    source_node_type: RuntimeNodeType | None = None
+
+
+RuntimeEventDefinition = RuntimeEventTypeDefinition
 
 
 class RuntimeListenerDefinition(CamelModel):
     id: str
     label: str | None = None
+    type: str | None = None
+    dispatcher_id: str | None = None
+    dispatcher_type: RuntimeNodeType | None = None
+    use_capture: bool = False
+    priority: int = 0
     event_name: str
     source_node_id: str | None = None
     enabled: bool = True
@@ -85,7 +99,8 @@ class RuntimeListenerDefinition(CamelModel):
 
 class RuntimeHostBinding(CamelModel):
     id: str
-    event_name: str
+    event_name: str | None = None
+    type: str | None = None
     direction: RuntimeHostBindingDirection
     handler_key: str | None = None
     payload_shape: RuntimePayloadShape | None = None
@@ -157,9 +172,16 @@ class RuntimeEventEnvelopeSource(CamelModel):
     node_type: RuntimeNodeType | None = None
 
 
+RuntimeEventTarget = RuntimeEventEnvelopeSource
+
+
 class RuntimeEventEnvelope(CamelModel):
     type: str
     version: Literal["1.0"] = "1.0"
+    target: RuntimeEventTarget | None = None
+    current_target: RuntimeEventTarget | None = None
+    event_phase: RuntimeEventPhase | None = None
+    bubbles: bool | None = None
     source: RuntimeEventEnvelopeSource
     payload: dict[str, object] = Field(default_factory=dict)
     correlation_id: str

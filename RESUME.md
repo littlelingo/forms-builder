@@ -3,7 +3,7 @@
 ## Workspace
 
 - Repo: `/Users/clint/Workspace/forms-builder`
-- Current focus: `Phase 2A - promote reviewed imports into durable authoring projects`
+- Current focus: `Behavior Studio - AS3-style event/listener/action model`
 - Baseline target: `VA.gov-style web form flow`, not PDF round-trip
 
 ## Current State
@@ -213,11 +213,27 @@
   - rule creation now uses the same searchable preset picker instead of hard-coded starter buttons, with core bundles for show/require, show, hide, hide-and-clear, require, disable, and a custom Advanced path
   - flow presets and common action-chain templates now seed practical payload defaults with runtime references for field changes, host lookup, form load/prefill, submit, validation failure, step lifecycle, and source-node context
   - `clear_field_value` and rule source defaults now prefer interactive fields near the current selection instead of falling back to the first imported statement in the document
+  - behavior presets now derive their author-facing labels, suggested event names, host handler keys, payload templates, and starter chain language from the selected component type: section, group, button/component, or field
+  - checkbox groups now expose checkbox-specific event presets such as `Emit checkbox selection change`, emit `*.checkbox.changed` event names, and seed payload rows for `componentType`, `selectionMode: multi`, `selectedValues`, and `changedOption`
+  - field rule defaults now use checkbox-aware source conditions (`contains` plus the first option value) when the controlling source field is a checkbox group, while preserving the existing conditional-rule JSON shape
 - Re-centered and resized the Behavior Studio shell in [apps/web/src/App.tsx](/Users/clint/Workspace/forms-builder/apps/web/src/App.tsx):
   - compact create/manage/test modes now open as a centered viewport workbench instead of trying to anchor to the clicked toolbar button
+- Implemented the AS3-style runtime event/listener/action refactor:
+  - [packages/schema/src/runtime.ts](/Users/clint/Workspace/forms-builder/packages/schema/src/runtime.ts) now models event types, dispatchers, core event catalogs, `target`, `currentTarget`, `eventPhase`, bubbling, capture listeners, listener priority, and the new `dispatch_event` action while retaining read compatibility for older `emit_event` / `eventName` metadata
+  - [apps/api/src/form_builder_api/models/runtime.py](/Users/clint/Workspace/forms-builder/apps/api/src/form_builder_api/models/runtime.py) now mirrors the expanded runtime contract for project persistence and API smoke coverage
+  - [packages/runtime/src/document-index.ts](/Users/clint/Workspace/forms-builder/packages/runtime/src/document-index.ts) now indexes parent/dispatcher relationships and listener phase metadata across form, step, section, group, and field nodes
+  - [packages/runtime/src/engine.ts](/Users/clint/Workspace/forms-builder/packages/runtime/src/engine.ts) now dispatches events through capture, target, and bubble phases, resolves AS3-style event-context payload refs, supports non-bubbling custom events, and keeps legacy inbound events normalized
+  - [apps/web/src/App.tsx](/Users/clint/Workspace/forms-builder/apps/web/src/App.tsx) now treats behavior creation as component-type centric: section, group, button, and field scopes get different core events/presets, and checkbox groups now surface `checkboxGroup.change`, `checkbox.change`, `checkbox.checked`, and `checkbox.unchecked` starters
+  - field preview changes now dispatch universal `field.change` plus type-specific core events with component payload context; button clicks now dispatch both `component.click` and `button.click`
+  - Behavior Studio language now distinguishes event listeners, event dispatch chains, event type, dispatcher, priority, capture phase, and bubbling instead of using the older generic listener/event-flow wording
+  - runtime docs were refreshed in [docs/runtime-schema.md](/Users/clint/Workspace/forms-builder/docs/runtime-schema.md), [docs/runtime-authoring-guide.md](/Users/clint/Workspace/forms-builder/docs/runtime-authoring-guide.md), [docs/runtime-host-integration.md](/Users/clint/Workspace/forms-builder/docs/runtime-host-integration.md), [docs/runtime-cookbook.md](/Users/clint/Workspace/forms-builder/docs/runtime-cookbook.md), and [docs/behavior-workspace-spec.md](/Users/clint/Workspace/forms-builder/docs/behavior-workspace-spec.md)
   - the default Studio target is wider and taller while still capped to the viewport
   - the preset picker no longer nests its own scroll area inside the modal body, reducing the double-scroll/scroll-hell feel
   - the Behavior Studio overlay now renders through a `document.body` portal and uses `preventScroll` focus restoration, so opening/closing the studio does not reposition the underlying form canvas
+- Added root Prettier formatter setup:
+  - [package.json](/Users/clint/Workspace/forms-builder/package.json) now has `format` and `format:check` scripts
+  - [.prettierrc](/Users/clint/Workspace/forms-builder/.prettierrc) sets the project formatting profile, and [.prettierignore](/Users/clint/Workspace/forms-builder/.prettierignore) excludes dependencies, build output, generated/local data, and browser smoke artifacts
+  - the setup was intentionally added without a repo-wide source reformat; `npm run format:check` currently reports existing formatting drift in 24 files
 
 ## Key Files
 
@@ -244,9 +260,10 @@
 - Latest command pass:
   - `npm run typecheck:web`
   - `npm run build:web`
-  - `npm run test:runtime`
-  - live browser pass on `http://127.0.0.1:5173/` validating rule creation now shows the shared `Preset type`/search picker with rule bundles, and `Hide and clear dependent value` creates an editable hide rule plus associated clear-flow count
-  - live browser pass validating field event-flow creation shows scoped event/action presets and `Emit then request host action` opens the focused chain composer with structured runtime-ref payload rows for both emit and host actions
+  - `npm run test:runtime` (passed after rerun with sandbox escalation because `tsx` needs to create its IPC pipe under `/var/folders/.../T`)
+  - `npx prettier --check package.json package-lock.json .prettierrc --ignore-unknown .prettierignore`
+  - live browser pass on `http://127.0.0.1:5173/` validating Step 2 / Page 4 `TYPE OF BENEFIT(S) APPLYING FOR` opens checkbox-specific event-flow presets for the selected checkbox group
+  - live browser pass validating `Emit checkbox selection change` creates a `field.change` flow that emits a `*.checkbox.changed` event and opens the focused chain composer with checkbox payload rows for `componentType`, `selectionMode`, `selectedValues`, and `changedOption`
   - result: passed
 - Previous latest command pass:
   - `npm run typecheck:web`
@@ -365,13 +382,13 @@
   - live pass on `http://127.0.0.1:5173/` validating the next `Rules Manager` object-lifecycle pass on `Page 3 · Submitting Your Application`: a browser-only event flow opened in the full index with an `Object detail` card, `Disable` flipped the row/detail status and stayed visible under the disabled filter, `Enable` restored the flow, `Duplicate` created a second event flow and selected it, `Delete` removed the duplicate back to one unsaved flow, and row-level `Test` opened the advanced workspace/simulator with emitted-event runtime evidence for `page.3.submitting.your.application.entered`
   - live pass on `http://127.0.0.1:5173/` validating the graph cleanup pass on `Page 3 · Submitting Your Application`: graph view now shows manager/studio handoffs instead of direct creation/deletion/growth controls, `Edit chain in studio` returns to the focused composer, and `Open lifecycle details` opens the full Rules Manager index with the selected event flow detail expanded
   - live pass on `http://127.0.0.1:5173/` validating the step-level behavior toolbar on `Page 3 · Submitting Your Application`: the selected current-step header now shows `Step behavior`, the right rail stays status-only for that selected step, and `Add listener` opens the compact `Create listener` Behavior Studio dialog from the preview scope
+  - live pass on `http://127.0.0.1:5173/` validating the AS3/component-centric behavior flow on Step 2, Page 4, `TYPE OF BENEFIT(S) APPLYING FOR`: selecting the checkbox group exposes `Add event listener` and `Dispatch event`; listener creation opens checkbox-group-specific recommended starters keyed to `checkboxGroup.change`; the custom listener composer opens with `checkboxGroup.change`, dispatcher, priority, and capture-phase controls; dispatch creation exposes checkbox-specific dispatch-chain presets; a duplicate React key warning in suggestion chips was fixed during the pass
 - Persistence/contract:
   - `PYTHONPATH=apps/api/src ./.venv/bin/pytest apps/api/tests/test_smoke.py -q`
   - result: `9 passed`
-  - `npm run generate:schema-types`
   - `npm run build:schema`
   - `npm run test:runtime`
-  - result: runtime tests `7 passed`
+  - result: runtime tests `9 passed`
   - `npm run typecheck:web`
   - `npm run build:web`
 
@@ -384,7 +401,7 @@
 - The builder still needs a second interaction pass:
   - logic editing is now bounded and recoverable, and the new map surface now opens directly into the shared graph with first-pass `When` / `Then` semantics; graph filtering, focus-mode flow navigation, overview mode, denser hierarchy cues, in-graph overview navigation, and a first graph-style `Map` overview are now in place, and the document-wide surface now includes a navigable mini-map with its own controls, but the graph still needs a more spatial and freely navigable global workspace once flows get larger
   - publish is now a workspace action instead of a stage, but the release model is still a status/storage surface rather than a full runtime/export pipeline
-- Behavior authoring now needs a larger UX reset rather than more incremental polish:
+- Behavior authoring has completed the AS3 event/listener/action model reset and now needs hardening around fixture discipline and migration polish:
   - the shell has now started that transition with a single `Behavior` tab, a slimmer right-rail behavior launchpad, a dedicated `Behavior studio` overlay for focused rule/listener/event wiring, guided setup paths for `Add rule`, `Add listener`, and `Add event flow`, a shared graph surface, one docked composer, grouped state bundles, multi-action chain templates, and a first-class `Rules Manager` index with object detail plus enable/disable, duplicate, and delete lifecycle controls; the remaining manager gaps are bulk grouping, safer undo/confirmation affordances, and richer field-centric impact views
   - the product direction is now Behavior Studio plus Rules Manager as the primary authoring path, with graph used for focused visualization, tracing, and debugging rather than normal rule/listener creation
   - rule/listener editing now shares one docked composer and one graph that can be seeded, extended in place, and reached from the new studio, and the map now speaks the same graph language and can hand authored nodes directly into that graph; focus mode can now collapse multi-flow selections back to one chain at a time, first-pass `Fit flows` plus lane-density controls are in place, the local viewport now supports drag/pan plus reset, the `Map -> Graph` handoff now carries visible context plus a return path, step/form scope clusters now keep larger authored behavior from collapsing into one repeated stack, the old document navigator has now been folded into the `Document graph overview`, that overview now supports clustered board, spatial mini-map, and a new default `Canvas view` plus cross-lane scope filtering, the new `Document graph workspace` mode now gives that surface its own dedicated authoring state inside `Behavior`, the document graph now supports direct lane expansion plus an `Expanded lane detail` surface with scope-level handoffs, the canvas now supports pinning, denser cluster packing, navigator-driven filtering, grouped swimlanes (`Focused and pinned lanes`, `Behavior lanes`, `Quiet lanes`), and a persistent related-lane strip with direct matching-scope handoffs, and the composer now supports grouped conditional effects plus replaceable multi-action chains, but the next gap is now finishing the studio/inspector split before pushing the global canvas much further
@@ -396,22 +413,16 @@
   - the `Behavior` workspace now supports clearer payload language, explicit structured field typing, selected-rule/chain test affordances, latest authored runtime evidence, and a less raw advanced-debug entry point, but session import/export is still dev-oriented and deeper runtime QA flows are still lighter than the authoring shell around them
   - trigger/event/handler naming is now more guided with inline validation, suggestion chips, common-flow payload starters, broader live runtime/session mappers for field/step/form/project/source-node context, and grouped chain scanning inside the simulator surface, but graph manipulation is still more constrained than the authoring model around it
   - node-level runtime presets now have deterministic engine coverage and live browser coverage for authored button dispatch, preview field interaction, and form-level multi-action payload chains, but saveable examples still need better fixture discipline if we want QA scenarios without mutating `data/projects/`
-  - runtime docs now cover architecture, schema, roundtrip testing, authoring, host integration, and recipes, but they still need to evolve with stronger action-specific guardrails and a more capable host shell
+  - runtime docs now cover architecture, schema, roundtrip testing, authoring, host integration, recipes, and the AS3 event model, but they still need to evolve with stronger action-specific guardrails and a more capable host shell
 - The shell is now closer to the desired direction, but there is still no explicit component-system toggle between `shadcn-style default` and `USWDS shell mode`; this pass establishes the default look rather than a live switch.
 
 ## Best Next
 
-- Run the behavior tooling/capability review now that the ownership split is in place:
-  - keep `Behavior Studio`, `Rules Manager`, and selected-object simulator testing prominent
-  - tuck `Graph view`, `Document graph workspace`, advanced simulator debug, and full source compare behind explicit secondary affordances
-  - identify any duplicate right-rail controls that can be removed now that Studio and workspace overlays own the heavy flows
-- Follow-up after the Studio navigation reset:
-  - browser-check the selected-card behavior toolbar so `Add rule`, `Add listener`, `Add event`, and `Test` all open in the same compact placement for section, group, and field selections
-  - continue drag-handle browser coverage for section, group, standalone-field, and grouped-field reordering after the pointer-based path is now proven for grouped components and page-strip steps
-  - consider renaming `Add listener` to `React to event` and `Add event` to `Emit event` so creation starts from user intent rather than runtime object names
-  - continue tightening the step-level Behavior Studio launch placement now that the inline toolbar exists
-  - review whether `Graph` should remain as an inspector `Map` handoff or move behind a more explicit workspace affordance now that the blocking Studio graph mode is removed
-  - continue pruning duplicate right-rail controls now that selected-object behavior actions live in the preview canvas
+- Harden the AS3 behavior model with save/reload fixtures and UI cleanup:
+  - add a small persisted authoring-project fixture that exercises capture, target, bubble, non-bubbling dispatch, checkbox-group events, and host-action payload refs without mutating `data/projects/`
+  - migrate remaining internal/visible labels that still say generic `flow` where the object is specifically a dispatch chain
+  - extend the component-type core event catalog as more field renderers become first-class controls
+  - keep pruning secondary graph/document/simulator/source controls now that selected-object Behavior Studio owns normal creation
 
 ## Product Direction Update
 

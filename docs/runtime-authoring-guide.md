@@ -5,12 +5,13 @@
 This guide explains how a form author configures runtime behavior in the
 builder without needing to think in engine internals first.
 
-The current model is intentionally simple:
+The current model leans on the ActionScript 3 event model:
 
-1. choose what should happen
-2. choose when it should happen
-3. optionally add conditions
-4. choose what the runtime should do next
+1. select the component dispatcher
+2. choose the event type it emits or listens for
+3. choose target/bubble or capture behavior
+4. optionally add guards
+5. choose what actions run next
 
 In the UI, this lives in the builder inspector under `Events`.
 
@@ -18,19 +19,24 @@ In the UI, this lives in the builder inspector under `Events`.
 
 Use this vocabulary consistently:
 
+- `Event dispatcher`
+  - the form, step, section, group, field, or button-like component that can dispatch and receive events
 - `Event`
-  - something happened
-  - examples: a button was clicked, a field changed, the form loaded, submit failed
+  - an object with `type`, `target`, `currentTarget`, `eventPhase`, `bubbles`, and `payload`
+- `Core event type`
+  - a built-in event a dispatcher already emits; authors do not define it
 - `Rule guard`
   - a condition that must be true before the listener runs
 - `Listener`
-  - connects an event to one or more actions
+  - attaches to a dispatcher and receives a typed event
 - `Action`
   - what the runtime should do in response
 
 Plain-language mapping:
 
-- `When this happens` = event
+- `Event type` = the event object type to listen for
+- `Dispatcher` = where the listener is attached
+- `Capture` / `Target + bubble` = which AS3 phase receives the event
 - `If these conditions are true` = optional rule guard
 - `Do these things` = action chain
 
@@ -40,7 +46,7 @@ The `Events` tab works in two scopes.
 
 ### Form scope
 
-Use `Form events` when no specific preview node should own the behavior.
+Use form scope when the form dispatcher should own the behavior.
 
 This is the right place for:
 
@@ -49,7 +55,7 @@ This is the right place for:
 - `form.validation_failed`
 - host-facing orchestration events
 
-Form-level listeners can target any node in the form.
+Form-level listeners can receive descendant events when those events bubble.
 
 ### Node scope
 
@@ -71,8 +77,8 @@ selected behavior is refined.
 1. Open a project in `Build`
 2. Select the step, section, group, or field in the preview
 3. Open the `Events` tab in the inspector
-4. Add a preset or create a listener manually
-5. Adjust the event, optional rule guards, and action chain
+4. Add a preset or create an event listener manually
+5. Adjust the event type, phase, optional rule guards, and action chain
 6. Use `Runtime tools` to validate the flow
 
 ## Starter Presets
@@ -84,7 +90,7 @@ Current examples include:
 - `Form loaded`
 - `Form submit dispatched`
 - `Validation failed`
-- field-change presets
+- component-type presets such as checkbox group change, radio change, select change, and input change
 - button click flows
 
 Presets are meant to make common flows obvious first. Authors can then edit the
@@ -108,7 +114,7 @@ Typical button actions:
 - `go_to_previous_step`
 - `go_to_step`
 - `submit_form`
-- `emit_event`
+- `dispatch_event`
 - `host_action`
 
 If a button has no explicit authored listener yet, the runtime still maintains a
@@ -133,7 +139,7 @@ Current built-in action kinds:
 - `disable_node`
 - `mark_required`
 - `mark_optional`
-- `emit_event`
+- `dispatch_event`
 - `host_action`
 
 Use multiple actions when one event needs to:
@@ -153,7 +159,7 @@ Use a rule guard when the same event should only fire actions in certain cases.
 
 Example:
 
-- event: `field.change`
+- event: `checkboxGroup.change`
 - guard: selected value equals `Yes`
 - actions:
   - `show_node`
@@ -164,7 +170,7 @@ is already correct: conditions guard listeners rather than replacing them.
 
 ## Payload Authoring
 
-Two payload editing modes are supported for `emit_event` and `host_action`.
+Two payload editing modes are supported for `dispatch_event` and `host_action`.
 
 ### Key/value mode
 
@@ -227,9 +233,9 @@ This is the current runtime QA loop:
 - event: `component.click`
 - action: `submit_form`
 
-If validation fails, the runtime emits `form.validation_failed`.
+If validation fails, the runtime dispatches `form.validation_failed`.
 
-If validation passes, the runtime emits `form.submit`.
+If validation passes, the runtime dispatches `form.submit`.
 
 ### Request host behavior
 
@@ -240,10 +246,11 @@ If validation passes, the runtime emits `form.submit`.
 Current host actions are fire-and-forget requests. They are intended to trigger
 host-owned behavior, not return inline values to the runtime yet.
 
-### Emit a custom event
+### Dispatch a custom event
 
-- choose action: `emit_event`
-- provide `eventName`
+- choose action: `dispatch_event`
+- provide `eventType`
+- choose whether the event bubbles
 - optionally provide payload
 
 Use this when the runtime should broadcast intent without directly owning the

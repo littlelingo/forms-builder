@@ -33,6 +33,7 @@ import type {
   SemanticType,
   SectionNode,
 } from "@form-builder/schema";
+import { runtimeCoreEventsForDispatcher } from "@form-builder/schema";
 import { PanelCard, StatusBadge } from "@form-builder/ui";
 
 import {
@@ -89,6 +90,7 @@ interface BehaviorPresetBase {
   description: string;
   category: Exclude<BehaviorPresetCategory, "recommended" | "advanced">;
   actionSummary: string;
+  componentLabel?: string;
 }
 
 interface BehaviorRulePreset extends BehaviorPresetBase {
@@ -136,6 +138,12 @@ type RuntimePayloadReferenceKey =
   | "current.project.id"
   | "current.source.node.id"
   | "current.source.node.type"
+  | "current.event.type"
+  | "current.event.target.id"
+  | "current.event.target.type"
+  | "current.event.currentTarget.id"
+  | "current.event.currentTarget.type"
+  | "current.event.phase"
   | "current.runtime.value";
 
 interface RuntimePayloadEntry {
@@ -396,7 +404,7 @@ const runtimeActionOptions: Array<{ value: RuntimeActionKind; label: string }> =
   { value: "disable_node", label: "Disable a node" },
   { value: "mark_required", label: "Mark required" },
   { value: "mark_optional", label: "Mark optional" },
-  { value: "emit_event", label: "Emit custom event" },
+  { value: "dispatch_event", label: "Dispatch event" },
   { value: "host_action", label: "Request host action" },
 ];
 
@@ -492,6 +500,10 @@ function createBlankAuthoringDocument(): AuthoringDocument {
 function createRuntimeEventSource(name: string, scope: RuntimeEditorScope, nodeId?: string): RuntimeEventDefinition {
   return {
     id: crypto.randomUUID(),
+    type: name,
+    dispatcherId: nodeId ?? null,
+    dispatcherType: scope.scopeKind,
+    bubbles: name.includes(".") ? undefined : true,
     name,
     sourceNodeId: nodeId ?? null,
     sourceNodeType: scope.scopeKind,
@@ -519,6 +531,11 @@ function createRuntimeListener(
   return {
     id: crypto.randomUUID(),
     label: null,
+    type: eventName,
+    dispatcherId: sourceNodeId ?? null,
+    dispatcherType: null,
+    useCapture: false,
+    priority: 0,
     eventName,
     sourceNodeId: sourceNodeId ?? null,
     enabled: true,
@@ -572,6 +589,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function getRuntimeActionPayload(action: RuntimeActionDefinition): Record<string, unknown> {
   return isRecord(action.config.payload) ? action.config.payload : {};
+}
+
+function getRuntimeActionEventType(action: RuntimeActionDefinition): string {
+  return String(action.config.eventType ?? action.config.eventName ?? "custom.event");
+}
+
+function getRuntimeListenerEventType(listener: RuntimeListenerDefinition): string {
+  return listener.type ?? listener.eventName;
 }
 
 const runtimePayloadFieldTypeOptions: Array<{ value: RuntimePayloadFieldType; label: string }> = [
@@ -628,6 +653,36 @@ const runtimePayloadReferenceOptions: RuntimePayloadReferenceOption[] = [
     key: "current.source.node.type",
     label: "Current source node type",
     description: "Resolve the runtime source node type that triggered this action.",
+  },
+  {
+    key: "current.event.type",
+    label: "Event type",
+    description: "Resolve the AS3-style event type currently being handled.",
+  },
+  {
+    key: "current.event.target.id",
+    label: "Event target id",
+    description: "Resolve the original dispatcher id that dispatched the event.",
+  },
+  {
+    key: "current.event.target.type",
+    label: "Event target type",
+    description: "Resolve the original dispatcher type that dispatched the event.",
+  },
+  {
+    key: "current.event.currentTarget.id",
+    label: "Current target id",
+    description: "Resolve the dispatcher id whose listener is currently running.",
+  },
+  {
+    key: "current.event.currentTarget.type",
+    label: "Current target type",
+    description: "Resolve the dispatcher type whose listener is currently running.",
+  },
+  {
+    key: "current.event.phase",
+    label: "Event phase",
+    description: "Resolve capture, target, or bubble for the current listener invocation.",
   },
   {
     key: "current.runtime.value",
@@ -838,7 +893,13 @@ function ensureUniqueEventSource(
   scope: RuntimeEditorScope,
   nodeId?: string,
 ): void {
-  if (eventSources.some((source) => source.name === name && (source.sourceNodeId ?? null) === (nodeId ?? null))) {
+  if (
+    eventSources.some(
+      (source) =>
+        (source.type ?? source.name) === name &&
+        (source.dispatcherId ?? source.sourceNodeId ?? null) === (nodeId ?? null),
+    )
+  ) {
     return;
   }
   eventSources.push(createRuntimeEventSource(name, scope, nodeId));
@@ -853,7 +914,7 @@ function describeRuntimeAction(action: RuntimeActionDefinition): string {
     case "go_to_step":
       return `Go to step ${String(action.config.stepId ?? action.target?.nodeId ?? "target")}.`;
     case "submit_form":
-      return "Validate and emit the form submit event.";
+      return "Validate and dispatch the form submit event.";
     case "set_field_value":
       return `Set ${String(action.config.fieldId ?? action.target?.nodeId ?? "field")} to ${JSON.stringify(action.config.value ?? "")}.`;
     case "clear_field_value":
@@ -870,8 +931,9 @@ function describeRuntimeAction(action: RuntimeActionDefinition): string {
       return `Make ${String(action.config.nodeId ?? action.target?.nodeId ?? "node")} required.`;
     case "mark_optional":
       return `Make ${String(action.config.nodeId ?? action.target?.nodeId ?? "node")} optional.`;
+    case "dispatch_event":
     case "emit_event":
-      return `Emit ${String(action.config.eventName ?? "custom.event")}.`;
+      return `Dispatch ${getRuntimeActionEventType(action)}.`;
     case "host_action":
       return `Request host action ${String(action.config.handlerKey ?? "handler")}.`;
     default:
@@ -880,7 +942,7 @@ function describeRuntimeAction(action: RuntimeActionDefinition): string {
 }
 
 function getButtonBehaviorSummary(field: AuthoringField): { action: string; eventName: string | null } {
-  const explicitListener = field.runtime?.listeners.find((listener) => listener.eventName === "component.click");
+  const explicitListener = field.runtime?.listeners.find((listener) => getRuntimeListenerEventType(listener) === "component.click");
   const firstAction = explicitListener?.actions[0];
   if (firstAction) {
     if (firstAction.kind === "go_to_previous_step") {
@@ -889,8 +951,8 @@ function getButtonBehaviorSummary(field: AuthoringField): { action: string; even
     if (firstAction.kind === "submit_form") {
       return { action: "submit", eventName: null };
     }
-    if (firstAction.kind === "emit_event") {
-      return { action: "custom_event", eventName: String(firstAction.config.eventName ?? "custom.event") };
+    if (firstAction.kind === "dispatch_event" || firstAction.kind === "emit_event") {
+      return { action: "custom_event", eventName: getRuntimeActionEventType(firstAction) };
     }
     return { action: "next_step", eventName: null };
   }
@@ -944,7 +1006,7 @@ function buildStructuredRuntimeTraceEvidence(
   entry: RuntimeTraceEntry,
   resolveNodeLabel: (nodeId: unknown, fallbackType?: string | null) => string,
 ): StructuredRuntimeTraceEvidence {
-  const sourceLabel = resolveNodeLabel(entry.event.source.nodeId, entry.event.source.nodeType);
+  const sourceLabel = resolveNodeLabel(entry.event.target?.nodeId ?? entry.event.source.nodeId, entry.event.target?.nodeType ?? entry.event.source.nodeType);
   if (entry.event.type === "host.action_requested") {
     const payload = entry.event.payload;
     const configPayload = isRecord(payload.config) && isRecord(payload.config.payload) ? payload.config.payload : {};
@@ -978,9 +1040,9 @@ function buildStructuredRuntimeTraceEvidence(
   }
   return {
     entryKey: getRuntimeTraceEntryKey(entry),
-    heading: "Latest emitted event",
+    heading: "Latest dispatched event",
     title: entry.event.type,
-    summary: `Emitted from ${sourceLabel}.`,
+    summary: `Dispatchted from ${sourceLabel}.`,
     pills: [
       { label: "Source", value: sourceLabel },
       { label: "Correlation", value: entry.event.correlationId },
@@ -998,12 +1060,12 @@ function buildRuntimeTraceContextSummary(
   entry: RuntimeTraceEntry,
   resolveNodeLabel: (nodeId: unknown, fallbackType?: string | null) => string,
 ): RuntimeTraceContextSummary {
-  const sourceLabel = resolveNodeLabel(entry.event.source.nodeId, entry.event.source.nodeType);
+  const sourceLabel = resolveNodeLabel(entry.event.target?.nodeId ?? entry.event.source.nodeId, entry.event.target?.nodeType ?? entry.event.source.nodeType);
   const detail =
     entry.event.type === "host.action_requested"
       ? `Host request from ${sourceLabel}`
       : isAuthoredRuntimeEvidenceEntry(entry)
-        ? `Emitted from ${sourceLabel}`
+        ? `Dispatchted from ${sourceLabel}`
         : `${formatLabel(entry.event.type)} from ${sourceLabel}`;
   return {
     entryKey: getRuntimeTraceEntryKey(entry),
@@ -1412,6 +1474,146 @@ function componentChromeLabel(field: AuthoringField): string {
       return "Textarea";
     default:
       return `${formatLabel(field.semanticType)} field`;
+  }
+}
+
+function behaviorFieldComponentLabel(field: AuthoringField | null | undefined): string {
+  return field ? componentChromeLabel(field) : "Field";
+}
+
+function fieldValueNoun(field: AuthoringField | null | undefined): string {
+  switch (field?.semanticType) {
+    case "checkbox":
+      return "checkbox selections";
+    case "radio":
+      return "radio selection";
+    case "select":
+      return "selected option";
+    case "textarea":
+      return "text response";
+    case "date":
+      return "date value";
+    case "number":
+      return "number value";
+    case "phone":
+      return "phone value";
+    case "email":
+      return "email value";
+    case "signature_attestation":
+      return "signature attestation";
+    default:
+      return "field value";
+  }
+}
+
+function fieldSelectionMode(field: AuthoringField | null | undefined): "multi" | "single" | null {
+  if (field?.semanticType === "checkbox") {
+    return "multi";
+  }
+  if (field?.semanticType === "radio" || field?.semanticType === "select") {
+    return "single";
+  }
+  return null;
+}
+
+function fieldFirstOptionValue(field: AuthoringField | null | undefined): string {
+  return field?.options[0]?.value ?? field?.options[0]?.label ?? "";
+}
+
+function defaultConditionalOperatorForField(field: AuthoringField | null | undefined): ConditionalRule["operator"] {
+  return field?.semanticType === "checkbox" ? "contains" : "equals";
+}
+
+function defaultConditionalExpectedValueForField(field: AuthoringField | null | undefined): string {
+  return field?.semanticType === "checkbox" || field?.semanticType === "radio" || field?.semanticType === "select"
+    ? fieldFirstOptionValue(field)
+    : "";
+}
+
+function runtimeFieldChangedEventName(field: AuthoringField | null | undefined): string {
+  const base = sanitizeRuntimeIdentifier(field?.stableKey ?? field?.label, "field");
+  switch (field?.semanticType) {
+    case "checkbox":
+      return "checkboxGroup.change";
+    case "radio":
+      return "radio.change";
+    case "select":
+      return "select.change";
+    case "textarea":
+      return "input.textChange";
+    case "date":
+      return "input.change";
+    case "number":
+      return "input.change";
+    case "phone":
+      return "input.change";
+    case "email":
+      return "input.change";
+    case "signature_attestation":
+      return `${base}.signature.changed`;
+    default:
+      return `${base}.changed`;
+  }
+}
+
+function runtimeFieldEventNameSuggestions(field: AuthoringField | null | undefined): string[] {
+  const base = sanitizeRuntimeIdentifier(field?.stableKey ?? field?.label, "field");
+  const coreEvents = runtimeCoreEventsForDispatcher("field", field?.semanticType).map((eventType) => eventType.type);
+  switch (field?.semanticType) {
+    case "checkbox":
+      return ["checkboxGroup.change", "checkbox.change", "checkbox.checked", "checkbox.unchecked", `${base}.checkbox.changed`];
+    case "radio":
+      return ["radio.change", "radio.selected", "radio.cleared", `${base}.radio.changed`];
+    case "select":
+      return ["select.change", "select.selected", "select.cleared", `${base}.selection.changed`];
+    case "textarea":
+      return ["input.textChange", "input.change", `${base}.text.changed`, `${base}.changed`];
+    case "date":
+      return ["input.change", `${base}.date.changed`, `${base}.changed`];
+    case "number":
+      return ["input.change", `${base}.number.changed`, `${base}.changed`];
+    case "phone":
+      return ["input.change", `${base}.phone.changed`, `${base}.changed`];
+    case "email":
+      return ["input.change", `${base}.email.changed`, `${base}.changed`];
+    case "signature_attestation":
+      return [`${base}.signature.changed`, `${base}.signature.attested`, `${base}.changed`];
+    default:
+      return [...coreEvents, `${base}.changed`, `${base}.updated`, `${base}.validated`];
+  }
+}
+
+function uniqueRuntimeEventTypes(values: Array<string | undefined>): string[] {
+  const seen = new Set<string>();
+  return values.filter((value): value is string => {
+    if (!value || seen.has(value)) {
+      return false;
+    }
+    seen.add(value);
+    return true;
+  });
+}
+
+function runtimeFieldTriggerSuggestions(field: AuthoringField | null | undefined): string[] {
+  const eventNames = runtimeFieldEventNameSuggestions(field);
+  const primaryEvent = eventNames[0] ?? runtimeFieldChangedEventName(field);
+  const secondaryEvent = eventNames[1];
+  switch (field?.semanticType) {
+    case "checkbox":
+      return uniqueRuntimeEventTypes(["checkboxGroup.change", "checkbox.change", primaryEvent, secondaryEvent, "field.change"]);
+    case "radio":
+      return uniqueRuntimeEventTypes(["radio.change", "radio.selected", primaryEvent, secondaryEvent, "field.change"]);
+    case "select":
+      return uniqueRuntimeEventTypes(["select.change", "select.selected", primaryEvent, secondaryEvent, "field.change"]);
+    case "textarea":
+    case "text":
+    case "date":
+    case "number":
+    case "phone":
+    case "email":
+      return uniqueRuntimeEventTypes(["field.change", "field.focus", "field.blur", primaryEvent]);
+    default:
+      return uniqueRuntimeEventTypes(["field.change", primaryEvent]);
   }
 }
 
@@ -2610,8 +2812,8 @@ export default function App() {
         case "mark_required":
         case "mark_optional":
           return `${formatLabel(action.kind)} ${formatNodeLabel(action.config.nodeId ?? action.target?.nodeId)}`;
-        case "emit_event":
-          return `Emit ${String(action.config.eventName ?? "custom.event")}`;
+        case "dispatch_event":
+          return `Dispatch ${getRuntimeActionEventType(action)}`;
         case "host_action":
           return `Request ${String(action.config.handlerKey ?? "host action")}`;
         default:
@@ -3002,26 +3204,20 @@ export default function App() {
     action: RuntimeActionDefinition,
     listener: RuntimeListenerDefinition,
   ): RuntimePayloadTemplate[] {
-    if (action.kind === "emit_event") {
+    if (action.kind === "dispatch_event") {
       const templates: RuntimePayloadTemplate[] = [];
-      if (listener.eventName === "field.change" || activeRuntimeScope?.scopeKind === "field") {
+      const listenerType = getRuntimeListenerEventType(listener);
+      if (listenerType === "field.change" || activeRuntimeScope?.scopeKind === "field") {
+        const componentLabel = behaviorFieldComponentLabel(activeBuilderField);
+        const valueNoun = fieldValueNoun(activeBuilderField);
         templates.push({
           id: "field-changed",
-          label: "Field changed",
-          description: "Send live field, step, and project context with the current runtime value.",
-          entries: [
-            createRuntimePayloadReferenceEntry("fieldId", "current.field.id"),
-            createRuntimePayloadReferenceEntry("fieldKey", "current.field.key"),
-            createRuntimePayloadReferenceEntry("stepId", "current.step.id"),
-            createRuntimePayloadReferenceEntry("stepTitle", "current.step.title"),
-            createRuntimePayloadReferenceEntry("projectId", "current.project.id"),
-            createRuntimePayloadReferenceEntry("sourceNodeType", "current.source.node.type"),
-            createRuntimePayloadReferenceEntry("value", "current.runtime.value"),
-            createRuntimePayloadEntry("changeOrigin", "runtime", "string"),
-          ],
+          label: `${componentLabel} changed`,
+          description: `Send live ${valueNoun}, step, and project context for this ${componentLabel.toLowerCase()}.`,
+          entries: createFieldChangedPayloadEntries(activeBuilderField),
         });
       }
-      if (listener.eventName === "form.submit") {
+      if (listenerType === "form.submit") {
         templates.push({
           id: "form-submit-dispatched",
           label: "Form submit dispatched",
@@ -3036,7 +3232,7 @@ export default function App() {
           ],
         });
       }
-      if (listener.eventName === "form.validation_failed") {
+      if (listenerType === "form.validation_failed") {
         templates.push({
           id: "validation-blocked",
           label: "Validation blocked",
@@ -3058,20 +3254,13 @@ export default function App() {
       const handlerKey = String(action.config.handlerKey ?? "");
       const templates: RuntimePayloadTemplate[] = [];
       if (handlerKey.includes("lookup") || activeRuntimeScope?.scopeKind === "field") {
+        const componentLabel = behaviorFieldComponentLabel(activeBuilderField);
+        const valueNoun = fieldValueNoun(activeBuilderField);
         templates.push({
           id: "host-lookup",
-          label: "Host lookup",
-          description: "Start a field-level lookup request with live field, step, and project context.",
-          entries: [
-            createRuntimePayloadReferenceEntry("fieldId", "current.field.id"),
-            createRuntimePayloadReferenceEntry("fieldKey", "current.field.key"),
-            createRuntimePayloadReferenceEntry("stepId", "current.step.id"),
-            createRuntimePayloadReferenceEntry("stepTitle", "current.step.title"),
-            createRuntimePayloadReferenceEntry("projectId", "current.project.id"),
-            createRuntimePayloadReferenceEntry("sourceNodeType", "current.source.node.type"),
-            createRuntimePayloadReferenceEntry("query", "current.runtime.value"),
-            createRuntimePayloadEntry("requestSource", "runtime", "string"),
-          ],
+          label: activeBuilderField?.semanticType === "checkbox" ? "Checkbox selection sync" : "Host lookup",
+          description: `Start a field-level host request with live ${valueNoun}, step, and project context for this ${componentLabel.toLowerCase()}.`,
+          entries: createHostLookupPayloadEntries(activeBuilderField),
         });
       }
       if (handlerKey.includes("prefill") || activeRuntimeScope?.scopeKind === "form" || activeRuntimeScope?.scopeKind === "field") {
@@ -3090,7 +3279,7 @@ export default function App() {
           ],
         });
       }
-      if (handlerKey.includes("submit") || listener.eventName === "form.submit") {
+      if (handlerKey.includes("submit") || getRuntimeListenerEventType(listener) === "form.submit") {
         templates.push({
           id: "host-submit",
           label: "Host submit",
@@ -3223,7 +3412,7 @@ export default function App() {
       }
 
       if (event.type === "form.submit") {
-        setFlashMessage("Preview runtime emitted a submit event. Use the simulator success or error controls to complete the host loop.");
+        setFlashMessage("Preview runtime dispatched a submit event. Use the simulator success or error controls to complete the host loop.");
         setErrorMessage(null);
       } else if (event.type === "form.validation_failed") {
         setErrorMessage("Complete the required fields in this runtime preview before submitting.");
@@ -3299,16 +3488,17 @@ export default function App() {
     const base = runtimeScopeIdentifierBase(scope, field);
     switch (scope?.scopeKind) {
       case "component":
-        return ["component.click", `${base}.requested`];
+        return ["component.click", "button.click", `${base}.requested`];
       case "field":
-        return ["field.change", `${base}.changed`];
+        return runtimeFieldTriggerSuggestions(field);
       case "form":
         return ["form.load", "form.submit", "form.validation_failed"];
       case "step":
         return ["step.enter", "step.leave", `${base}.opened`];
       case "section":
+        return ["section.enter", "section.leave", `${base}.updated`];
       case "group":
-        return [`${base}.changed`, `${base}.updated`];
+        return ["group.enter", "group.leave", `${base}.changed`, `${base}.updated`];
       default:
         return ["form.load"];
     }
@@ -3320,25 +3510,27 @@ export default function App() {
     listener?: RuntimeListenerDefinition | null,
   ): string[] {
     const base = runtimeScopeIdentifierBase(scope, field);
-    if (listener?.eventName === "form.load") {
+    const listenerType = listener ? getRuntimeListenerEventType(listener) : null;
+    if (listenerType === "form.load") {
       return ["form.loaded", "form.ready"];
     }
-    if (listener?.eventName === "form.submit") {
+    if (listenerType === "form.submit") {
       return ["form.submit.dispatched", "form.submit.requested"];
     }
-    if (listener?.eventName === "form.validation_failed") {
+    if (listenerType === "form.validation_failed") {
       return ["form.validation_failed", "form.submit.blocked"];
     }
     switch (scope?.scopeKind) {
       case "component":
         return [`${base}.clicked`, `${base}.requested`, "form.submit.requested"];
       case "field":
-        return [`${base}.changed`, `${base}.updated`, `${base}.validated`];
+        return runtimeFieldEventNameSuggestions(field);
       case "step":
         return [`${base}.entered`, `${base}.completed`, `${base}.updated`];
       case "section":
+        return [`${base}.section.updated`, `${base}.section.entered`, `${base}.section.completed`];
       case "group":
-        return [`${base}.updated`, `${base}.expanded`, `${base}.completed`];
+        return [`${base}.group.changed`, `${base}.group.updated`, `${base}.group.completed`];
       case "form":
         return ["form.updated", "form.ready", "form.runtime.changed"];
       default:
@@ -3352,13 +3544,20 @@ export default function App() {
     listener?: RuntimeListenerDefinition | null,
   ): string[] {
     const base = runtimeScopeIdentifierBase(scope, field);
-    if (listener?.eventName === "form.submit") {
+    const listenerType = listener ? getRuntimeListenerEventType(listener) : null;
+    if (listenerType === "form.submit") {
       return ["host.submit", "host.audit", "host.analytics"];
     }
     switch (scope?.scopeKind) {
       case "component":
         return ["host.submit", "host.navigate", "host.audit"];
       case "field":
+        if (field?.semanticType === "checkbox") {
+          return [`host.${base}.checkbox.sync`, "host.checkbox.sync", "host.selection.sync", "host.lookup"];
+        }
+        if (field?.semanticType === "radio" || field?.semanticType === "select") {
+          return [`host.${base}.selection.sync`, "host.selection.sync", "host.lookup", "host.prefill"];
+        }
         return [`host.${base}.lookup`, "host.lookup", "host.prefill"];
       case "form":
         return ["host.prefill", "host.audit", "host.analytics"];
@@ -3394,6 +3593,11 @@ export default function App() {
     );
   }
 
+  function defaultConditionalSourceField(): AuthoringField | null {
+    const sourceFieldId = defaultConditionalSourceFieldId();
+    return activeDocument && sourceFieldId ? findAuthoringFieldById(activeDocument, sourceFieldId) : null;
+  }
+
   function defaultRuntimeActionConfigForScope(
     kind: RuntimeActionKind,
     options?: { scope?: RuntimeEditorScope | null; field?: AuthoringField | null; listener?: RuntimeListenerDefinition | null },
@@ -3402,8 +3606,8 @@ export default function App() {
     const field = options?.field ?? activeBuilderField;
     const listener = options?.listener ?? null;
     switch (kind) {
-      case "emit_event":
-        return { eventName: runtimeEventNameSuggestions(scope, field, listener)[0] ?? "custom.event", payload: {} };
+      case "dispatch_event":
+        return { eventType: runtimeEventNameSuggestions(scope, field, listener)[0] ?? "custom.event", bubbles: true, payload: {} };
       case "host_action":
         return { handlerKey: runtimeHostHandlerSuggestions(scope, field, listener)[0] ?? "host.action", payload: {} };
       case "go_to_step":
@@ -3432,11 +3636,13 @@ export default function App() {
     effect: ConditionalRule["effect"],
     config?: Partial<ConditionalRule>,
   ): ConditionalRule {
+    const whenFieldId = config?.whenFieldId ?? defaultConditionalSourceFieldId();
+    const sourceField = activeDocument && whenFieldId ? findAuthoringFieldById(activeDocument, whenFieldId) : null;
     return {
       ruleId: crypto.randomUUID(),
-      whenFieldId: config?.whenFieldId ?? defaultConditionalSourceFieldId(),
-      operator: config?.operator ?? "equals",
-      expectedValue: config?.expectedValue ?? "",
+      whenFieldId,
+      operator: config?.operator ?? defaultConditionalOperatorForField(sourceField),
+      expectedValue: config?.expectedValue ?? defaultConditionalExpectedValueForField(sourceField),
       effect,
     };
   }
@@ -3588,23 +3794,49 @@ export default function App() {
       runtimeSessionRef.current !== null &&
       (!runtimeSessionRef.current.validation.valid || runtimeSessionRef.current.submit.status !== "idle");
 
+    const target: NonNullable<RuntimeEventEnvelope["target"]> = {
+      runtimeId: "builder-preview",
+      formId: activeDocument.id,
+      projectId: activeProjectDetail?.project.id ?? null,
+      nodeId: field.id,
+      nodeType: "field",
+    };
+    const correlationId = crypto.randomUUID();
+    const timestamp = new Date().toISOString();
+    const fieldPayload = {
+      fieldId: field.id,
+      nextValue,
+      componentType: field.semanticType,
+      selectionMode: fieldSelectionMode(field),
+      selectedValues: field.semanticType === "checkbox" ? nextValue : undefined,
+      selectedValue: field.semanticType === "radio" || field.semanticType === "select" ? nextValue : undefined,
+      changedOption: fieldFirstOptionValue(field) || null,
+    };
+
     let nextState = runtimeEngineRef.current.dispatch({
       type: "field.change",
       version: "1.0",
-      source: {
-        runtimeId: "builder-preview",
-        formId: activeDocument.id,
-        projectId: activeProjectDetail?.project.id ?? null,
-        nodeId: field.id,
-        nodeType: "field",
-      },
-      payload: {
-        fieldId: field.id,
-        nextValue,
-      },
-      correlationId: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
+      target,
+      source: target,
+      bubbles: true,
+      payload: fieldPayload,
+      correlationId,
+      timestamp,
     });
+
+    const typedEventName = runtimeFieldChangedEventName(field);
+    if (typedEventName !== "field.change") {
+      nextState = runtimeEngineRef.current.dispatch({
+        type: typedEventName,
+        version: "1.0",
+        target,
+        source: target,
+        bubbles: true,
+        payload: fieldPayload,
+        correlationId,
+        timestamp,
+      });
+    }
 
     if (shouldRevalidate) {
       runtimeEngineRef.current.validate();
@@ -3635,23 +3867,42 @@ export default function App() {
   }
 
   function handleRuntimeButtonClick(field: AuthoringField) {
+    const target: NonNullable<RuntimeEventEnvelope["target"]> = {
+      runtimeId: "builder-preview",
+      formId: activeDocument?.id ?? "unknown-form",
+      projectId: activeProjectDetail?.project.id ?? null,
+      nodeId: field.id,
+      nodeType: "component",
+    };
+    const correlationId = crypto.randomUUID();
+    const timestamp = new Date().toISOString();
     dispatchRuntimeEvent({
       type: "component.click",
       version: "1.0",
-      source: {
-        runtimeId: "builder-preview",
-        formId: activeDocument?.id ?? "unknown-form",
-        projectId: activeProjectDetail?.project.id ?? null,
-        nodeId: field.id,
-        nodeType: "component",
-      },
+      target,
+      source: target,
+      bubbles: true,
       payload: {
         componentId: field.id,
         label: field.label,
         stepId: activeStep?.id ?? null,
       },
-      correlationId: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
+      correlationId,
+      timestamp,
+    });
+    dispatchRuntimeEvent({
+      type: "button.click",
+      version: "1.0",
+      target,
+      source: target,
+      bubbles: true,
+      payload: {
+        componentId: field.id,
+        label: field.label,
+        stepId: activeStep?.id ?? null,
+      },
+      correlationId,
+      timestamp,
     });
   }
 
@@ -3716,6 +3967,13 @@ export default function App() {
     dispatchRuntimeEvent({
       type: "form.submit_success",
       version: "1.0",
+      target: {
+        runtimeId: "builder-preview",
+        formId: activeDocument.id,
+        projectId: activeProjectDetail?.project.id ?? null,
+        nodeId: activeDocument.id,
+        nodeType: "form",
+      },
       source: {
         runtimeId: "builder-preview",
         formId: activeDocument.id,
@@ -3739,6 +3997,13 @@ export default function App() {
     dispatchRuntimeEvent({
       type: "form.submit_error",
       version: "1.0",
+      target: {
+        runtimeId: "builder-preview",
+        formId: activeDocument.id,
+        projectId: activeProjectDetail?.project.id ?? null,
+        nodeId: activeDocument.id,
+        nodeType: "form",
+      },
       source: {
         runtimeId: "builder-preview",
         formId: activeDocument.id,
@@ -3894,10 +4159,15 @@ export default function App() {
 
   function addRuntimeListener(listener: RuntimeListenerDefinition) {
     updateRuntimeScope((runtime, scopeKind, field) => {
+      const eventType = getRuntimeListenerEventType(listener);
       if (scopeKind === "form") {
         const formRuntime = runtime as RuntimeDocumentBehavior;
         const nodeId = activeDocument?.id;
-        ensureUniqueEventSource(formRuntime.formEvents, listener.eventName, activeRuntimeScope ?? {
+        listener.dispatcherId ??= nodeId ?? null;
+        listener.dispatcherType ??= "form";
+        listener.type = eventType;
+        listener.eventName = eventType;
+        ensureUniqueEventSource(formRuntime.formEvents, eventType, activeRuntimeScope ?? {
           scopeKind: "form",
           label: activeDocument?.title ?? "Form",
           description: "",
@@ -3917,8 +4187,12 @@ export default function App() {
                 : selectedAuthoring?.kind === "step"
                   ? selectedAuthoring.stepId
                   : undefined;
+        listener.dispatcherId ??= nodeId ?? null;
+        listener.dispatcherType ??= scopeKind;
+        listener.type = eventType;
+        listener.eventName = eventType;
         if (activeRuntimeScope) {
-          ensureUniqueEventSource(nodeRuntime.eventSources, listener.eventName, activeRuntimeScope, nodeId);
+          ensureUniqueEventSource(nodeRuntime.eventSources, eventType, activeRuntimeScope, nodeId);
         }
         nodeRuntime.listeners.push(listener);
         if (field?.rendererHints.component === "button") {
@@ -3929,9 +4203,9 @@ export default function App() {
           } else if (firstAction?.kind === "submit_form") {
             field.rendererHints.action = "submit";
             field.rendererHints.eventName = "";
-          } else if (firstAction?.kind === "emit_event") {
+          } else if (firstAction?.kind === "dispatch_event" || firstAction?.kind === "emit_event") {
             field.rendererHints.action = "custom_event";
-            field.rendererHints.eventName = String(firstAction.config.eventName ?? "custom.event");
+            field.rendererHints.eventName = getRuntimeActionEventType(firstAction);
           } else {
             field.rendererHints.action = "next_step";
             field.rendererHints.eventName = "";
@@ -4111,7 +4385,7 @@ export default function App() {
     setMessage("Flow deleted.");
   }
 
-  function addRuntimeActionToListener(listenerId: string, kind: RuntimeActionKind = "emit_event") {
+  function addRuntimeActionToListener(listenerId: string, kind: RuntimeActionKind = "dispatch_event") {
     let nextActionId: string | null = null;
     updateRuntimeListener(listenerId, (listener) => {
       const nextAction = createRuntimeAction(kind, defaultRuntimeActionConfigForScope(kind, { listener }));
@@ -4202,7 +4476,7 @@ export default function App() {
     });
   }
 
-  function insertRuntimeActionAfter(listenerId: string, actionId: string, kind: RuntimeActionKind = "emit_event") {
+  function insertRuntimeActionAfter(listenerId: string, actionId: string, kind: RuntimeActionKind = "dispatch_event") {
     let nextActionId: string | null = null;
     updateRuntimeListener(listenerId, (listener) => {
       const actionIndex = listener.actions.findIndex((candidate) => candidate.id === actionId);
@@ -4249,8 +4523,37 @@ export default function App() {
     setMessage(`${templateLabel} chain applied.`);
   }
 
-  function createFieldChangedPayload(): Record<string, unknown> {
-    return runtimePayloadFromEntries([
+  function createFieldChangedPayloadEntries(field: AuthoringField | null = activeBuilderField): RuntimePayloadEntry[] {
+    const entries: RuntimePayloadEntry[] = [
+      createRuntimePayloadReferenceEntry("fieldId", "current.field.id"),
+      createRuntimePayloadReferenceEntry("fieldKey", "current.field.key"),
+      createRuntimePayloadReferenceEntry("stepId", "current.step.id"),
+      createRuntimePayloadReferenceEntry("stepTitle", "current.step.title"),
+      createRuntimePayloadReferenceEntry("projectId", "current.project.id"),
+      createRuntimePayloadReferenceEntry("sourceNodeType", "current.source.node.type"),
+      createRuntimePayloadReferenceEntry("eventType", "current.event.type"),
+      createRuntimePayloadReferenceEntry("eventPhase", "current.event.phase"),
+      createRuntimePayloadReferenceEntry("value", "current.runtime.value"),
+      createRuntimePayloadEntry("componentType", field?.semanticType ?? "field", "string"),
+      createRuntimePayloadEntry("changeOrigin", "runtime", "string"),
+    ];
+    const selectionMode = fieldSelectionMode(field);
+    if (selectionMode) {
+      entries.push(createRuntimePayloadEntry("selectionMode", selectionMode, "string"));
+      entries.push(
+        createRuntimePayloadReferenceEntry(field?.semanticType === "checkbox" ? "selectedValues" : "selectedValue", "current.runtime.value"),
+      );
+      entries.push(createRuntimePayloadEntry("changedOption", fieldFirstOptionValue(field), "string"));
+    }
+    return entries;
+  }
+
+  function createFieldChangedPayload(field: AuthoringField | null = activeBuilderField): Record<string, unknown> {
+    return runtimePayloadFromEntries(createFieldChangedPayloadEntries(field));
+  }
+
+  function createHostLookupPayloadEntries(field: AuthoringField | null = activeBuilderField): RuntimePayloadEntry[] {
+    const entries: RuntimePayloadEntry[] = [
       createRuntimePayloadReferenceEntry("fieldId", "current.field.id"),
       createRuntimePayloadReferenceEntry("fieldKey", "current.field.key"),
       createRuntimePayloadReferenceEntry("stepId", "current.step.id"),
@@ -4258,21 +4561,23 @@ export default function App() {
       createRuntimePayloadReferenceEntry("projectId", "current.project.id"),
       createRuntimePayloadReferenceEntry("sourceNodeType", "current.source.node.type"),
       createRuntimePayloadReferenceEntry("value", "current.runtime.value"),
-      createRuntimePayloadEntry("changeOrigin", "runtime", "string"),
-    ]);
+      createRuntimePayloadEntry("componentType", field?.semanticType ?? "field", "string"),
+      createRuntimePayloadEntry("requestSource", "runtime", "string"),
+    ];
+    const selectionMode = fieldSelectionMode(field);
+    if (selectionMode) {
+      entries.push(createRuntimePayloadEntry("selectionMode", selectionMode, "string"));
+      entries.push(
+        createRuntimePayloadReferenceEntry(field?.semanticType === "checkbox" ? "selectedValues" : "selectedValue", "current.runtime.value"),
+      );
+    } else {
+      entries.push(createRuntimePayloadReferenceEntry("query", "current.runtime.value"));
+    }
+    return entries;
   }
 
-  function createHostLookupPayload(): Record<string, unknown> {
-    return runtimePayloadFromEntries([
-      createRuntimePayloadReferenceEntry("fieldId", "current.field.id"),
-      createRuntimePayloadReferenceEntry("fieldKey", "current.field.key"),
-      createRuntimePayloadReferenceEntry("stepId", "current.step.id"),
-      createRuntimePayloadReferenceEntry("stepTitle", "current.step.title"),
-      createRuntimePayloadReferenceEntry("projectId", "current.project.id"),
-      createRuntimePayloadReferenceEntry("sourceNodeType", "current.source.node.type"),
-      createRuntimePayloadReferenceEntry("query", "current.runtime.value"),
-      createRuntimePayloadEntry("requestSource", "runtime", "string"),
-    ]);
+  function createHostLookupPayload(field: AuthoringField | null = activeBuilderField): Record<string, unknown> {
+    return runtimePayloadFromEntries(createHostLookupPayloadEntries(field));
   }
 
   function createStepLifecyclePayload(): Record<string, unknown> {
@@ -4330,77 +4635,101 @@ export default function App() {
     if (selectedAuthoring?.kind !== "field" || !activeBuilderField) {
       return [];
     }
+    const targetComponentLabel = behaviorFieldComponentLabel(activeBuilderField);
+    const sourceField = defaultConditionalSourceField();
+    const sourceComponentLabel = behaviorFieldComponentLabel(sourceField).toLowerCase();
+    const sourceValueNoun = fieldValueNoun(sourceField);
+    const defaultOperator = defaultConditionalOperatorForField(sourceField);
+    const defaultExpectedValue = defaultConditionalExpectedValueForField(sourceField);
     return [
       {
         id: "rule-show-require",
         label: "Show and require",
-        description: "Reveal this field and make it required from the same answer condition.",
+        description: `Reveal this ${targetComponentLabel.toLowerCase()} and make it required from the same ${sourceComponentLabel} condition.`,
         category: "validation",
+        componentLabel: targetComponentLabel,
         actionSummary: "Show + require",
         effects: ["show", "require"],
-        operator: "equals",
-        expectedValue: "",
+        operator: defaultOperator,
+        expectedValue: defaultExpectedValue,
       },
       {
         id: "rule-show",
         label: "Show when",
-        description: "Show this field only when another answer matches the condition.",
+        description: `Show this ${targetComponentLabel.toLowerCase()} only when the ${sourceValueNoun} matches the condition.`,
         category: "visibility",
+        componentLabel: targetComponentLabel,
         actionSummary: "Show target",
         effects: ["show"],
-        operator: "equals",
-        expectedValue: "",
+        operator: defaultOperator,
+        expectedValue: defaultExpectedValue,
       },
       {
         id: "rule-hide",
         label: "Hide when",
-        description: "Hide this field when another answer matches the condition.",
+        description: `Hide this ${targetComponentLabel.toLowerCase()} when the ${sourceValueNoun} matches the condition.`,
         category: "visibility",
+        componentLabel: targetComponentLabel,
         actionSummary: "Hide target",
         effects: ["hide"],
-        operator: "equals",
-        expectedValue: "",
+        operator: defaultOperator,
+        expectedValue: defaultExpectedValue,
       },
       {
         id: "rule-hide-clear",
         label: "Hide and clear dependent value",
-        description: "Hide this field, then clear its value when the controlling answer changes.",
+        description: `Hide this ${targetComponentLabel.toLowerCase()}, then clear its value when the controlling ${sourceComponentLabel} changes.`,
         category: "data",
+        componentLabel: targetComponentLabel,
         actionSummary: "Hide + clear value",
         effects: ["hide"],
-        operator: "equals",
-        expectedValue: "",
+        operator: defaultOperator,
+        expectedValue: defaultExpectedValue,
         includeClearValueFlow: true,
       },
       {
         id: "rule-require",
         label: "Require when",
-        description: "Make this field required only when another answer matches.",
+        description: `Make this ${targetComponentLabel.toLowerCase()} required only when the ${sourceValueNoun} matches.`,
         category: "validation",
+        componentLabel: targetComponentLabel,
         actionSummary: "Mark required",
         effects: ["require"],
-        operator: "equals",
-        expectedValue: "",
+        operator: defaultOperator,
+        expectedValue: defaultExpectedValue,
       },
       {
         id: "rule-disable",
         label: "Disable when",
-        description: "Disable this field when another answer matches.",
+        description: `Disable this ${targetComponentLabel.toLowerCase()} when the ${sourceValueNoun} matches.`,
         category: "visibility",
+        componentLabel: targetComponentLabel,
         actionSummary: "Disable target",
         effects: ["disable"],
-        operator: "equals",
-        expectedValue: "",
+        operator: defaultOperator,
+        expectedValue: defaultExpectedValue,
       },
     ];
-  }, [activeBuilderField, selectedAuthoring]);
+  }, [activeBuilderField, activeDocument, builderFieldOptions, selectedAuthoring]);
 
   const runtimePresets = useMemo<RuntimePreset[]>(() => {
     if (!activeRuntimeScope) {
       return [];
     }
     const scopedSourceNodeId = selectedAuthoring?.kind === "field" ? selectedAuthoring.fieldId : null;
-    const changedEventName = `${activeBuilderField?.stableKey ?? "field"}.changed`;
+    const fieldComponentLabel = behaviorFieldComponentLabel(activeBuilderField);
+    const fieldComponentLabelLower = fieldComponentLabel.toLowerCase();
+    const fieldRuntimeValueNoun = fieldValueNoun(activeBuilderField);
+    const changedEventName = runtimeFieldChangedEventName(activeBuilderField);
+    const fieldChangeTriggerName = runtimeFieldTriggerSuggestions(activeBuilderField)[0] ?? "field.change";
+    const fieldHostTriggerName =
+      activeBuilderField?.semanticType === "checkbox"
+        ? "checkboxGroup.change"
+        : activeBuilderField?.semanticType === "radio"
+          ? "radio.change"
+          : activeBuilderField?.semanticType === "select"
+            ? "select.change"
+            : "field.blur";
     const preset = (
       config: Omit<RuntimePreset, "apply"> & {
         create: () => RuntimeListenerDefinition;
@@ -4410,6 +4739,7 @@ export default function App() {
       label: config.label,
       description: config.description,
       category: config.category,
+      componentLabel: config.componentLabel,
       triggerName: config.triggerName,
       actionKinds: config.actionKinds,
       actionSummary: config.actionSummary,
@@ -4451,7 +4781,7 @@ export default function App() {
         preset({
           id: "button-submit",
           label: "Submit form",
-          description: "Validate and emit the host-facing submit event.",
+          description: "Validate and dispatch the host-facing submit event.",
           category: "navigation",
           triggerName: "component.click",
           actionSummary: "Submit form",
@@ -4465,19 +4795,19 @@ export default function App() {
         }),
         preset({
           id: "button-next-emit",
-          label: "Continue then emit event",
+          label: "Continue then dispatch event",
           description: "Move forward and immediately broadcast a follow-up runtime event.",
           category: "navigation",
           triggerName: "component.click",
-          actionSummary: "Continue + emit event",
-          actionKinds: ["go_to_next_step", "emit_event"],
+          actionSummary: "Continue + dispatch event",
+          actionKinds: ["go_to_next_step", "dispatch_event"],
           create: () =>
             createRuntimeListener(
               "component.click",
               [
                 createRuntimeAction("go_to_next_step"),
-                createRuntimeAction("emit_event", {
-                  ...defaultRuntimeActionConfigForScope("emit_event"),
+                createRuntimeAction("dispatch_event", {
+                  ...defaultRuntimeActionConfigForScope("dispatch_event"),
                   payload: createSourceEventPayload(),
                 }),
               ],
@@ -4486,18 +4816,18 @@ export default function App() {
         }),
         preset({
           id: "button-emit",
-          label: "Emit custom event",
+          label: "Dispatch custom event",
           description: "Fire a named runtime event for the host shell or other listeners.",
           category: "host",
           triggerName: "component.click",
-          actionSummary: "Emit event",
-          actionKinds: ["emit_event"],
+          actionSummary: "Dispatch event",
+          actionKinds: ["dispatch_event"],
           create: () =>
             createRuntimeListener(
               "component.click",
               [
-                createRuntimeAction("emit_event", {
-                  ...defaultRuntimeActionConfigForScope("emit_event"),
+                createRuntimeAction("dispatch_event", {
+                  ...defaultRuntimeActionConfigForScope("dispatch_event"),
                   payload: createSourceEventPayload(),
                 }),
               ],
@@ -4530,15 +4860,16 @@ export default function App() {
       return [
         preset({
           id: "field-show-require",
-          label: "Show and require follow-up",
-          description: "Reveal a related target and make it required when this answer changes.",
+          label: `Show and require from ${fieldRuntimeValueNoun}`,
+          description: `Reveal a related target and make it required when this ${fieldComponentLabelLower} changes.`,
           category: "visibility",
-          triggerName: "field.change",
+          componentLabel: fieldComponentLabel,
+          triggerName: fieldChangeTriggerName,
           actionSummary: "Show target + mark required",
           actionKinds: ["show_node", "mark_required"],
           create: () =>
             createRuntimeListener(
-              "field.change",
+              fieldChangeTriggerName,
               [
                 createRuntimeAction("show_node", defaultRuntimeActionConfigForScope("show_node")),
                 createRuntimeAction("mark_required", defaultRuntimeActionConfigForScope("mark_required")),
@@ -4548,94 +4879,103 @@ export default function App() {
         }),
         preset({
           id: "field-show-node",
-          label: "Show content based on answer",
-          description: "Reveal another field, group, or section when this answer changes.",
+          label: `Show content from ${fieldRuntimeValueNoun}`,
+          description: `Reveal another field, group, or section when this ${fieldComponentLabelLower} changes.`,
           category: "visibility",
-          triggerName: "field.change",
+          componentLabel: fieldComponentLabel,
+          triggerName: fieldChangeTriggerName,
           actionSummary: "Show target",
           actionKinds: ["show_node"],
           create: () =>
             createRuntimeListener(
-              "field.change",
+              fieldChangeTriggerName,
               [createRuntimeAction("show_node", defaultRuntimeActionConfigForScope("show_node"))],
               scopedSourceNodeId,
             ),
         }),
         preset({
           id: "field-hide-node",
-          label: "Hide content based on answer",
-          description: "Hide another field, group, or section when this answer changes.",
+          label: `Hide content from ${fieldRuntimeValueNoun}`,
+          description: `Hide another field, group, or section when this ${fieldComponentLabelLower} changes.`,
           category: "visibility",
-          triggerName: "field.change",
+          componentLabel: fieldComponentLabel,
+          triggerName: fieldChangeTriggerName,
           actionSummary: "Hide target",
           actionKinds: ["hide_node"],
           create: () =>
             createRuntimeListener(
-              "field.change",
+              fieldChangeTriggerName,
               [createRuntimeAction("hide_node", defaultRuntimeActionConfigForScope("hide_node"))],
               scopedSourceNodeId,
             ),
         }),
         preset({
           id: "field-require-node",
-          label: "Make field required",
-          description: "Mark a target required when this answer changes.",
+          label: `Require target from ${fieldRuntimeValueNoun}`,
+          description: `Mark a target required when this ${fieldComponentLabelLower} changes.`,
           category: "validation",
-          triggerName: "field.change",
+          componentLabel: fieldComponentLabel,
+          triggerName: fieldChangeTriggerName,
           actionSummary: "Mark required",
           actionKinds: ["mark_required"],
           create: () =>
             createRuntimeListener(
-              "field.change",
+              fieldChangeTriggerName,
               [createRuntimeAction("mark_required", defaultRuntimeActionConfigForScope("mark_required"))],
               scopedSourceNodeId,
             ),
         }),
         preset({
           id: "field-clear-value",
-          label: "Clear dependent answer",
-          description: "Clear another field when this controlling answer changes.",
+          label: `Clear dependent answer from ${fieldRuntimeValueNoun}`,
+          description: `Clear another field when this controlling ${fieldComponentLabelLower} changes.`,
           category: "data",
-          triggerName: "field.change",
+          componentLabel: fieldComponentLabel,
+          triggerName: fieldChangeTriggerName,
           actionSummary: "Clear field value",
           actionKinds: ["clear_field_value"],
           create: () =>
             createRuntimeListener(
-              "field.change",
+              fieldChangeTriggerName,
               [createRuntimeAction("clear_field_value", defaultRuntimeActionConfigForScope("clear_field_value"))],
               scopedSourceNodeId,
             ),
         }),
         preset({
           id: "field-set-value",
-          label: "Set another field on change",
-          description: "Create a change listener that writes into another field.",
+          label: `Set another field from ${fieldRuntimeValueNoun}`,
+          description: `Create a change listener that writes this ${fieldComponentLabelLower} context into another field.`,
           category: "data",
-          triggerName: "field.change",
+          componentLabel: fieldComponentLabel,
+          triggerName: fieldChangeTriggerName,
           actionSummary: "Set field value",
           actionKinds: ["set_field_value"],
           create: () =>
             createRuntimeListener(
-              "field.change",
+              fieldChangeTriggerName,
               [createRuntimeAction("set_field_value", defaultRuntimeActionConfigForScope("set_field_value"))],
               scopedSourceNodeId,
             ),
         }),
         preset({
-          id: "field-blur-host-lookup",
-          label: "Look up data after entry",
-          description: "Ask the host application for data after the user leaves this field.",
+          id: "field-host-sync",
+          label: activeBuilderField?.semanticType === "checkbox" ? "Sync checkbox selections with host" : `Request host data for ${fieldRuntimeValueNoun}`,
+          description:
+            activeBuilderField?.semanticType === "checkbox"
+              ? "Send checkbox selection context to the host whenever this checkbox group changes."
+              : `Ask the host application for data using this ${fieldComponentLabelLower} context.`,
           category: "data",
-          triggerName: "field.blur",
-          actionSummary: "Request host lookup",
+          componentLabel: fieldComponentLabel,
+          triggerName: fieldHostTriggerName,
+          actionSummary: activeBuilderField?.semanticType === "checkbox" ? "Sync checkbox selections" : "Request host lookup",
           actionKinds: ["host_action"],
           create: () =>
             createRuntimeListener(
-              "field.blur",
+              fieldHostTriggerName,
               [
                 createRuntimeAction("host_action", {
                   ...defaultRuntimeActionConfigForScope("host_action"),
-                  payload: createHostLookupPayload(),
+                  payload: createHostLookupPayload(activeBuilderField),
                 }),
               ],
               scopedSourceNodeId,
@@ -4643,35 +4983,49 @@ export default function App() {
         }),
         preset({
           id: "field-change-event",
-          label: "Emit event on change",
-          description: "Broadcast a custom event whenever this field changes.",
+          label:
+            activeBuilderField?.semanticType === "checkbox"
+              ? "Dispatch checkbox selection change"
+              : `Dispatch ${fieldRuntimeValueNoun} change`,
+          description:
+            activeBuilderField?.semanticType === "checkbox"
+              ? "Broadcast selected checkbox values whenever this checkbox group changes."
+              : `Broadcast a typed event whenever this ${fieldComponentLabelLower} changes.`,
           category: "host",
-          triggerName: "field.change",
-          actionSummary: "Emit event",
-          actionKinds: ["emit_event"],
+          componentLabel: fieldComponentLabel,
+          triggerName: fieldChangeTriggerName,
+          actionSummary: "Dispatch event",
+          actionKinds: ["dispatch_event"],
           create: () =>
             createRuntimeListener(
-              "field.change",
-              [createRuntimeAction("emit_event", { eventName: changedEventName, payload: createFieldChangedPayload() })],
+              fieldChangeTriggerName,
+              [createRuntimeAction("dispatch_event", { eventType: changedEventName, payload: createFieldChangedPayload(activeBuilderField) })],
               scopedSourceNodeId,
             ),
         }),
         preset({
           id: "field-change-host",
-          label: "Emit then request host action",
-          description: "Broadcast a field event first, then hand the same change context to the host.",
+          label:
+            activeBuilderField?.semanticType === "checkbox"
+              ? "Dispatch and sync checkbox selections"
+              : `Dispatch and sync ${fieldRuntimeValueNoun}`,
+          description:
+            activeBuilderField?.semanticType === "checkbox"
+              ? "Broadcast checkbox changes first, then hand the same selected-values context to the host."
+              : `Broadcast this ${fieldComponentLabelLower} event first, then hand the same change context to the host.`,
           category: "host",
-          triggerName: "field.change",
-          actionSummary: "Emit event + request host",
-          actionKinds: ["emit_event", "host_action"],
+          componentLabel: fieldComponentLabel,
+          triggerName: fieldChangeTriggerName,
+          actionSummary: activeBuilderField?.semanticType === "checkbox" ? "Dispatch checkbox event + sync host" : "Dispatch event + request host",
+          actionKinds: ["dispatch_event", "host_action"],
           create: () =>
             createRuntimeListener(
-              "field.change",
+              fieldChangeTriggerName,
               [
-                createRuntimeAction("emit_event", { eventName: changedEventName, payload: createFieldChangedPayload() }),
+                createRuntimeAction("dispatch_event", { eventType: changedEventName, payload: createFieldChangedPayload(activeBuilderField) }),
                 createRuntimeAction("host_action", {
                   ...defaultRuntimeActionConfigForScope("host_action"),
-                  payload: createHostLookupPayload(),
+                  payload: createHostLookupPayload(activeBuilderField),
                 }),
               ],
               scopedSourceNodeId,
@@ -4693,50 +5047,51 @@ export default function App() {
         }),
         preset({
           id: "form-load",
-          label: "Emit event on load",
+          label: "Dispatch event on load",
           description: "Useful when the host needs a clean runtime-ready signal.",
           category: "host",
           triggerName: "form.load",
-          actionSummary: "Emit form loaded",
-          actionKinds: ["emit_event"],
-          create: () => createRuntimeListener("form.load", [createRuntimeAction("emit_event", { eventName: "form.loaded", payload: createFormLifecyclePayload() })]),
+          actionSummary: "Dispatch form loaded",
+          actionKinds: ["dispatch_event"],
+          create: () => createRuntimeListener("form.load", [createRuntimeAction("dispatch_event", { eventType: "form.loaded", payload: createFormLifecyclePayload() })]),
         }),
         preset({
           id: "form-submit",
-          label: "Emit event on submit",
+          label: "Dispatch event on submit",
           description: "Add a follow-up event after the runtime creates the submit payload.",
           category: "validation",
           triggerName: "form.submit",
-          actionSummary: "Emit submit event",
-          actionKinds: ["emit_event"],
-          create: () => createRuntimeListener("form.submit", [createRuntimeAction("emit_event", { eventName: "form.submit.dispatched", payload: createFormSubmitPayload() })]),
+          actionSummary: "Dispatch submit event",
+          actionKinds: ["dispatch_event"],
+          create: () => createRuntimeListener("form.submit", [createRuntimeAction("dispatch_event", { eventType: "form.submit.dispatched", payload: createFormSubmitPayload() })]),
         }),
         preset({
           id: "form-submit-host",
-          label: "Emit then request host action on submit",
+          label: "Dispatch then request host action on submit",
           description: "Keep the authored submit event and host handoff together in one reusable chain.",
           category: "host",
           triggerName: "form.submit",
-          actionSummary: "Emit submit + request host",
-          actionKinds: ["emit_event", "host_action"],
+          actionSummary: "Dispatch submit + request host",
+          actionKinds: ["dispatch_event", "host_action"],
           create: () =>
             createRuntimeListener("form.submit", [
-              createRuntimeAction("emit_event", { eventName: "form.submit.dispatched", payload: createFormSubmitPayload() }),
+              createRuntimeAction("dispatch_event", { eventType: "form.submit.dispatched", payload: createFormSubmitPayload() }),
               createRuntimeAction("host_action", { handlerKey: "host.submit", payload: createFormSubmitPayload() }),
             ]),
         }),
         preset({
           id: "form-validation",
-          label: "Emit event on validation failure",
+          label: "Dispatch event on validation failure",
           description: "Surface a reusable event when submit is blocked.",
           category: "validation",
           triggerName: "form.validation_failed",
-          actionSummary: "Emit validation event",
-          actionKinds: ["emit_event"],
+          actionSummary: "Dispatch validation event",
+          actionKinds: ["dispatch_event"],
           create: () =>
             createRuntimeListener("form.validation_failed", [
-              createRuntimeAction("emit_event", {
-                eventName: "form.validation_failed",
+              createRuntimeAction("dispatch_event", {
+                eventType: "form.validation_failed",
+                bubbles: false,
                 payload: {
                   ...createFormSubmitPayload(),
                   reason: "required_fields",
@@ -4746,23 +5101,23 @@ export default function App() {
         }),
         preset({
           id: "form-submit-success",
-          label: "Emit event on submit success",
+          label: "Dispatch event on submit success",
           description: "Broadcast a completion event after the host reports success.",
           category: "validation",
           triggerName: "form.submit_success",
-          actionSummary: "Emit success event",
-          actionKinds: ["emit_event"],
-          create: () => createRuntimeListener("form.submit_success", [createRuntimeAction("emit_event", { eventName: "form.completed", payload: createFormSubmitPayload() })]),
+          actionSummary: "Dispatch success event",
+          actionKinds: ["dispatch_event"],
+          create: () => createRuntimeListener("form.submit_success", [createRuntimeAction("dispatch_event", { eventType: "form.completed", payload: createFormSubmitPayload() })]),
         }),
         preset({
           id: "form-submit-error",
-          label: "Emit event on submit error",
+          label: "Dispatch event on submit error",
           description: "Broadcast a recoverable failure event after the host reports an error.",
           category: "validation",
           triggerName: "form.submit_error",
-          actionSummary: "Emit error event",
-          actionKinds: ["emit_event"],
-          create: () => createRuntimeListener("form.submit_error", [createRuntimeAction("emit_event", { eventName: "form.submit.failed", payload: createFormSubmitPayload() })]),
+          actionSummary: "Dispatch error event",
+          actionKinds: ["dispatch_event"],
+          create: () => createRuntimeListener("form.submit_error", [createRuntimeAction("dispatch_event", { eventType: "form.submit.failed", payload: createFormSubmitPayload() })]),
         }),
       ];
     }
@@ -4770,16 +5125,16 @@ export default function App() {
       return [
         preset({
           id: "step-enter-event",
-          label: "Emit event when step opens",
+          label: "Dispatch event when step opens",
           description: "Broadcast that the current step became active.",
           category: "host",
           triggerName: "step.enter",
-          actionSummary: "Emit step event",
-          actionKinds: ["emit_event"],
+          actionSummary: "Dispatch step event",
+          actionKinds: ["dispatch_event"],
           create: () =>
             createRuntimeListener("step.enter", [
-              createRuntimeAction("emit_event", {
-                ...defaultRuntimeActionConfigForScope("emit_event"),
+              createRuntimeAction("dispatch_event", {
+                ...defaultRuntimeActionConfigForScope("dispatch_event"),
                 payload: createStepLifecyclePayload(),
               }),
             ]),
@@ -4808,19 +5163,21 @@ export default function App() {
     }
     if (activeRuntimeScope.scopeKind === "section" || activeRuntimeScope.scopeKind === "group") {
       const triggerName = defaultBehaviorTriggerName();
+      const scopeComponentLabel = activeRuntimeScope.scopeKind === "section" ? "Section" : "Group";
       return [
         preset({
           id: `${activeRuntimeScope.scopeKind}-emit-event`,
-          label: `Emit ${activeRuntimeScope.scopeKind} event`,
-          description: `Broadcast when this ${activeRuntimeScope.scopeKind} runtime scope changes or updates.`,
+          label: `Dispatch ${activeRuntimeScope.scopeKind} lifecycle event`,
+          description: `Broadcast when this ${activeRuntimeScope.scopeKind} scope changes its lifecycle state.`,
           category: "host",
+          componentLabel: scopeComponentLabel,
           triggerName,
-          actionSummary: "Emit event",
-          actionKinds: ["emit_event"],
+          actionSummary: "Dispatch event",
+          actionKinds: ["dispatch_event"],
           create: () =>
             createRuntimeListener(triggerName, [
-              createRuntimeAction("emit_event", {
-                ...defaultRuntimeActionConfigForScope("emit_event"),
+              createRuntimeAction("dispatch_event", {
+                ...defaultRuntimeActionConfigForScope("dispatch_event"),
                 payload: createSourceEventPayload(),
               }),
             ]),
@@ -4828,8 +5185,9 @@ export default function App() {
         preset({
           id: `${activeRuntimeScope.scopeKind}-host-sync`,
           label: `Sync ${activeRuntimeScope.scopeKind} with host`,
-          description: `Request a host sync for this ${activeRuntimeScope.scopeKind} scope.`,
+          description: `Request a host sync for this selected ${activeRuntimeScope.scopeKind} scope.`,
           category: "data",
+          componentLabel: scopeComponentLabel,
           triggerName,
           actionSummary: "Request host sync",
           actionKinds: ["host_action"],
@@ -4951,7 +5309,7 @@ export default function App() {
       return "component.click";
     }
     if (activeRuntimeScope?.scopeKind === "field") {
-      return "field.change";
+      return runtimeFieldTriggerSuggestions(activeBuilderField)[0] ?? "field.change";
     }
     if (activeRuntimeScope?.scopeKind === "form") {
       return "form.load";
@@ -5021,7 +5379,7 @@ export default function App() {
     setInspectorTab("behavior");
   }
 
-  function runtimeSourceForCurrentSelection() {
+  function runtimeTargetForCurrentSelection(): NonNullable<RuntimeEventEnvelope["target"]> {
     const nodeId =
       selectedAuthoring?.kind === "field"
         ? selectedAuthoring.fieldId
@@ -5051,7 +5409,7 @@ export default function App() {
       projectId: activeProjectDetail?.project.id ?? null,
       nodeId,
       nodeType,
-    } as RuntimeEventEnvelope["source"];
+    } as NonNullable<RuntimeEventEnvelope["target"]>;
   }
 
   function handleTestSelectedRule(rule: ConditionalRule | null) {
@@ -5059,9 +5417,20 @@ export default function App() {
       setMessage("Select a rule before running a targeted rule test.");
       return;
     }
+    const sourceField = findAuthoringFieldById(activeDocument, rule.whenFieldId);
+    const nextValue = sourceField?.semanticType === "checkbox" && rule.operator === "contains"
+      ? [rule.expectedValue ?? fieldFirstOptionValue(sourceField)]
+      : rule.expectedValue ?? "";
     dispatchRuntimeEvent({
       type: "field.change",
       version: "1.0",
+      target: {
+        runtimeId: "builder-simulator",
+        formId: activeDocument.id,
+        projectId: activeProjectDetail?.project.id ?? null,
+        nodeId: rule.whenFieldId,
+        nodeType: "field",
+      },
       source: {
         runtimeId: "builder-simulator",
         formId: activeDocument.id,
@@ -5071,7 +5440,7 @@ export default function App() {
       },
       payload: {
         fieldId: rule.whenFieldId,
-        nextValue: rule.expectedValue ?? "",
+        nextValue,
         testedRuleId: rule.ruleId,
       },
       correlationId: crypto.randomUUID(),
@@ -5083,13 +5452,16 @@ export default function App() {
 
   function handleTestSelectedChain(listener: RuntimeListenerDefinition | null) {
     if (!activeDocument || !listener) {
-      setMessage("Select a listener or event flow before running a targeted chain test.");
+      setMessage("Select an event listener or dispatch chain before running a targeted chain test.");
       return;
     }
+    const target = runtimeTargetForCurrentSelection();
     dispatchRuntimeEvent({
-      type: listener.eventName,
+      type: getRuntimeListenerEventType(listener),
       version: "1.0",
-      source: runtimeSourceForCurrentSelection(),
+      target,
+      source: target,
+      bubbles: true,
       payload: {
         listenerId: listener.id,
         testOrigin: "behavior_studio",
@@ -5098,7 +5470,7 @@ export default function App() {
       timestamp: new Date().toISOString(),
     });
     setSelectedRuntimeEvidenceKey(null);
-    setMessage(`Test this chain dispatched ${listener.eventName}.`);
+    setMessage(`Test this chain dispatched ${getRuntimeListenerEventType(listener)}.`);
   }
 
   function beginBehaviorStudioCreation(kind: BehaviorStudioCreationKind, anchor: BehaviorStudioAnchor | null = null) {
@@ -5121,21 +5493,32 @@ export default function App() {
   }
 
   function runtimeActionChainTemplatesForListener(listener: RuntimeListenerDefinition): RuntimeActionChainTemplate[] {
+    const componentLabel = behaviorFieldComponentLabel(activeBuilderField);
+    const componentLabelLower = componentLabel.toLowerCase();
+    const valueNoun = fieldValueNoun(activeBuilderField);
     const templates: RuntimeActionChainTemplate[] = [
       {
         id: `${listener.id}-emit-host`,
-        label: "Emit then request host action",
-        description: "Broadcast a runtime event first, then pass the resolved payload to a host handler.",
+        label: activeRuntimeScope?.scopeKind === "field" && activeBuilderField?.semanticType === "checkbox"
+          ? "Dispatch then sync checkbox selections"
+          : "Dispatch then request host action",
+        description:
+          activeRuntimeScope?.scopeKind === "field"
+            ? `Broadcast this ${componentLabelLower} event first, then pass the ${valueNoun} context to a host handler.`
+            : "Broadcast a runtime event first, then pass the resolved payload to a host handler.",
         category: "host",
-        actionSummary: "Emit event + request host",
+        actionSummary:
+          activeRuntimeScope?.scopeKind === "field" && activeBuilderField?.semanticType === "checkbox"
+            ? "Dispatch checkbox event + sync host"
+            : "Dispatch event + request host",
         createActions: () => [
-          createRuntimeAction("emit_event", {
-            ...defaultRuntimeActionConfigForScope("emit_event", { listener }),
-            payload: listener.eventName === "field.change" ? createFieldChangedPayload() : createSourceEventPayload(),
+          createRuntimeAction("dispatch_event", {
+            ...defaultRuntimeActionConfigForScope("dispatch_event", { listener }),
+            payload: activeRuntimeScope?.scopeKind === "field" ? createFieldChangedPayload(activeBuilderField) : createSourceEventPayload(),
           }),
           createRuntimeAction("host_action", {
             ...defaultRuntimeActionConfigForScope("host_action", { listener }),
-            payload: activeRuntimeScope?.scopeKind === "field" ? createHostLookupPayload() : createSourceEventPayload(),
+            payload: activeRuntimeScope?.scopeKind === "field" ? createHostLookupPayload(activeBuilderField) : createSourceEventPayload(),
           }),
         ],
       },
@@ -5143,14 +5526,14 @@ export default function App() {
     if (activeRuntimeScope?.scopeKind === "component") {
       templates.unshift({
         id: `${listener.id}-next-emit`,
-        label: "Continue then emit event",
+        label: "Continue then dispatch event",
         description: "Advance the workflow and immediately fire a follow-up runtime event from the same chain.",
         category: "navigation",
-        actionSummary: "Continue + emit event",
+        actionSummary: "Continue + dispatch event",
         createActions: () => [
           createRuntimeAction("go_to_next_step"),
-          createRuntimeAction("emit_event", {
-            ...defaultRuntimeActionConfigForScope("emit_event", { listener }),
+          createRuntimeAction("dispatch_event", {
+            ...defaultRuntimeActionConfigForScope("dispatch_event", { listener }),
             payload: createSourceEventPayload(),
           }),
         ],
@@ -5159,8 +5542,8 @@ export default function App() {
     if (activeRuntimeScope?.scopeKind === "field") {
       templates.push({
         id: `${listener.id}-show-require`,
-        label: "Show then require target node",
-        description: "Reveal the target node and mark it required as one grouped reaction to this trigger.",
+        label: `Show then require from ${valueNoun}`,
+        description: `Reveal the target node and mark it required as one grouped reaction to this ${componentLabelLower} trigger.`,
         category: "visibility",
         actionSummary: "Show target + mark required",
         createActions: () => [
@@ -5170,8 +5553,8 @@ export default function App() {
       });
       templates.push({
         id: `${listener.id}-clear-dependent`,
-        label: "Clear dependent answer",
-        description: "Clear a target field value as a grouped reaction to this field event.",
+        label: activeBuilderField?.semanticType === "checkbox" ? "Clear dependent answer from checkbox" : "Clear dependent answer",
+        description: `Clear a target field value as a grouped reaction to this ${componentLabelLower} event.`,
         category: "data",
         actionSummary: "Clear field value",
         createActions: () => [
@@ -5185,9 +5568,9 @@ export default function App() {
         label: "Submit dispatch then host audit",
         description: "Keep the authored submit event and host audit request together in one chain.",
         category: "host",
-        actionSummary: "Emit submit + host submit",
+        actionSummary: "Dispatch submit + host submit",
         createActions: () => [
-          createRuntimeAction("emit_event", { eventName: "form.submit.dispatched", payload: createFormSubmitPayload() }),
+          createRuntimeAction("dispatch_event", { eventType: "form.submit.dispatched", payload: createFormSubmitPayload() }),
           createRuntimeAction("host_action", { handlerKey: "host.submit", payload: createFormSubmitPayload() }),
         ],
       });
@@ -6523,10 +6906,15 @@ export default function App() {
       setMessage("Select a field to create a state rule.");
       return;
     }
+    const sourceField = defaultConditionalSourceField();
+    const baseConfig = {
+      operator: defaultConditionalOperatorForField(sourceField),
+      expectedValue: defaultConditionalExpectedValueForField(sourceField),
+    };
     if (starter.mode === "bundle") {
-      addConditionalRuleBundle(starter.effects, { operator: "equals", expectedValue: "" });
+      addConditionalRuleBundle(starter.effects, baseConfig);
     } else {
-      addConditionalRule(starter.effect ? { effect: starter.effect, operator: "equals", expectedValue: "" } : undefined);
+      addConditionalRule(starter.effect ? { ...baseConfig, effect: starter.effect } : baseConfig);
     }
     setBehaviorStudioManagerMode("rules");
     finalizeBehaviorStudioCreation();
@@ -6574,10 +6962,11 @@ export default function App() {
         eventSources: sourceField.runtime.eventSources,
         listeners: sourceField.runtime.listeners,
       };
-      ensureUniqueEventSource(sourceField.runtime.eventSources, "field.change", sourceScope, sourceField.id);
+      const sourceEventType = runtimeFieldTriggerSuggestions(sourceField)[0] ?? "field.change";
+      ensureUniqueEventSource(sourceField.runtime.eventSources, sourceEventType, sourceScope, sourceField.id);
       sourceField.runtime.listeners.push(
         createRuntimeListener(
-          "field.change",
+          sourceEventType,
           [createRuntimeAction("clear_field_value", { fieldId: targetFieldId })],
           sourceField.id,
         ),
@@ -6603,7 +6992,7 @@ export default function App() {
     }
     const actions =
       seedAction === "event"
-        ? [createRuntimeAction("emit_event", defaultRuntimeActionConfigForScope("emit_event"))]
+        ? [createRuntimeAction("dispatch_event", defaultRuntimeActionConfigForScope("dispatch_event"))]
         : [];
     addRuntimeListener(
       createRuntimeListener(
@@ -6886,8 +7275,8 @@ export default function App() {
     const emittedEventSuggestions = runtimeEventNameSuggestions(activeRuntimeScope, activeBuilderField, listener);
     const hostHandlerSuggestions = runtimeHostHandlerSuggestions(activeRuntimeScope, activeBuilderField, listener);
     const emittedEventIssue =
-      action.kind === "emit_event"
-        ? validateRuntimeIdentifier(String(action.config.eventName ?? ""), "Event name", emittedEventSuggestions[0] ?? "custom.event")
+      action.kind === "dispatch_event"
+        ? validateRuntimeIdentifier(getRuntimeActionEventType(action), "Event type", emittedEventSuggestions[0] ?? "custom.event")
         : null;
     const hostHandlerIssue =
       action.kind === "host_action"
@@ -7015,15 +7404,16 @@ export default function App() {
             </div>
           ) : null}
 
-          {action.kind === "emit_event" ? (
+          {action.kind === "dispatch_event" ? (
             <div className="space-y-3">
               <div>
-                <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Event name to emit</label>
+                <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Event type to dispatch</label>
                 <input
-                  value={String(action.config.eventName ?? "")}
+                  value={getRuntimeActionEventType(action)}
                   onChange={(event) =>
                     updateRuntimeAction(listener.id, action.id, (current) => {
-                      current.config.eventName = event.target.value;
+                      current.config.eventType = event.target.value;
+                      delete current.config.eventName;
                     })
                   }
                   placeholder="custom.event"
@@ -7034,11 +7424,24 @@ export default function App() {
                   suggestions: emittedEventSuggestions,
                   onApply: (value) =>
                     updateRuntimeAction(listener.id, action.id, (current) => {
-                      current.config.eventName = value;
+                      current.config.eventType = value;
+                      delete current.config.eventName;
                     }),
                 })}
                 {emittedEventIssue ? <p className="mt-2 text-sm text-rose-600">{emittedEventIssue}</p> : null}
               </div>
+              <label className="flex items-center gap-3 rounded-2xl border border-soft bg-white px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={action.config.bubbles !== false}
+                  onChange={(event) =>
+                    updateRuntimeAction(listener.id, action.id, (current) => {
+                      current.config.bubbles = event.target.checked;
+                    })
+                  }
+                />
+                <span className="text-sm text-slate-700">Event bubbles to ancestor dispatchers</span>
+              </label>
               <div className="rounded-[0.95rem] border border-soft bg-slate-50 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
@@ -7541,7 +7944,7 @@ export default function App() {
 
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => insertRuntimeActionAfter(listener.id, action.id)} className={actionButtonClass()}>
-              Insert event after
+              Insert dispatch after
             </button>
             <button
               type="button"
@@ -7562,15 +7965,18 @@ export default function App() {
     options?: { selectedActionId?: string | null },
   ) {
     const triggerSuggestions = runtimeTriggerSuggestions(activeRuntimeScope, activeBuilderField);
-    const triggerIssue = validateRuntimeIdentifier(listener.eventName, "Trigger key", triggerSuggestions[0] ?? "form.load");
+    const eventType = getRuntimeListenerEventType(listener);
+    const triggerIssue = validateRuntimeIdentifier(eventType, "Event type", triggerSuggestions[0] ?? "form.load");
     const chainTemplates = runtimeActionChainTemplatesForListener(listener);
     return (
       <div className="space-y-4 rounded-[1rem] border border-blue-200 bg-blue-50/60 p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Node composer</p>
-            <p className="mt-2 font-semibold text-slate-950">Interaction flow {listenerIndex + 1}</p>
-            <p className="mt-2 text-sm text-slate-700">Triggers, enablement, and action chain all stay in one docked editor.</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Event listener composer</p>
+            <p className="mt-2 font-semibold text-slate-950">Listener {listenerIndex + 1}</p>
+            <p className="mt-2 text-sm text-slate-700">
+              Attach an event listener to this dispatcher, choose the AS3 event phase, then run the action chain.
+            </p>
           </div>
           <button type="button" onClick={() => setSelectedBehaviorNode(null)} className={iconButtonClass()}>
             ×
@@ -7579,11 +7985,12 @@ export default function App() {
 
         <div className="grid gap-3">
           <div>
-            <label className="text-xs uppercase tracking-[0.18em] text-slate-500">When this happens</label>
+            <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Event type</label>
             <input
-              value={listener.eventName}
+              value={eventType}
               onChange={(event) =>
                 updateRuntimeListener(listener.id, (current) => {
+                  current.type = event.target.value;
                   current.eventName = event.target.value;
                 })
               }
@@ -7594,14 +8001,49 @@ export default function App() {
               suggestions: triggerSuggestions,
               onApply: (value) =>
                 updateRuntimeListener(listener.id, (current) => {
+                  current.type = value;
                   current.eventName = value;
                 }),
             })}
             <p className="mt-2 text-sm text-slate-600">
-              Keep trigger keys stable and dot-separated so the graph, map, and simulator all refer to the same event language.
+              Core event types are provided by the selected dispatcher type. Custom event types stay stable and dot-separated.
             </p>
             {triggerIssue ? <p className="mt-2 text-sm text-rose-600">{triggerIssue}</p> : null}
           </div>
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(9rem,12rem)]">
+            <div className="rounded-2xl border border-soft bg-white px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Dispatcher</p>
+              <p className="mt-2 text-sm font-semibold text-slate-900">{activeRuntimeScope?.label ?? "Form"}</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Target events run here; bubbled descendant events can be heard here when the event bubbles.
+              </p>
+            </div>
+            <div>
+              <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Priority</label>
+              <input
+                type="number"
+                value={listener.priority ?? 0}
+                onChange={(event) =>
+                  updateRuntimeListener(listener.id, (current) => {
+                    current.priority = Number.parseInt(event.target.value || "0", 10);
+                  })
+                }
+                className="mt-2 w-full rounded-2xl border border-soft bg-white px-4 py-3 text-sm text-slate-800"
+              />
+            </div>
+          </div>
+          <label className="flex items-center gap-3 rounded-2xl border border-soft bg-white px-4 py-3">
+            <input
+              type="checkbox"
+              checked={listener.useCapture === true}
+              onChange={(event) =>
+                updateRuntimeListener(listener.id, (current) => {
+                  current.useCapture = event.target.checked;
+                })
+              }
+            />
+            <span className="text-sm text-slate-700">Use capture phase before the event reaches the target</span>
+          </label>
           <label className="flex items-center gap-3 rounded-2xl border border-soft bg-white px-4 py-3">
             <input
               type="checkbox"
@@ -7624,7 +8066,7 @@ export default function App() {
             </div>
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={() => addRuntimeActionToListener(listener.id)} className={actionButtonClass()}>
-                Add action
+                Add dispatch
               </button>
               <button
                 type="button"
@@ -7639,7 +8081,8 @@ export default function App() {
             <div className="rounded-[0.95rem] border border-soft bg-white p-4">
               <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-500">Chain path</p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <span className="app-pill">Trigger {formatLabel(listener.eventName)}</span>
+                <span className="app-pill">Listen for {formatLabel(eventType)}</span>
+                <span className="app-pill">{listener.useCapture ? "Capture" : "Target + bubble"}</span>
                 {listener.actions.map((action, actionIndex) => (
                   <Fragment key={`${listener.id}-summary-${action.id}`}>
                     <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Then</span>
@@ -7825,25 +8268,25 @@ export default function App() {
             </button>
             <button
               type="button"
-              title={canCreateFlow ? "Add listener" : "Select a behavior-capable scope"}
-              aria-label={canCreateFlow ? "Add listener" : "Select a behavior-capable scope"}
+              title={canCreateFlow ? "Add event listener" : "Select a behavior-capable scope"}
+              aria-label={canCreateFlow ? "Add event listener" : "Select a behavior-capable scope"}
               disabled={!canCreateFlow}
               onClick={(event) => runToolbarAction(event, (anchor) => beginBehaviorStudioCreation("listener", anchor))}
               className={toolButtonClass}
             >
               <EventsIcon />
-              <span className={tooltipClass}>Add listener</span>
+              <span className={tooltipClass}>Add event listener</span>
             </button>
             <button
               type="button"
-              title={canCreateFlow ? "Add event flow" : "Select a behavior-capable scope"}
-              aria-label={canCreateFlow ? "Add event flow" : "Select a behavior-capable scope"}
+              title={canCreateFlow ? "Dispatch event" : "Select a behavior-capable scope"}
+              aria-label={canCreateFlow ? "Dispatch event" : "Select a behavior-capable scope"}
               disabled={!canCreateFlow}
               onClick={(event) => runToolbarAction(event, (anchor) => beginBehaviorStudioCreation("event", anchor))}
               className={toolButtonClass}
             >
               <PlusIcon />
-              <span className={tooltipClass}>Add event</span>
+              <span className={tooltipClass}>Dispatch event</span>
             </button>
             <button
               type="button"
@@ -7980,7 +8423,7 @@ export default function App() {
       ].map((listener) => ({
         id: listener.id,
         kind: "flow" as const,
-        objectLabel: listener.actionKinds.includes("emit_event") ? "Event flow" : "Listener",
+        objectLabel: listener.actionKinds.includes("dispatch_event") ? "Dispatch chain" : "Event listener",
         title: `When ${formatLabel(listener.eventName)}`,
         detail: listener.actionsSummary,
         stepId: listener.stepId ?? "form",
@@ -8099,7 +8542,7 @@ export default function App() {
                 <h4 className="mt-1 truncate text-base font-semibold text-slate-950">{currentScopeTitle}</h4>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <span className="app-pill">{visibleRuleGroups.length} rules</span>
-                  <span className="app-pill">{visibleListeners.length} listeners/events</span>
+                  <span className="app-pill">{visibleListeners.length} listeners/chains</span>
                   {activeRuntimeScope ? <span className="app-pill">{activeRuntimeScope.label}</span> : null}
                 </div>
               </div>
@@ -8122,10 +8565,10 @@ export default function App() {
                 Add rule
               </button>
               <button type="button" onClick={() => openBehaviorStudioListener("listener")} disabled={!activeRuntimeScope} className={actionButtonClass()}>
-                Add listener
+                Add event listener
               </button>
               <button type="button" onClick={() => openBehaviorStudioListener("event")} disabled={!activeRuntimeScope} className={actionButtonClass("secondary")}>
-                Add event flow
+                Dispatch event
               </button>
             </div>
           </div>
@@ -8188,7 +8631,7 @@ export default function App() {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap gap-1.5">
-                          <span className="app-pill">{listener.actions.some((action) => action.kind === "emit_event") ? "Event flow" : "Listener"}</span>
+                          <span className="app-pill">{listener.actions.some((action) => action.kind === "dispatch_event") ? "Dispatch chain" : "Event listener"}</span>
                           <span className="app-pill">{listener.enabled ? "Enabled" : "Disabled"}</span>
                           <span className="app-pill">{listener.actions.length} actions</span>
                         </div>
@@ -8243,7 +8686,7 @@ export default function App() {
             </div>
           ) : (
             <div className="rounded-[0.95rem] border border-dashed border-slate-300 bg-white px-4 py-5 text-sm leading-6 text-slate-600">
-              No rules, listeners, or event flows are attached to this selection yet. Add one here, or open the full manager to inspect document-wide behavior.
+              No rules, event listeners, or dispatch chains are attached to this selection yet. Add one here, or open the full manager to inspect document-wide behavior.
             </div>
           )}
         </div>
@@ -8266,10 +8709,10 @@ export default function App() {
                 Add rule
               </button>
               <button type="button" onClick={() => openBehaviorStudioListener("listener")} className={actionButtonClass()}>
-                Add listener
+                Add event listener
               </button>
               <button type="button" onClick={() => openBehaviorStudioListener("event")} className={actionButtonClass("secondary")}>
-                Add event flow
+                Dispatch event
               </button>
             </div>
           </div>
@@ -8339,7 +8782,7 @@ export default function App() {
                 <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Rules Manager</p>
                 <h5 className="mt-2 text-base font-semibold text-slate-950">Document behavior index</h5>
                 <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Manage rules, listeners, and event flows as objects first. The graph is now an overview and trace target, not the primary list.
+                  Manage rules, event listeners, and dispatch chains as objects first. The graph is now an overview and trace target, not the primary list.
                 </p>
               </div>
               <span className="app-pill">{visibleBehaviorIndexObjects.length} shown</span>
@@ -8585,7 +9028,7 @@ export default function App() {
         <div className="rounded-[1.15rem] border border-soft bg-white p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Listeners and events</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Event listeners and dispatch</p>
               <p className="mt-2 text-sm leading-6 text-slate-600">
                 Build flows around triggers and action chains, then reopen them in the studio when they need deeper wiring.
               </p>
@@ -8646,7 +9089,7 @@ export default function App() {
             <div className="app-muted-card mt-4 p-4 text-sm text-slate-500">
               {scopeListeners.length
                 ? "No interaction flows match the current search."
-                : "No behavior flows yet for this scope. Start a listener or event flow in the studio instead of building it inline in the inspector."}
+                : "No behavior flows yet for this scope. Start an event listener or dispatch chain in the studio instead of building it inline in the inspector."}
             </div>
           )}
         </div>
@@ -8663,7 +9106,7 @@ export default function App() {
     const isRuleCreation = behaviorStudioCreationKind === "rule";
     const isEventCreation = behaviorStudioCreationKind === "event";
     const flowPresets = isEventCreation
-      ? runtimePresets.filter((preset) => preset.actionKinds.includes("emit_event"))
+      ? runtimePresets.filter((preset) => preset.actionKinds.includes("dispatch_event"))
       : runtimePresets;
     const presetCards: Array<BehaviorRulePreset | RuntimePreset> = isRuleCreation ? rulePresets : flowPresets;
     const recommendedPresetIds = new Set(presetCards.slice(0, 5).map((preset) => preset.id));
@@ -8677,7 +9120,7 @@ export default function App() {
               : activeRuntimeScope.scopeKind === "step"
                 ? ["step.enter", "step.leave"]
                 : activeRuntimeScope.scopeKind === "field"
-                  ? ["field.change", "field.focus", "field.blur", "host.context_updated"]
+                  ? ["host.context_updated"]
                   : activeRuntimeScope.scopeKind === "component"
                     ? ["component.click"]
                     : []),
@@ -8699,6 +9142,7 @@ export default function App() {
           preset.label,
           preset.description,
           preset.actionSummary,
+          preset.componentLabel ?? "",
           behaviorPresetCategoryLabels[preset.category],
           isRuntimePreset(preset) ? preset.triggerName : preset.effects.map((effect) => formatLabel(effect)).join(" "),
         ]
@@ -8727,14 +9171,14 @@ export default function App() {
       behaviorStudioCreationKind === "rule"
         ? "Create rule"
         : behaviorStudioCreationKind === "event"
-          ? "Create event flow"
-          : "Create listener";
+          ? "Dispatch event"
+          : "Create event listener";
     const summary =
       behaviorStudioCreationKind === "rule"
         ? "Choose the state change this field should control, then refine the condition in the editor."
         : behaviorStudioCreationKind === "event"
-          ? "Choose the event pattern to emit, then refine payload and follow-up actions in the editor."
-          : "Choose a trigger/action starter, then refine the chain in the editor.";
+          ? "Choose the event pattern to dispatch, then refine payload and follow-up actions in the editor."
+          : "Choose an event/action starter, then refine the listener chain in the editor.";
 
     return (
       <div className="rounded-[0.95rem] border border-blue-200 bg-blue-50/60 p-3">
@@ -8751,6 +9195,7 @@ export default function App() {
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <span className="app-pill">{currentBehaviorSelectionSummary()}</span>
+          {activeBuilderField ? <span className="app-pill">{behaviorFieldComponentLabel(activeBuilderField)}</span> : null}
           {activeRuntimeScope ? <span className="app-pill">{activeRuntimeScope.label}</span> : null}
           <span className="text-xs text-slate-600">
             Pick a starter now; refine conditions, payloads, and actions after it opens.
@@ -8822,6 +9267,7 @@ export default function App() {
                         <span className="app-pill">
                           {isRuntimePreset(preset) ? `When ${formatLabel(preset.triggerName)}` : "When answer matches"}
                         </span>
+                        {preset.componentLabel ? <span className="app-pill">{preset.componentLabel}</span> : null}
                         <span className="app-pill">Then {preset.actionSummary}</span>
                         <span className="app-pill">{behaviorPresetCategoryLabels[preset.category]}</span>
                         {!isRuntimePreset(preset) && preset.includeClearValueFlow ? <span className="app-pill">Adds clear action</span> : null}
@@ -8856,9 +9302,9 @@ export default function App() {
               ) : (
                 <div className="grid gap-2">
                   <div className="rounded-[0.85rem] border border-dashed border-blue-200 bg-blue-50/70 px-3 py-2">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Exact triggers</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Exact event types</p>
                     <p className="mt-1 text-xs leading-5 text-slate-600">
-                      Advanced mode starts from the raw trigger. You can add conditions and actions after the listener opens.
+                      Advanced mode starts from the raw event type. You can add conditions and actions after the listener opens.
                     </p>
                   </div>
                   {visibleRawTriggers.map((triggerName) => (
@@ -8870,12 +9316,12 @@ export default function App() {
                     >
                       <p className="text-sm font-semibold text-slate-950">When {formatLabel(triggerName)}</p>
                       <p className="mt-1 text-xs leading-5 text-slate-600">
-                        Create a {isEventCreation ? "custom event flow" : "custom listener"} from `{triggerName}`.
+                        Create a {isEventCreation ? "custom dispatch chain" : "custom event listener"} from `{triggerName}`.
                       </p>
                     </button>
                   ))}
                   {!visibleRawTriggers.length ? (
-                    <div className="app-muted-card p-3 text-sm text-slate-500">No matching triggers for this scope.</div>
+                    <div className="app-muted-card p-3 text-sm text-slate-500">No matching event types for this scope.</div>
                   ) : null}
                 </div>
               )}
@@ -8897,7 +9343,7 @@ export default function App() {
                 }}
                 className={actionButtonClass("secondary")}
               >
-                {isRuleCreation ? "Custom rule" : isEventCreation ? "Custom event flow" : "Custom listener"}
+                {isRuleCreation ? "Custom rule" : isEventCreation ? "Custom dispatch chain" : "Custom event listener"}
               </button>
             </div>
           </div>
@@ -8940,17 +9386,17 @@ export default function App() {
                 <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">Create behavior</p>
                 <h5 className="mt-1.5 text-base font-semibold text-slate-950">Choose the next behavior object for this selection</h5>
                 <p className="mt-2 max-w-2xl text-sm leading-5 text-slate-600">
-                  The create path keeps one rule, listener, or event flow in focus so wiring does not start with a long manager stack.
+                  The create path keeps one rule, event listener, or dispatch chain in focus so wiring does not start with a long manager stack.
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button type="button" onClick={openBehaviorStudioRule} disabled={selectedAuthoring?.kind !== "field"} className={actionButtonClass("primary")}>
                     Add rule
                   </button>
                   <button type="button" onClick={() => openBehaviorStudioListener("listener")} disabled={!activeRuntimeScope} className={actionButtonClass()}>
-                    Add listener
+                    Add event listener
                   </button>
                   <button type="button" onClick={() => openBehaviorStudioListener("event")} disabled={!activeRuntimeScope} className={actionButtonClass("secondary")}>
-                    Add event flow
+                    Dispatch event
                   </button>
                   <button type="button" onClick={() => setBehaviorStudioMode("manage")} className={actionButtonClass("secondary")}>
                     Open manager
@@ -9067,7 +9513,7 @@ export default function App() {
               </h5>
               <p className="mt-1 text-xs leading-5 text-slate-700">
                 {selectedStructuredTraceEvidence?.summary ??
-                  "Run a selected rule or chain to inspect emitted events and host actions here."}
+                  "Run a selected rule or chain to inspect dispatched events and host actions here."}
               </p>
             </div>
             <button
@@ -12539,7 +12985,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                     <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Creation handoff</p>
                     <h4 className="mt-2 text-lg font-semibold text-slate-950">Start in Studio, not on the graph</h4>
                     <p className="mt-2 text-sm leading-6 text-slate-600">
-                      The graph stays empty until Studio creates a real rule, listener, or event flow. This keeps creation guided and keeps the graph useful for tracing.
+                      The graph stays empty until Studio creates a real rule, event listener, or dispatch chain. This keeps creation guided and keeps the graph useful for tracing.
                     </p>
                   </div>
                   <button type="button" onClick={openBehaviorRulesManager} className={actionButtonClass("primary")}>
@@ -12558,7 +13004,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                         Create listener in Studio
                       </button>
                       <button type="button" onClick={() => openBehaviorStudioListener("event")} className={actionButtonClass("secondary")}>
-                        Create event flow in Studio
+                        Dispatch event in Studio
                       </button>
                     </>
                   ) : null}
@@ -12714,7 +13160,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                     </p>
                     <p className="mt-2 text-sm leading-6 text-slate-600">
                       {selectedStructuredTraceEvidence?.summary ??
-                        "Trigger a custom emit or host action from the preview or simulator to inspect its resolved payload here."}
+                        "Trigger a custom dispatch or host action from the preview or simulator to inspect its resolved payload here."}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -12887,7 +13333,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                       <div>
                         <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Recent runtime events</p>
                         <p className="mt-2 text-sm leading-6 text-slate-600">
-                          Scan grouped authored chains first, then click into a recent emitted event or host action to load its evidence into the simulator card above.
+                          Scan grouped authored chains first, then click into a recent dispatched event or host action to load its evidence into the simulator card above.
                         </p>
                       </div>
                       {authoredRuntimeTraceEntries.length ? <span className="app-pill">{authoredRuntimeTraceEntries.length} authored</span> : null}

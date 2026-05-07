@@ -3,6 +3,11 @@ export type * from "./authoring";
 export type * from "./runtime";
 
 export type { SourcePriority } from "./generated";
+export {
+  runtimeCoreEventType,
+  runtimeCoreEventTypes,
+  runtimeCoreEventsForDispatcher,
+} from "./runtime";
 
 import type { FieldNode, FormDefinition } from "./generated";
 

@@ -89,7 +89,7 @@ different level of detail.
   - examples: show, hide, require, optional, enable, disable
 - `Action`
   - runs a discrete behavior step
-  - examples: go to next step, go to step, set field value, emit event, request
+  - examples: go to next step, go to step, set field value, dispatch event, request
     host action, submit form
 - `Runtime`
   - host/runtime loop transitions
@@ -112,7 +112,7 @@ The same graph language should support two levels of complexity:
 2. Advanced orchestration
    - multi-step flows
    - host calls
-   - emitted events
+   - dispatched events
    - submit and response loops
 
 Simple logic should still be easier to author than advanced flows, even though
@@ -155,7 +155,7 @@ language for visualization and debugging.
 
 ## Rules Manager Ownership
 
-Rules, listeners, and event flows are first-class objects.
+Rules, event listeners, and dispatch chains are first-class objects.
 
 Rules Manager owns:
 
@@ -370,7 +370,7 @@ Implemented direction:
   latest runtime effect. Raw traces, host-loop tools, and session JSON live
   behind `Open runtime lab`.
 - Studio mode is explicit:
-  - `Create` for one focused rule/listener/event flow
+  - `Create` for one focused rule/event-listener/dispatch-chain flow
   - `Manage` for selected-object behavior, with full manager as secondary
   - `Test` for selected-object simulator checks, with runtime lab as secondary
   - `Graph` for secondary graph/debug work in a centered workspace shell
@@ -410,7 +410,7 @@ Implemented direction:
 - Selected element scopes use the inline behavior toolbar on the selected card
   as the primary entry point for add-rule, add-listener, add-event, and test.
 - The selected current-step header now exposes its own compact `Step behavior`
-  toolbar for step listeners, event flows, and tests.
+  toolbar for step listeners, dispatch chains, and tests.
 - The right rail stays passive for selected steps and element scopes: current
   selection, counts, and status only.
 - Form-level behavior still keeps a small `Scope behavior` fallback until the
@@ -430,8 +430,8 @@ exposes too many implementation concepts too early. The preferred model should
 be:
 
 - `Rule` = state behavior: show, require, disable, or grouped state bundles.
-- `Event flow` = emit a named event with guided payload.
-- `Listener` = react to an event and run one or more actions.
+- `Dispatch chain` = dispatch a named event with guided payload.
+- `Event listener` = react to an event and run one or more actions.
 - `Custom` = advanced path, still guided, never just a blank empty object.
 
 Implemented first cleanup:
@@ -444,10 +444,10 @@ Implemented first cleanup:
 
 Recommended next cleanup:
 
-- Rename `Add listener` to `React to event` in the UI. Keep `listener` as the
-  underlying schema term only.
-- Rename `Add event` to `Emit event` or `Send event`, because users are creating
-  an emitted event flow, not an abstract event object.
+- Rename `Add listener` to `Add event listener` in the UI. Keep `listener` as
+  the underlying schema term.
+- Rename `Add event` to `Dispatch event`, because users are dispatching event
+  instances from a dispatcher rather than defining core event types.
 - Make `Add rule` open with one recommended default: `Show and require`, plus
   secondary choices for `Require when`, `Show/hide`, and `Enable/disable`.
 - Split custom creation into a small wizard: trigger -> condition/payload ->

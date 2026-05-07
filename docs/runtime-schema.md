@@ -7,8 +7,8 @@ The runtime schema adds first-class behavior contracts to the authoring model.
 Behavior should not live only in `rendererHints`. Instead, authored forms should
 be able to declare:
 
-- event sources
-- listeners
+- custom event type metadata
+- event listeners
 - action chains
 - host bindings
 - runtime session-state shape
@@ -27,14 +27,34 @@ Examples:
 - `form.submit_success`
 - `host.context_updated`
 
+The model follows the ActionScript 3 event-dispatcher shape. Every event has an
+original target dispatcher, a current target dispatcher while a listener is
+running, an event phase, and a bubbling flag.
+
 Events carry a standard envelope:
 
 - `type`
 - `version`
-- `source`
+- `target`
+- `currentTarget`
+- `eventPhase`
+- `bubbles`
+- `source` as a legacy alias for `target`
 - `payload`
 - `correlationId`
 - `timestamp`
+
+Core event types are code-defined and do not need author definitions. Examples:
+
+- universal: `component.show`, `component.hide`, `state.change`
+- form: `form.load`, `form.submit`, `form.validation_failed`
+- step/structure: `step.enter`, `section.enter`, `group.enter`
+- controls: `component.click`, `button.click`, `field.change`
+- checkbox: `checkboxGroup.change`, `checkbox.change`, `checkbox.checked`
+- radio/select/input: `radio.change`, `select.change`, `input.change`
+
+Custom event type definitions are metadata only. Runtime behavior dispatches an
+event instance with `dispatch_event`.
 
 ### Rule Guard
 
@@ -48,11 +68,16 @@ definitions or action lists.
 
 A listener says:
 
-- when this event occurs
+- which dispatcher it is attached to
+- which event type it listens for
+- whether it uses capture phase
+- what priority it has within the phase
 - and these rule guards pass
 - execute these actions in order
 
-Listeners support multiple ordered actions.
+Listeners support multiple ordered actions. Dispatch walks capture from form to
+target parent, runs target listeners, then bubbles through ancestors when
+`bubbles` is true.
 
 ### Action
 
@@ -72,7 +97,7 @@ Built-in action kinds:
 - `disable_node`
 - `mark_required`
 - `mark_optional`
-- `emit_event`
+- `dispatch_event`
 - `host_action`
 
 ### Host Binding
@@ -96,7 +121,7 @@ The following authoring nodes can optionally carry runtime behavior:
 
 Each node can declare:
 
-- `eventSources`
+- `eventSources` for optional custom event type metadata
 - `listeners`
 
 These are stored in `runtime` on the node.
@@ -108,13 +133,14 @@ runtime config.
 
 Form-level runtime config includes:
 
-- `formEvents`
+- `formEvents` for optional custom event type metadata
 - `formListeners`
 - `hostBindings`
 - `submitEventName`
 - `sessionStateShape`
 
-Form-level listeners can target any node in the form.
+Form-level listeners attach to the form dispatcher. They can receive bubbling
+events from descendant dispatchers.
 
 ## Payload Authoring
 
@@ -171,7 +197,7 @@ The runtime generates a structured submit payload containing:
 - `validation`
 - `hostContext`
 
-This payload is emitted with `form.submit`. The host decides what to do with it.
+This payload is dispatched with `form.submit`. The host decides what to do with it.
 
 ## Host Context
 

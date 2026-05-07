@@ -1,4 +1,5 @@
 export type RuntimeNodeType = "form" | "step" | "section" | "group" | "field" | "component";
+export type RuntimeEventPhase = "capture" | "target" | "bubble";
 
 export type RuntimeActionKind =
   | "go_to_next_step"
@@ -13,6 +14,7 @@ export type RuntimeActionKind =
   | "disable_node"
   | "mark_required"
   | "mark_optional"
+  | "dispatch_event"
   | "emit_event"
   | "host_action";
 
@@ -28,6 +30,19 @@ export type RuntimeEventName =
   | "field.focus"
   | "field.blur"
   | "component.click"
+  | "button.click"
+  | "checkbox.change"
+  | "checkbox.checked"
+  | "checkbox.unchecked"
+  | "checkboxGroup.change"
+  | "radio.change"
+  | "radio.selected"
+  | "radio.cleared"
+  | "select.change"
+  | "select.selected"
+  | "select.cleared"
+  | "input.change"
+  | "input.textChange"
   | "host.context_updated";
 
 export type RuntimeHostBindingDirection = "inbound" | "outbound" | "bidirectional";
@@ -69,19 +84,35 @@ export interface RuntimeActionDefinition {
   continueOnError: boolean;
 }
 
-export interface RuntimeEventDefinition {
+export interface RuntimeEventTypeDefinition {
   id: string;
-  name: string;
-  sourceNodeId?: string | null;
-  sourceNodeType?: RuntimeNodeType | null;
+  type?: string;
+  dispatcherId?: string | null;
+  dispatcherType?: RuntimeNodeType | null;
+  bubbles?: boolean;
   payloadShape?: RuntimePayloadShape | null;
   description?: string | null;
+  /** @deprecated use type */
+  name?: string;
+  /** @deprecated use dispatcherId */
+  sourceNodeId?: string | null;
+  /** @deprecated use dispatcherType */
+  sourceNodeType?: RuntimeNodeType | null;
 }
+
+export type RuntimeEventDefinition = RuntimeEventTypeDefinition;
 
 export interface RuntimeListenerDefinition {
   id: string;
   label?: string | null;
+  type?: string;
+  dispatcherId?: string | null;
+  dispatcherType?: RuntimeNodeType | null;
+  useCapture?: boolean;
+  priority?: number;
+  /** @deprecated use type */
   eventName: string;
+  /** @deprecated use dispatcherId */
   sourceNodeId?: string | null;
   enabled: boolean;
   ruleGuards: RuntimeRuleGuardReference[];
@@ -90,7 +121,8 @@ export interface RuntimeListenerDefinition {
 
 export interface RuntimeHostBinding {
   id: string;
-  eventName: string;
+  eventName?: string;
+  type?: string;
   direction: RuntimeHostBindingDirection;
   handlerKey?: string | null;
   payloadShape?: RuntimePayloadShape | null;
@@ -98,7 +130,7 @@ export interface RuntimeHostBinding {
 }
 
 export interface RuntimeNodeBehavior {
-  eventSources: RuntimeEventDefinition[];
+  eventSources: RuntimeEventTypeDefinition[];
   listeners: RuntimeListenerDefinition[];
 }
 
@@ -154,9 +186,22 @@ export interface RuntimeSubmitPayload {
   hostContext?: Record<string, unknown> | null;
 }
 
+export interface RuntimeEventTarget {
+  runtimeId: string;
+  formId: string;
+  projectId?: string | null;
+  nodeId?: string | null;
+  nodeType?: RuntimeNodeType | null;
+}
+
 export interface RuntimeEventEnvelope {
   type: string;
   version: "1.0";
+  target?: RuntimeEventTarget;
+  currentTarget?: RuntimeEventTarget | null;
+  eventPhase?: RuntimeEventPhase;
+  bubbles?: boolean;
+  /** @deprecated use target */
   source: {
     runtimeId: string;
     formId: string;
@@ -171,9 +216,76 @@ export interface RuntimeEventEnvelope {
 
 export interface RuntimeDocumentBehavior {
   version: "1.0";
-  formEvents: RuntimeEventDefinition[];
+  formEvents: RuntimeEventTypeDefinition[];
   formListeners: RuntimeListenerDefinition[];
   hostBindings: RuntimeHostBinding[];
   submitEventName: string;
   sessionStateShape: RuntimePayloadShape;
+}
+
+export interface RuntimeCoreEventTypeDefinition {
+  type: RuntimeEventName | string;
+  label: string;
+  dispatcherTypes: RuntimeNodeType[];
+  semanticTypes?: string[];
+  bubbles: boolean;
+  description?: string;
+}
+
+export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
+  { type: "component.mount", label: "Component mounted", dispatcherTypes: ["form", "step", "section", "group", "field", "component"], bubbles: false },
+  { type: "component.unmount", label: "Component unmounted", dispatcherTypes: ["form", "step", "section", "group", "field", "component"], bubbles: false },
+  { type: "component.show", label: "Component shown", dispatcherTypes: ["section", "group", "field", "component"], bubbles: true },
+  { type: "component.hide", label: "Component hidden", dispatcherTypes: ["section", "group", "field", "component"], bubbles: true },
+  { type: "component.enable", label: "Component enabled", dispatcherTypes: ["field", "component"], bubbles: true },
+  { type: "component.disable", label: "Component disabled", dispatcherTypes: ["field", "component"], bubbles: true },
+  { type: "state.change", label: "State changed", dispatcherTypes: ["form", "step", "section", "group", "field", "component"], bubbles: true },
+  { type: "form.load", label: "Form loaded", dispatcherTypes: ["form"], bubbles: false },
+  { type: "form.submit", label: "Form submitted", dispatcherTypes: ["form"], bubbles: false },
+  { type: "form.submit_success", label: "Submit succeeded", dispatcherTypes: ["form"], bubbles: false },
+  { type: "form.submit_error", label: "Submit failed", dispatcherTypes: ["form"], bubbles: false },
+  { type: "form.validation_failed", label: "Validation failed", dispatcherTypes: ["form"], bubbles: false },
+  { type: "step.enter", label: "Step entered", dispatcherTypes: ["step"], bubbles: true },
+  { type: "step.leave", label: "Step left", dispatcherTypes: ["step"], bubbles: true },
+  { type: "section.enter", label: "Section entered", dispatcherTypes: ["section"], bubbles: true },
+  { type: "section.leave", label: "Section left", dispatcherTypes: ["section"], bubbles: true },
+  { type: "group.enter", label: "Group entered", dispatcherTypes: ["group"], bubbles: true },
+  { type: "group.leave", label: "Group left", dispatcherTypes: ["group"], bubbles: true },
+  { type: "component.click", label: "Component clicked", dispatcherTypes: ["component"], bubbles: true },
+  { type: "button.click", label: "Button clicked", dispatcherTypes: ["component"], bubbles: true },
+  { type: "field.change", label: "Field changed", dispatcherTypes: ["field"], bubbles: true },
+  { type: "field.focus", label: "Field focused", dispatcherTypes: ["field"], bubbles: true },
+  { type: "field.blur", label: "Field blurred", dispatcherTypes: ["field"], bubbles: true },
+  { type: "checkboxGroup.change", label: "Checkbox group changed", dispatcherTypes: ["field"], semanticTypes: ["checkbox"], bubbles: true },
+  { type: "checkbox.change", label: "Checkbox changed", dispatcherTypes: ["field"], semanticTypes: ["checkbox"], bubbles: true },
+  { type: "checkbox.checked", label: "Checkbox checked", dispatcherTypes: ["field"], semanticTypes: ["checkbox"], bubbles: true },
+  { type: "checkbox.unchecked", label: "Checkbox unchecked", dispatcherTypes: ["field"], semanticTypes: ["checkbox"], bubbles: true },
+  { type: "radio.change", label: "Radio selection changed", dispatcherTypes: ["field"], semanticTypes: ["radio"], bubbles: true },
+  { type: "radio.selected", label: "Radio option selected", dispatcherTypes: ["field"], semanticTypes: ["radio"], bubbles: true },
+  { type: "radio.cleared", label: "Radio selection cleared", dispatcherTypes: ["field"], semanticTypes: ["radio"], bubbles: true },
+  { type: "select.change", label: "Select changed", dispatcherTypes: ["field"], semanticTypes: ["select"], bubbles: true },
+  { type: "select.selected", label: "Select option selected", dispatcherTypes: ["field"], semanticTypes: ["select"], bubbles: true },
+  { type: "select.cleared", label: "Select cleared", dispatcherTypes: ["field"], semanticTypes: ["select"], bubbles: true },
+  { type: "input.change", label: "Input changed", dispatcherTypes: ["field"], semanticTypes: ["text", "textarea", "date", "number", "phone", "email"], bubbles: true },
+  { type: "input.textChange", label: "Input text changed", dispatcherTypes: ["field"], semanticTypes: ["text", "textarea"], bubbles: true },
+  { type: "host.context_updated", label: "Host context updated", dispatcherTypes: ["form"], bubbles: false },
+];
+
+export function runtimeCoreEventType(type: string): RuntimeCoreEventTypeDefinition | null {
+  return runtimeCoreEventTypes.find((eventType) => eventType.type === type) ?? null;
+}
+
+export function runtimeCoreEventsForDispatcher(
+  dispatcherType: RuntimeNodeType,
+  semanticType?: string | null,
+): RuntimeCoreEventTypeDefinition[] {
+  return runtimeCoreEventTypes.filter((eventType) => {
+    if (!eventType.dispatcherTypes.includes(dispatcherType)) {
+      return false;
+    }
+    if (!eventType.semanticTypes?.length) {
+      return true;
+    }
+    return semanticType ? eventType.semanticTypes.includes(semanticType) : false;
+  });
 }

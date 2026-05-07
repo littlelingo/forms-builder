@@ -18,10 +18,15 @@
     "stop:api": "./scripts/stop-api.sh",
     "build:web": "npm run build --workspace @form-builder/web",
     "typecheck:web": "npm run typecheck --workspace @form-builder/web",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
     "test:runtime": "npm run test --workspace @form-builder/runtime",
     "validate:corpus": "PYTHONPATH=apps/api/src ./.venv/bin/python3 scripts/validate_form_samples.py",
     "build:schema": "npm run build --workspace @form-builder/schema",
     "build:runtime": "npm run build --workspace @form-builder/runtime",
     "generate:schema-types": "npm run generate --workspace @form-builder/schema"
+  },
+  "devDependencies": {
+    "prettier": "^3.8.3"
   }
 }
