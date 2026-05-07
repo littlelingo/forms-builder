@@ -83,13 +83,23 @@ interface RuntimeEditorScope {
   listeners: RuntimeListenerDefinition[];
 }
 
-interface RuntimePreset {
+interface BehaviorPresetBase {
   id: string;
   label: string;
   description: string;
   category: Exclude<BehaviorPresetCategory, "recommended" | "advanced">;
-  triggerName: string;
   actionSummary: string;
+}
+
+interface BehaviorRulePreset extends BehaviorPresetBase {
+  effects: ConditionalRule["effect"][];
+  operator: ConditionalRule["operator"];
+  expectedValue?: string;
+  includeClearValueFlow?: boolean;
+}
+
+interface RuntimePreset extends BehaviorPresetBase {
+  triggerName: string;
   actionKinds: RuntimeActionKind[];
   apply: (scope: RuntimeEditorScope, currentField: AuthoringField | null) => RuntimeListenerDefinition;
 }
@@ -311,6 +321,8 @@ interface RuntimeActionChainTemplate {
   id: string;
   label: string;
   description: string;
+  category: Exclude<BehaviorPresetCategory, "recommended" | "advanced">;
+  actionSummary: string;
   createActions: () => RuntimeActionDefinition[];
 }
 
@@ -530,6 +542,28 @@ function createListenerGraphSelection(listener: RuntimeListenerDefinition): Beha
     phase: listener.actions.length ? "action" : "trigger",
     actionId: listener.actions[0]?.id,
   };
+}
+
+function isRuntimePreset(preset: BehaviorRulePreset | RuntimePreset): preset is RuntimePreset {
+  return "triggerName" in preset;
+}
+
+function findAuthoringFieldById(document: AuthoringDocument, fieldId: string): AuthoringField | null {
+  for (const step of document.steps) {
+    for (const section of step.sections) {
+      const sectionField = section.fields.find((field) => field.id === fieldId);
+      if (sectionField) {
+        return sectionField;
+      }
+      for (const group of section.groups) {
+        const groupField = group.fields.find((field) => field.id === fieldId);
+        if (groupField) {
+          return groupField;
+        }
+      }
+    }
+  }
+  return null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -2497,8 +2531,10 @@ export default function App() {
     }
     return activeDocument.steps.flatMap((step) =>
       step.sections.flatMap((section) => [
-        ...section.fields.map((field) => ({ id: field.id, label: field.label })),
-        ...section.groups.flatMap((group) => group.fields.map((field) => ({ id: field.id, label: field.label }))),
+        ...section.fields.map((field) => ({ id: field.id, label: field.label, semanticType: field.semanticType, stepId: step.id })),
+        ...section.groups.flatMap((group) =>
+          group.fields.map((field) => ({ id: field.id, label: field.label, semanticType: field.semanticType, stepId: step.id })),
+        ),
       ]),
     );
   }, [activeDocument]);
@@ -3331,6 +3367,33 @@ export default function App() {
     }
   }
 
+  function defaultConditionalSourceFieldId(): string {
+    const candidates = builderFieldOptions.filter((option) => option.id !== activeBuilderField?.id);
+    const interactiveCandidates = candidates.filter((option) => option.semanticType !== "statement");
+    const selectedStepId = selectedAuthoring?.kind === "field" ? selectedAuthoring.stepId : selectedAuthoring?.kind === "step" ? selectedAuthoring.stepId : null;
+    return (
+      interactiveCandidates.find((option) => option.stepId === selectedStepId)?.id ??
+      interactiveCandidates[0]?.id ??
+      candidates[0]?.id ??
+      builderFieldOptions[0]?.id ??
+      ""
+    );
+  }
+
+  function defaultActionTargetFieldId(): string {
+    const candidates = builderFieldOptions.filter((option) => option.id !== activeBuilderField?.id);
+    const interactiveCandidates = candidates.filter((option) => option.semanticType !== "statement");
+    const selectedStepId = selectedAuthoring?.kind === "field" ? selectedAuthoring.stepId : selectedAuthoring?.kind === "step" ? selectedAuthoring.stepId : null;
+    return (
+      interactiveCandidates.find((option) => option.stepId === selectedStepId)?.id ??
+      interactiveCandidates[0]?.id ??
+      activeBuilderField?.id ??
+      candidates[0]?.id ??
+      builderFieldOptions[0]?.id ??
+      ""
+    );
+  }
+
   function defaultRuntimeActionConfigForScope(
     kind: RuntimeActionKind,
     options?: { scope?: RuntimeEditorScope | null; field?: AuthoringField | null; listener?: RuntimeListenerDefinition | null },
@@ -3346,7 +3409,9 @@ export default function App() {
       case "go_to_step":
         return { stepId: builderStepOptions[0]?.id ?? "" };
       case "set_field_value":
-        return { fieldId: builderFieldOptions[0]?.id ?? "", value: "" };
+        return { fieldId: defaultActionTargetFieldId(), value: "" };
+      case "clear_field_value":
+        return { fieldId: defaultActionTargetFieldId() };
       case "show_node":
       case "hide_node":
       case "enable_node":
@@ -3361,6 +3426,19 @@ export default function App() {
 
   function cloneRuntimeActionConfig(config: Record<string, unknown>): Record<string, unknown> {
     return JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
+  }
+
+  function createConditionalRuleDraft(
+    effect: ConditionalRule["effect"],
+    config?: Partial<ConditionalRule>,
+  ): ConditionalRule {
+    return {
+      ruleId: crypto.randomUUID(),
+      whenFieldId: config?.whenFieldId ?? defaultConditionalSourceFieldId(),
+      operator: config?.operator ?? "equals",
+      expectedValue: config?.expectedValue ?? "",
+      effect,
+    };
   }
 
   function createConditionalRuleGroupKey(rule: ConditionalRule) {
@@ -4171,6 +4249,152 @@ export default function App() {
     setMessage(`${templateLabel} chain applied.`);
   }
 
+  function createFieldChangedPayload(): Record<string, unknown> {
+    return runtimePayloadFromEntries([
+      createRuntimePayloadReferenceEntry("fieldId", "current.field.id"),
+      createRuntimePayloadReferenceEntry("fieldKey", "current.field.key"),
+      createRuntimePayloadReferenceEntry("stepId", "current.step.id"),
+      createRuntimePayloadReferenceEntry("stepTitle", "current.step.title"),
+      createRuntimePayloadReferenceEntry("projectId", "current.project.id"),
+      createRuntimePayloadReferenceEntry("sourceNodeType", "current.source.node.type"),
+      createRuntimePayloadReferenceEntry("value", "current.runtime.value"),
+      createRuntimePayloadEntry("changeOrigin", "runtime", "string"),
+    ]);
+  }
+
+  function createHostLookupPayload(): Record<string, unknown> {
+    return runtimePayloadFromEntries([
+      createRuntimePayloadReferenceEntry("fieldId", "current.field.id"),
+      createRuntimePayloadReferenceEntry("fieldKey", "current.field.key"),
+      createRuntimePayloadReferenceEntry("stepId", "current.step.id"),
+      createRuntimePayloadReferenceEntry("stepTitle", "current.step.title"),
+      createRuntimePayloadReferenceEntry("projectId", "current.project.id"),
+      createRuntimePayloadReferenceEntry("sourceNodeType", "current.source.node.type"),
+      createRuntimePayloadReferenceEntry("query", "current.runtime.value"),
+      createRuntimePayloadEntry("requestSource", "runtime", "string"),
+    ]);
+  }
+
+  function createStepLifecyclePayload(): Record<string, unknown> {
+    return runtimePayloadFromEntries([
+      createRuntimePayloadReferenceEntry("stepId", "current.step.id"),
+      createRuntimePayloadReferenceEntry("stepTitle", "current.step.title"),
+      createRuntimePayloadReferenceEntry("formId", "current.form.id"),
+      createRuntimePayloadReferenceEntry("projectId", "current.project.id"),
+      createRuntimePayloadEntry("source", "runtime", "string"),
+    ]);
+  }
+
+  function createSourceEventPayload(): Record<string, unknown> {
+    return runtimePayloadFromEntries([
+      createRuntimePayloadReferenceEntry("sourceNodeId", "current.source.node.id"),
+      createRuntimePayloadReferenceEntry("sourceNodeType", "current.source.node.type"),
+      createRuntimePayloadReferenceEntry("stepId", "current.step.id"),
+      createRuntimePayloadReferenceEntry("formId", "current.form.id"),
+      createRuntimePayloadReferenceEntry("projectId", "current.project.id"),
+      createRuntimePayloadEntry("source", "runtime", "string"),
+    ]);
+  }
+
+  function createFormLifecyclePayload(): Record<string, unknown> {
+    return runtimePayloadFromEntries([
+      createRuntimePayloadReferenceEntry("formId", "current.form.id"),
+      createRuntimePayloadReferenceEntry("formTitle", "current.form.title"),
+      createRuntimePayloadReferenceEntry("projectId", "current.project.id"),
+      createRuntimePayloadEntry("source", "runtime", "string"),
+    ]);
+  }
+
+  function createFormSubmitPayload(): Record<string, unknown> {
+    return runtimePayloadFromEntries([
+      createRuntimePayloadReferenceEntry("formId", "current.form.id"),
+      createRuntimePayloadReferenceEntry("formTitle", "current.form.title"),
+      createRuntimePayloadReferenceEntry("stepId", "current.step.id"),
+      createRuntimePayloadReferenceEntry("stepTitle", "current.step.title"),
+      createRuntimePayloadReferenceEntry("projectId", "current.project.id"),
+      createRuntimePayloadEntry("submitOrigin", "runtime", "string"),
+    ]);
+  }
+
+  function createFormPrefillPayload(): Record<string, unknown> {
+    return runtimePayloadFromEntries([
+      createRuntimePayloadReferenceEntry("formId", "current.form.id"),
+      createRuntimePayloadReferenceEntry("formTitle", "current.form.title"),
+      createRuntimePayloadReferenceEntry("projectId", "current.project.id"),
+      createRuntimePayloadEntry("mergeMode", "replace_empty", "string"),
+      createRuntimePayloadEntry("requestSource", "runtime", "string"),
+    ]);
+  }
+
+  const rulePresets = useMemo<BehaviorRulePreset[]>(() => {
+    if (selectedAuthoring?.kind !== "field" || !activeBuilderField) {
+      return [];
+    }
+    return [
+      {
+        id: "rule-show-require",
+        label: "Show and require",
+        description: "Reveal this field and make it required from the same answer condition.",
+        category: "validation",
+        actionSummary: "Show + require",
+        effects: ["show", "require"],
+        operator: "equals",
+        expectedValue: "",
+      },
+      {
+        id: "rule-show",
+        label: "Show when",
+        description: "Show this field only when another answer matches the condition.",
+        category: "visibility",
+        actionSummary: "Show target",
+        effects: ["show"],
+        operator: "equals",
+        expectedValue: "",
+      },
+      {
+        id: "rule-hide",
+        label: "Hide when",
+        description: "Hide this field when another answer matches the condition.",
+        category: "visibility",
+        actionSummary: "Hide target",
+        effects: ["hide"],
+        operator: "equals",
+        expectedValue: "",
+      },
+      {
+        id: "rule-hide-clear",
+        label: "Hide and clear dependent value",
+        description: "Hide this field, then clear its value when the controlling answer changes.",
+        category: "data",
+        actionSummary: "Hide + clear value",
+        effects: ["hide"],
+        operator: "equals",
+        expectedValue: "",
+        includeClearValueFlow: true,
+      },
+      {
+        id: "rule-require",
+        label: "Require when",
+        description: "Make this field required only when another answer matches.",
+        category: "validation",
+        actionSummary: "Mark required",
+        effects: ["require"],
+        operator: "equals",
+        expectedValue: "",
+      },
+      {
+        id: "rule-disable",
+        label: "Disable when",
+        description: "Disable this field when another answer matches.",
+        category: "visibility",
+        actionSummary: "Disable target",
+        effects: ["disable"],
+        operator: "equals",
+        expectedValue: "",
+      },
+    ];
+  }, [activeBuilderField, selectedAuthoring]);
+
   const runtimePresets = useMemo<RuntimePreset[]>(() => {
     if (!activeRuntimeScope) {
       return [];
@@ -4252,7 +4476,10 @@ export default function App() {
               "component.click",
               [
                 createRuntimeAction("go_to_next_step"),
-                createRuntimeAction("emit_event", defaultRuntimeActionConfigForScope("emit_event")),
+                createRuntimeAction("emit_event", {
+                  ...defaultRuntimeActionConfigForScope("emit_event"),
+                  payload: createSourceEventPayload(),
+                }),
               ],
               scopedSourceNodeId,
             ),
@@ -4268,7 +4495,12 @@ export default function App() {
           create: () =>
             createRuntimeListener(
               "component.click",
-              [createRuntimeAction("emit_event", defaultRuntimeActionConfigForScope("emit_event"))],
+              [
+                createRuntimeAction("emit_event", {
+                  ...defaultRuntimeActionConfigForScope("emit_event"),
+                  payload: createSourceEventPayload(),
+                }),
+              ],
               scopedSourceNodeId,
             ),
         }),
@@ -4283,7 +4515,12 @@ export default function App() {
           create: () =>
             createRuntimeListener(
               "component.click",
-              [createRuntimeAction("host_action", defaultRuntimeActionConfigForScope("host_action"))],
+              [
+                createRuntimeAction("host_action", {
+                  ...defaultRuntimeActionConfigForScope("host_action"),
+                  payload: createSourceEventPayload(),
+                }),
+              ],
               scopedSourceNodeId,
             ),
         }),
@@ -4395,7 +4632,12 @@ export default function App() {
           create: () =>
             createRuntimeListener(
               "field.blur",
-              [createRuntimeAction("host_action", defaultRuntimeActionConfigForScope("host_action"))],
+              [
+                createRuntimeAction("host_action", {
+                  ...defaultRuntimeActionConfigForScope("host_action"),
+                  payload: createHostLookupPayload(),
+                }),
+              ],
               scopedSourceNodeId,
             ),
         }),
@@ -4410,7 +4652,7 @@ export default function App() {
           create: () =>
             createRuntimeListener(
               "field.change",
-              [createRuntimeAction("emit_event", { eventName: changedEventName, payload: {} })],
+              [createRuntimeAction("emit_event", { eventName: changedEventName, payload: createFieldChangedPayload() })],
               scopedSourceNodeId,
             ),
         }),
@@ -4426,8 +4668,11 @@ export default function App() {
             createRuntimeListener(
               "field.change",
               [
-                createRuntimeAction("emit_event", { eventName: changedEventName, payload: {} }),
-                createRuntimeAction("host_action", defaultRuntimeActionConfigForScope("host_action")),
+                createRuntimeAction("emit_event", { eventName: changedEventName, payload: createFieldChangedPayload() }),
+                createRuntimeAction("host_action", {
+                  ...defaultRuntimeActionConfigForScope("host_action"),
+                  payload: createHostLookupPayload(),
+                }),
               ],
               scopedSourceNodeId,
             ),
@@ -4444,7 +4689,7 @@ export default function App() {
           triggerName: "form.load",
           actionSummary: "Request host prefill",
           actionKinds: ["host_action"],
-          create: () => createRuntimeListener("form.load", [createRuntimeAction("host_action", { handlerKey: "host.prefill", payload: {} })]),
+          create: () => createRuntimeListener("form.load", [createRuntimeAction("host_action", { handlerKey: "host.prefill", payload: createFormPrefillPayload() })]),
         }),
         preset({
           id: "form-load",
@@ -4454,7 +4699,7 @@ export default function App() {
           triggerName: "form.load",
           actionSummary: "Emit form loaded",
           actionKinds: ["emit_event"],
-          create: () => createRuntimeListener("form.load", [createRuntimeAction("emit_event", { eventName: "form.loaded", payload: {} })]),
+          create: () => createRuntimeListener("form.load", [createRuntimeAction("emit_event", { eventName: "form.loaded", payload: createFormLifecyclePayload() })]),
         }),
         preset({
           id: "form-submit",
@@ -4464,7 +4709,7 @@ export default function App() {
           triggerName: "form.submit",
           actionSummary: "Emit submit event",
           actionKinds: ["emit_event"],
-          create: () => createRuntimeListener("form.submit", [createRuntimeAction("emit_event", { eventName: "form.submit.dispatched", payload: {} })]),
+          create: () => createRuntimeListener("form.submit", [createRuntimeAction("emit_event", { eventName: "form.submit.dispatched", payload: createFormSubmitPayload() })]),
         }),
         preset({
           id: "form-submit-host",
@@ -4476,8 +4721,8 @@ export default function App() {
           actionKinds: ["emit_event", "host_action"],
           create: () =>
             createRuntimeListener("form.submit", [
-              createRuntimeAction("emit_event", { eventName: "form.submit.dispatched", payload: {} }),
-              createRuntimeAction("host_action", { handlerKey: "host.audit", payload: {} }),
+              createRuntimeAction("emit_event", { eventName: "form.submit.dispatched", payload: createFormSubmitPayload() }),
+              createRuntimeAction("host_action", { handlerKey: "host.submit", payload: createFormSubmitPayload() }),
             ]),
         }),
         preset({
@@ -4489,7 +4734,15 @@ export default function App() {
           actionSummary: "Emit validation event",
           actionKinds: ["emit_event"],
           create: () =>
-            createRuntimeListener("form.validation_failed", [createRuntimeAction("emit_event", { eventName: "form.validation_failed", payload: {} })]),
+            createRuntimeListener("form.validation_failed", [
+              createRuntimeAction("emit_event", {
+                eventName: "form.validation_failed",
+                payload: {
+                  ...createFormSubmitPayload(),
+                  reason: "required_fields",
+                },
+              }),
+            ]),
         }),
         preset({
           id: "form-submit-success",
@@ -4499,7 +4752,7 @@ export default function App() {
           triggerName: "form.submit_success",
           actionSummary: "Emit success event",
           actionKinds: ["emit_event"],
-          create: () => createRuntimeListener("form.submit_success", [createRuntimeAction("emit_event", { eventName: "form.completed", payload: {} })]),
+          create: () => createRuntimeListener("form.submit_success", [createRuntimeAction("emit_event", { eventName: "form.completed", payload: createFormSubmitPayload() })]),
         }),
         preset({
           id: "form-submit-error",
@@ -4509,7 +4762,7 @@ export default function App() {
           triggerName: "form.submit_error",
           actionSummary: "Emit error event",
           actionKinds: ["emit_event"],
-          create: () => createRuntimeListener("form.submit_error", [createRuntimeAction("emit_event", { eventName: "form.submit.failed", payload: {} })]),
+          create: () => createRuntimeListener("form.submit_error", [createRuntimeAction("emit_event", { eventName: "form.submit.failed", payload: createFormSubmitPayload() })]),
         }),
       ];
     }
@@ -4523,7 +4776,13 @@ export default function App() {
           triggerName: "step.enter",
           actionSummary: "Emit step event",
           actionKinds: ["emit_event"],
-          create: () => createRuntimeListener("step.enter", [createRuntimeAction("emit_event", defaultRuntimeActionConfigForScope("emit_event"))]),
+          create: () =>
+            createRuntimeListener("step.enter", [
+              createRuntimeAction("emit_event", {
+                ...defaultRuntimeActionConfigForScope("emit_event"),
+                payload: createStepLifecyclePayload(),
+              }),
+            ]),
         }),
         preset({
           id: "step-leave-host-save",
@@ -4533,7 +4792,7 @@ export default function App() {
           triggerName: "step.leave",
           actionSummary: "Request host save",
           actionKinds: ["host_action"],
-          create: () => createRuntimeListener("step.leave", [createRuntimeAction("host_action", { handlerKey: "host.saveDraft", payload: {} })]),
+          create: () => createRuntimeListener("step.leave", [createRuntimeAction("host_action", { handlerKey: "host.saveDraft", payload: createStepLifecyclePayload() })]),
         }),
         preset({
           id: "step-enter-set-value",
@@ -4558,7 +4817,13 @@ export default function App() {
           triggerName,
           actionSummary: "Emit event",
           actionKinds: ["emit_event"],
-          create: () => createRuntimeListener(triggerName, [createRuntimeAction("emit_event", defaultRuntimeActionConfigForScope("emit_event"))]),
+          create: () =>
+            createRuntimeListener(triggerName, [
+              createRuntimeAction("emit_event", {
+                ...defaultRuntimeActionConfigForScope("emit_event"),
+                payload: createSourceEventPayload(),
+              }),
+            ]),
         }),
         preset({
           id: `${activeRuntimeScope.scopeKind}-host-sync`,
@@ -4568,12 +4833,18 @@ export default function App() {
           triggerName,
           actionSummary: "Request host sync",
           actionKinds: ["host_action"],
-          create: () => createRuntimeListener(triggerName, [createRuntimeAction("host_action", defaultRuntimeActionConfigForScope("host_action"))]),
+          create: () =>
+            createRuntimeListener(triggerName, [
+              createRuntimeAction("host_action", {
+                ...defaultRuntimeActionConfigForScope("host_action"),
+                payload: createSourceEventPayload(),
+              }),
+            ]),
         }),
       ];
     }
     return [];
-  }, [activeRuntimeScope, activeBuilderField?.stableKey, builderFieldOptions, builderNodeOptions, builderStepOptions, selectedAuthoring]);
+  }, [activeRuntimeScope, activeBuilderField, builderFieldOptions, builderNodeOptions, builderStepOptions, selectedAuthoring]);
 
   function createBehaviorStudioAnchor(element: HTMLElement | null): BehaviorStudioAnchor | null {
     if (!element || typeof window === "undefined" || window.innerWidth < 760) {
@@ -4855,9 +5126,17 @@ export default function App() {
         id: `${listener.id}-emit-host`,
         label: "Emit then request host action",
         description: "Broadcast a runtime event first, then pass the resolved payload to a host handler.",
+        category: "host",
+        actionSummary: "Emit event + request host",
         createActions: () => [
-          createRuntimeAction("emit_event", defaultRuntimeActionConfigForScope("emit_event", { listener })),
-          createRuntimeAction("host_action", defaultRuntimeActionConfigForScope("host_action", { listener })),
+          createRuntimeAction("emit_event", {
+            ...defaultRuntimeActionConfigForScope("emit_event", { listener }),
+            payload: listener.eventName === "field.change" ? createFieldChangedPayload() : createSourceEventPayload(),
+          }),
+          createRuntimeAction("host_action", {
+            ...defaultRuntimeActionConfigForScope("host_action", { listener }),
+            payload: activeRuntimeScope?.scopeKind === "field" ? createHostLookupPayload() : createSourceEventPayload(),
+          }),
         ],
       },
     ];
@@ -4866,9 +5145,14 @@ export default function App() {
         id: `${listener.id}-next-emit`,
         label: "Continue then emit event",
         description: "Advance the workflow and immediately fire a follow-up runtime event from the same chain.",
+        category: "navigation",
+        actionSummary: "Continue + emit event",
         createActions: () => [
           createRuntimeAction("go_to_next_step"),
-          createRuntimeAction("emit_event", defaultRuntimeActionConfigForScope("emit_event", { listener })),
+          createRuntimeAction("emit_event", {
+            ...defaultRuntimeActionConfigForScope("emit_event", { listener }),
+            payload: createSourceEventPayload(),
+          }),
         ],
       });
     }
@@ -4877,9 +5161,21 @@ export default function App() {
         id: `${listener.id}-show-require`,
         label: "Show then require target node",
         description: "Reveal the target node and mark it required as one grouped reaction to this trigger.",
+        category: "visibility",
+        actionSummary: "Show target + mark required",
         createActions: () => [
           createRuntimeAction("show_node", defaultRuntimeActionConfigForScope("show_node", { listener })),
           createRuntimeAction("mark_required", defaultRuntimeActionConfigForScope("mark_required", { listener })),
+        ],
+      });
+      templates.push({
+        id: `${listener.id}-clear-dependent`,
+        label: "Clear dependent answer",
+        description: "Clear a target field value as a grouped reaction to this field event.",
+        category: "data",
+        actionSummary: "Clear field value",
+        createActions: () => [
+          createRuntimeAction("clear_field_value", defaultRuntimeActionConfigForScope("clear_field_value", { listener })),
         ],
       });
     }
@@ -4888,9 +5184,11 @@ export default function App() {
         id: `${listener.id}-submit-audit`,
         label: "Submit dispatch then host audit",
         description: "Keep the authored submit event and host audit request together in one chain.",
+        category: "host",
+        actionSummary: "Emit submit + host submit",
         createActions: () => [
-          createRuntimeAction("emit_event", { eventName: "form.submit.dispatched", payload: {} }),
-          createRuntimeAction("host_action", { handlerKey: "host.audit", payload: {} }),
+          createRuntimeAction("emit_event", { eventName: "form.submit.dispatched", payload: createFormSubmitPayload() }),
+          createRuntimeAction("host_action", { handlerKey: "host.submit", payload: createFormSubmitPayload() }),
         ],
       });
     }
@@ -6146,21 +6444,15 @@ export default function App() {
 
   function addConditionalRule(config?: Partial<ConditionalRule>) {
     const nextIndex = activeBuilderField?.conditionals.length ?? 0;
-    const ruleId = crypto.randomUUID();
+    const nextRule = createConditionalRuleDraft(config?.effect ?? "show", config);
     updateSelectedField((field) => {
-      field.conditionals.push({
-        ruleId,
-        whenFieldId: config?.whenFieldId ?? builderFieldOptions[0]?.id ?? "",
-        operator: config?.operator ?? "equals",
-        expectedValue: config?.expectedValue ?? "",
-        effect: config?.effect ?? "show",
-      });
+      field.conditionals.push(nextRule);
     });
-    pendingBehaviorFocusRef.current = `rule:${ruleId}`;
+    pendingBehaviorFocusRef.current = `rule:${nextRule.ruleId}`;
     setEditingRuleIndex(nextIndex);
     setSelectedBehaviorNode({
       kind: "rule",
-      ruleId,
+      ruleId: nextRule.ruleId,
       phase: config ? "effect" : "condition",
     });
   }
@@ -6170,13 +6462,7 @@ export default function App() {
       return;
     }
     const nextIndex = activeBuilderField?.conditionals.length ?? 0;
-    const nextRules = effects.map((effect) => ({
-      ruleId: crypto.randomUUID(),
-      whenFieldId: config?.whenFieldId ?? builderFieldOptions[0]?.id ?? "",
-      operator: config?.operator ?? "equals",
-      expectedValue: config?.expectedValue ?? "",
-      effect,
-    }));
+    const nextRules = effects.map((effect) => createConditionalRuleDraft(effect, config));
     updateSelectedField((field) => {
       field.conditionals.push(...nextRules);
     });
@@ -6244,6 +6530,70 @@ export default function App() {
     }
     setBehaviorStudioManagerMode("rules");
     finalizeBehaviorStudioCreation();
+  }
+
+  function applyBehaviorRulePreset(presetId: string) {
+    const preset = rulePresets.find((candidate) => candidate.id === presetId);
+    if (!preset || selectedAuthoring?.kind !== "field" || !activeBuilderField) {
+      setMessage("Select a field to create a state rule.");
+      return;
+    }
+
+    const sourceFieldId = defaultConditionalSourceFieldId();
+    const targetFieldId = activeBuilderField.id;
+    const nextIndex = activeBuilderField.conditionals.length;
+    const nextRules = preset.effects.map((effect) =>
+      createConditionalRuleDraft(effect, {
+        whenFieldId: sourceFieldId,
+        operator: preset.operator,
+        expectedValue: preset.expectedValue ?? "",
+      }),
+    );
+    const focusRule = nextRules[0];
+
+    updateAuthoringDocument((document) => {
+      const targetField = findAuthoringFieldById(document, targetFieldId);
+      if (!targetField) {
+        return;
+      }
+      targetField.conditionals.push(...nextRules);
+
+      if (!preset.includeClearValueFlow || !sourceFieldId || sourceFieldId === targetFieldId) {
+        return;
+      }
+
+      const sourceField = findAuthoringFieldById(document, sourceFieldId);
+      if (!sourceField) {
+        return;
+      }
+      sourceField.runtime ??= createRuntimeNodeBehavior();
+      const sourceScope: RuntimeEditorScope = {
+        scopeKind: sourceField.rendererHints.component === "button" ? "component" : "field",
+        label: sourceField.label,
+        description: "Field-level preset flow generated from a rule bundle.",
+        eventSources: sourceField.runtime.eventSources,
+        listeners: sourceField.runtime.listeners,
+      };
+      ensureUniqueEventSource(sourceField.runtime.eventSources, "field.change", sourceScope, sourceField.id);
+      sourceField.runtime.listeners.push(
+        createRuntimeListener(
+          "field.change",
+          [createRuntimeAction("clear_field_value", { fieldId: targetFieldId })],
+          sourceField.id,
+        ),
+      );
+    }, selectedAuthoring);
+
+    pendingBehaviorFocusRef.current = `rule:${focusRule.ruleId}`;
+    setEditingRuleIndex(nextIndex);
+    setSelectedBehaviorNode({
+      kind: "rule",
+      ruleId: focusRule.ruleId,
+      phase: "condition",
+    });
+    setBehaviorStudioManagerMode("rules");
+    finalizeBehaviorStudioCreation();
+    setMessage(`${preset.label} preset added for ${activeBuilderField.label}.`);
   }
 
   function createBlankBehaviorStudioListener(seedAction: "listener" | "event", triggerName = defaultBehaviorTriggerName()) {
@@ -7312,6 +7662,10 @@ export default function App() {
                       <div>
                         <p className="font-semibold text-slate-900">{template.label}</p>
                         <p className="mt-1 text-sm text-slate-600">{template.description}</p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          <span className="app-pill">Then {template.actionSummary}</span>
+                          <span className="app-pill">{behaviorPresetCategoryLabels[template.category]}</span>
+                        </div>
                       </div>
                       <button
                         type="button"
@@ -8311,7 +8665,8 @@ export default function App() {
     const flowPresets = isEventCreation
       ? runtimePresets.filter((preset) => preset.actionKinds.includes("emit_event"))
       : runtimePresets;
-    const recommendedPresetIds = new Set(flowPresets.slice(0, 5).map((preset) => preset.id));
+    const presetCards: Array<BehaviorRulePreset | RuntimePreset> = isRuleCreation ? rulePresets : flowPresets;
+    const recommendedPresetIds = new Set(presetCards.slice(0, 5).map((preset) => preset.id));
     const normalizedPresetSearch = behaviorPresetSearch.trim().toLowerCase();
     const rawTriggerNames = activeRuntimeScope
       ? Array.from(
@@ -8334,17 +8689,18 @@ export default function App() {
         if (category === "recommended" || category === "advanced") {
           return true;
         }
-        return flowPresets.some((preset) => preset.category === category);
+        return presetCards.some((preset) => preset.category === category);
       });
-    const visibleFlowPresets = flowPresets.filter((preset) => {
+    const activePresetCategory = availableCategories.includes(behaviorPresetCategory) ? behaviorPresetCategory : "recommended";
+    const visiblePresets = presetCards.filter((preset) => {
       const matchesSearch =
         !normalizedPresetSearch ||
         [
           preset.label,
           preset.description,
-          preset.triggerName,
           preset.actionSummary,
           behaviorPresetCategoryLabels[preset.category],
+          isRuntimePreset(preset) ? preset.triggerName : preset.effects.map((effect) => formatLabel(effect)).join(" "),
         ]
           .join(" ")
           .toLowerCase()
@@ -8355,18 +8711,18 @@ export default function App() {
       if (normalizedPresetSearch) {
         return true;
       }
-      if (behaviorPresetCategory === "recommended") {
+      if (activePresetCategory === "recommended") {
         return recommendedPresetIds.has(preset.id);
       }
-      if (behaviorPresetCategory === "advanced") {
+      if (activePresetCategory === "advanced") {
         return false;
       }
-      return preset.category === behaviorPresetCategory;
+      return preset.category === activePresetCategory;
     });
     const visibleRawTriggers = rawTriggerNames.filter((triggerName) =>
       !normalizedPresetSearch || triggerName.toLowerCase().includes(normalizedPresetSearch) || formatLabel(triggerName).toLowerCase().includes(normalizedPresetSearch),
     );
-    const shouldShowRawTriggers = behaviorPresetCategory === "advanced" || (normalizedPresetSearch.length > 0 && visibleFlowPresets.length === 0);
+    const shouldShowAdvancedChoices = activePresetCategory === "advanced" || (normalizedPresetSearch.length > 0 && visiblePresets.length === 0);
     const title =
       behaviorStudioCreationKind === "rule"
         ? "Create rule"
@@ -8401,70 +8757,58 @@ export default function App() {
           </span>
         </div>
 
-        {isRuleCreation ? (
-          selectedAuthoring?.kind === "field" && activeBuilderField ? (
-            <div className="mt-3 space-y-2">
-              <p className="text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-slate-500">Recommended starters</p>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {[
-                  { id: "show-require", label: "Show and require", detail: "Most common: reveal the field and require it from one condition.", starter: { mode: "bundle" as const, effects: ["show", "require"] as ConditionalRule["effect"][] } },
-                  { id: "require", label: "Require when", detail: "Make this field required only when another answer matches.", starter: { mode: "single" as const, effect: "require" as const } },
-                  { id: "show", label: "Show or hide", detail: "Control whether this field is visible.", starter: { mode: "single" as const, effect: "show" as const } },
-                  { id: "disable", label: "Enable or disable", detail: "Control whether this field can be edited.", starter: { mode: "single" as const, effect: "disable" as const } },
-                ].map((option) => (
-                  <button
-                    key={`creation-rule-${option.id}`}
-                    type="button"
-                    onClick={() => applyBehaviorRuleStarter(option.starter)}
-                    className="rounded-[0.85rem] border border-blue-200 bg-white px-3 py-2.5 text-left transition hover:border-blue-400 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-                  >
-                    <p className="text-sm font-semibold text-slate-950">{option.label}</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-600">{option.detail}</p>
-                  </button>
-                ))}
+        {isRuleCreation && !(selectedAuthoring?.kind === "field" && activeBuilderField) ? (
+          <div className="app-muted-card mt-3 p-4 text-sm text-slate-500">Select a field before creating a state rule.</div>
+        ) : !isRuleCreation && !activeRuntimeScope ? (
+          <div className="app-muted-card mt-3 p-4 text-sm text-slate-500">Select a form, button, or interactive field before creating a listener.</div>
+        ) : (
+          <div className="relative z-10 mt-3 rounded-[0.9rem] border border-blue-100 bg-white/80 p-2.5">
+            <div className="grid gap-2 md:grid-cols-[minmax(11rem,15rem)_minmax(0,1fr)]">
+              <div>
+                <label htmlFor="behavior-preset-category" className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Preset type
+                </label>
+                <select
+                  id="behavior-preset-category"
+                  value={activePresetCategory}
+                  onChange={(event) => setBehaviorPresetCategory(event.target.value as BehaviorPresetCategory)}
+                  className="mt-1 w-full rounded-[0.8rem] border border-soft bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                >
+                  {availableCategories.map((category) => (
+                    <option key={`behavior-preset-category-${category}`} value={category}>
+                      {behaviorPresetCategoryLabels[category]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="behavior-preset-search" className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Search
+                </label>
+                <input
+                  id="behavior-preset-search"
+                  type="search"
+                  value={behaviorPresetSearch}
+                  onChange={(event) => setBehaviorPresetSearch(event.target.value)}
+                  placeholder={isRuleCreation ? "Search rule presets..." : "Search presets or triggers..."}
+                  className="mt-1 w-full rounded-[0.8rem] border border-soft bg-white px-3 py-2 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
               </div>
             </div>
-          ) : (
-            <div className="app-muted-card mt-3 p-4 text-sm text-slate-500">Select a field before creating a state rule.</div>
-          )
-        ) : activeRuntimeScope ? (
-          <div className="relative z-10 mt-3 rounded-[0.9rem] border border-blue-100 bg-white/80 p-2.5">
-            <label htmlFor="behavior-preset-search" className="sr-only">
-              Search behavior presets or raw triggers
-            </label>
-            <input
-              id="behavior-preset-search"
-              type="search"
-              value={behaviorPresetSearch}
-              onChange={(event) => setBehaviorPresetSearch(event.target.value)}
-              placeholder="Search presets or triggers..."
-              className="w-full rounded-[0.8rem] border border-soft bg-white px-3 py-2 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-            />
-            <div className="mt-2 flex flex-wrap gap-1.5" role="toolbar" aria-label="Behavior preset categories">
-              {availableCategories.map((category) => (
-                <button
-                  key={`behavior-preset-category-${category}`}
-                  type="button"
-                  aria-pressed={behaviorPresetCategory === category}
-                  onClick={() => setBehaviorPresetCategory(category)}
-                  className={`rounded-full border px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.14em] transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
-                    behaviorPresetCategory === category
-                      ? "border-blue-500 bg-blue-600 text-white shadow-sm"
-                      : "border-soft bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"
-                  }`}
-                >
-                  {behaviorPresetCategoryLabels[category]}
-                </button>
-              ))}
-            </div>
             <div className="mt-2">
-              {!shouldShowRawTriggers ? (
+              {!shouldShowAdvancedChoices ? (
                 <div className="grid gap-2">
-                  {visibleFlowPresets.map((preset) => (
+                  {visiblePresets.map((preset) => (
                     <button
-                      key={`creation-flow-${preset.id}`}
+                      key={`creation-preset-${preset.id}`}
                       type="button"
-                      onClick={() => applyBehaviorFlowPreset(preset.id)}
+                      onClick={() => {
+                        if (isRuntimePreset(preset)) {
+                          applyBehaviorFlowPreset(preset.id);
+                        } else {
+                          applyBehaviorRulePreset(preset.id);
+                        }
+                      }}
                       className="rounded-[0.85rem] border border-blue-200 bg-white px-3 py-2.5 text-left transition hover:border-blue-400 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -8475,17 +8819,39 @@ export default function App() {
                         {recommendedPresetIds.has(preset.id) ? <span className="app-pill shrink-0">Suggested</span> : null}
                       </div>
                       <div className="mt-2 flex flex-wrap gap-1.5">
-                        <span className="app-pill">When {formatLabel(preset.triggerName)}</span>
+                        <span className="app-pill">
+                          {isRuntimePreset(preset) ? `When ${formatLabel(preset.triggerName)}` : "When answer matches"}
+                        </span>
                         <span className="app-pill">Then {preset.actionSummary}</span>
                         <span className="app-pill">{behaviorPresetCategoryLabels[preset.category]}</span>
+                        {!isRuntimePreset(preset) && preset.includeClearValueFlow ? <span className="app-pill">Adds clear action</span> : null}
                       </div>
                     </button>
                   ))}
-                  {!visibleFlowPresets.length ? (
+                  {!visiblePresets.length ? (
                     <div className="app-muted-card p-3 text-sm text-slate-500">
-                      No matching presets. Use Advanced to choose an exact trigger and build the chain manually.
+                      {isRuleCreation
+                        ? "No matching presets. Choose Advanced to start a custom rule."
+                        : "No matching presets. Choose Advanced to pick an exact trigger and build the chain manually."}
                     </div>
                   ) : null}
+                </div>
+              ) : isRuleCreation ? (
+                <div className="grid gap-2">
+                  <div className="rounded-[0.85rem] border border-dashed border-blue-200 bg-blue-50/70 px-3 py-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Custom rule</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-600">
+                      Advanced mode starts from a blank editable state rule. Choose the source, condition, and effect after it opens.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => applyBehaviorRuleStarter({ mode: "single" })}
+                    className="rounded-[0.85rem] border border-blue-200 bg-white px-3 py-2.5 text-left transition hover:border-blue-400 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                  >
+                    <p className="text-sm font-semibold text-slate-950">Start custom state rule</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-600">Create one editable rule without applying a bundled preset.</p>
+                  </button>
                 </div>
               ) : (
                 <div className="grid gap-2">
@@ -8516,19 +8882,25 @@ export default function App() {
             </div>
             <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-[0.8rem] border border-soft bg-slate-50 px-3 py-2">
               <p className="text-xs leading-5 text-slate-600">
-                Start from intent first; use Advanced only when you need the exact runtime trigger.
+                {isRuleCreation
+                  ? "Start from intent first; use Advanced only when you need a custom state rule."
+                  : "Start from intent first; use Advanced only when you need the exact runtime trigger."}
               </p>
               <button
                 type="button"
-                onClick={() => createBlankBehaviorStudioListener(isEventCreation ? "event" : "listener")}
+                onClick={() => {
+                  if (isRuleCreation) {
+                    applyBehaviorRuleStarter({ mode: "single" });
+                  } else {
+                    createBlankBehaviorStudioListener(isEventCreation ? "event" : "listener");
+                  }
+                }}
                 className={actionButtonClass("secondary")}
               >
-                {isEventCreation ? "Custom event flow" : "Custom listener"}
+                {isRuleCreation ? "Custom rule" : isEventCreation ? "Custom event flow" : "Custom listener"}
               </button>
             </div>
           </div>
-        ) : (
-          <div className="app-muted-card mt-3 p-4 text-sm text-slate-500">Select a form, button, or interactive field before creating a listener.</div>
         )}
       </div>
     );

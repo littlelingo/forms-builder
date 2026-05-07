@@ -207,8 +207,12 @@
 - Added a compact Behavior Studio preset picker in [apps/web/src/App.tsx](/Users/clint/Workspace/forms-builder/apps/web/src/App.tsx):
   - listener and event creation now starts from searchable intent-based presets grouped by `Recommended`, `Visibility`, `Validation`, `Data`, `Navigation`, and `Host`
   - `Advanced` now acts as the explicit raw-trigger escape hatch rather than exposing the raw trigger list as the default authoring path
-  - the picker uses stable wrapped category chips instead of a cramped horizontal strip, fixing the browser click interception seen in the anchored Studio shell
+  - the picker now uses a labeled native `Preset type` dropdown instead of category buttons, keeping the selection control visible in the Behavior Studio window
+  - `Preset type` filters the preset cards underneath, while the adjacent search field narrows either presets or raw triggers
   - selecting a preset creates the scoped runtime listener/event flow and opens the focused chain composer without saving the project
+  - rule creation now uses the same searchable preset picker instead of hard-coded starter buttons, with core bundles for show/require, show, hide, hide-and-clear, require, disable, and a custom Advanced path
+  - flow presets and common action-chain templates now seed practical payload defaults with runtime references for field changes, host lookup, form load/prefill, submit, validation failure, step lifecycle, and source-node context
+  - `clear_field_value` and rule source defaults now prefer interactive fields near the current selection instead of falling back to the first imported statement in the document
 - Re-centered and resized the Behavior Studio shell in [apps/web/src/App.tsx](/Users/clint/Workspace/forms-builder/apps/web/src/App.tsx):
   - compact create/manage/test modes now open as a centered viewport workbench instead of trying to anchor to the clicked toolbar button
   - the default Studio target is wider and taller while still capped to the viewport
@@ -240,13 +244,21 @@
 - Latest command pass:
   - `npm run typecheck:web`
   - `npm run build:web`
+  - `npm run test:runtime`
+  - live browser pass on `http://127.0.0.1:5173/` validating rule creation now shows the shared `Preset type`/search picker with rule bundles, and `Hide and clear dependent value` creates an editable hide rule plus associated clear-flow count
+  - live browser pass validating field event-flow creation shows scoped event/action presets and `Emit then request host action` opens the focused chain composer with structured runtime-ref payload rows for both emit and host actions
+  - result: passed
+- Previous latest command pass:
+  - `npm run typecheck:web`
+  - `npm run build:web`
   - live browser pass on `http://localhost:5173/` validating the new Behavior Studio listener preset picker on the selected step toolbar
   - live browser pass validating `Advanced` raw-trigger mode opens cleanly from the anchored Studio shell without click interception
   - live browser pass validating `Emit event when step opens` creates a scoped `step.enter` listener, marks the project dirty, and opens the focused chain composer
   - live browser pass validating the centered, wider/taller Behavior Studio shell opens from the step toolbar and category chips still switch between `Recommended` and `Advanced`
   - live browser measurement validating the Behavior Studio overlay is mounted under `document.body`, the page remains at `window.scrollY = 0` after open, and the dialog center is exactly aligned to the `1280x720` viewport center
+  - live browser pass validating the listener creation picker now shows a visible `Preset type` combobox plus search row, `Data` filters to data presets, and `Advanced` populates exact raw triggers underneath
   - result: passed
-- Previous latest command pass:
+- Earlier command pass:
   - `npm run typecheck:web`
   - `npm run build:web`
   - live browser pass on `http://localhost:5173/` validating component-card chrome no longer duplicates the full field label
