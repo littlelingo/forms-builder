@@ -73,7 +73,6 @@ function createDocument(): AuthoringDocument {
                 confidence: 1,
                 options: [],
                 validations: [],
-                conditionals: [],
                 layoutHints: {},
                 rendererHints: {},
                 sourcePriority: [],
@@ -93,7 +92,6 @@ function createDocument(): AuthoringDocument {
                 confidence: 1,
                 options: [],
                 validations: [],
-                conditionals: [],
                 layoutHints: {},
                 rendererHints: {
                   component: "button",
@@ -121,7 +119,7 @@ function createDocument(): AuthoringDocument {
                       eventName: "component.click",
                       sourceNodeId: "button-next",
                       enabled: true,
-                      ruleGuards: [],
+                      conditions: [],
                       actions: [
                         {
                           id: "action-button-next",
@@ -145,7 +143,6 @@ function createDocument(): AuthoringDocument {
                 confidence: 1,
                 options: [],
                 validations: [],
-                conditionals: [],
                 layoutHints: {},
                 rendererHints: {
                   component: "button",
@@ -172,7 +169,7 @@ function createDocument(): AuthoringDocument {
                       eventName: "component.click",
                       sourceNodeId: "button-explicit-event",
                       enabled: true,
-                      ruleGuards: [],
+                      conditions: [],
                       actions: [
                         {
                           id: "action-explicit-button",
@@ -224,7 +221,6 @@ function createDocument(): AuthoringDocument {
                 confidence: 1,
                 options: [],
                 validations: [],
-                conditionals: [],
                 layoutHints: {},
                 rendererHints: {
                   component: "button",
@@ -251,7 +247,7 @@ function createDocument(): AuthoringDocument {
                       eventName: "component.click",
                       sourceNodeId: "button-submit",
                       enabled: true,
-                      ruleGuards: [],
+                      conditions: [],
                       actions: [
                         {
                           id: "action-button-submit",
@@ -572,7 +568,7 @@ test("runtime payload references resolve against live session context", () => {
         eventName: "field.change",
         sourceNodeId: "field-name",
         enabled: true,
-        ruleGuards: [],
+        conditions: [],
         actions: [
           {
             id: "action-field-change-runtime-payload",
@@ -664,21 +660,11 @@ test("runtime payload references resolve against live session context", () => {
   );
 });
 
-test("disabled conditional rules do not gate runtime listeners", () => {
+test("disabled inline listener conditions do not gate runtime listeners", () => {
   const document = createDocument();
   const field = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "field-name");
   assert.ok(field);
 
-  field.conditionals = [
-    {
-      ruleId: "rule-disabled-guard",
-      whenFieldId: "field-name",
-      operator: "equals",
-      expectedValue: "allowed",
-      effect: "show",
-      enabled: false,
-    },
-  ];
   field.runtime = {
     eventSources: [
       {
@@ -695,7 +681,15 @@ test("disabled conditional rules do not gate runtime listeners", () => {
         eventName: "field.change",
         sourceNodeId: "field-name",
         enabled: true,
-        ruleGuards: [{ ruleId: "rule-disabled-guard" }],
+        conditions: [
+          {
+            id: "condition-disabled",
+            enabled: false,
+            source: { kind: "field_value", fieldId: "field-name" },
+            operator: "equals",
+            expectedValue: "allowed",
+          },
+        ],
         actions: [
           {
             id: "action-disabled-rule-guard",
@@ -727,6 +721,144 @@ test("disabled conditional rules do not gate runtime listeners", () => {
   assert.deepEqual(emittedEvent.event.payload, { source: "disabled-rule" });
 });
 
+test("field value listener conditions gate action chains", () => {
+  const document = createDocument();
+  const field = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "field-name");
+  assert.ok(field);
+
+  field.runtime = {
+    eventSources: [
+      {
+        id: "event-field-condition",
+        name: "field.change",
+        sourceNodeId: "field-name",
+        sourceNodeType: "field",
+      },
+    ],
+    listeners: [
+      {
+        id: "listener-field-condition",
+        label: "Emit only when field value matches",
+        eventName: "field.change",
+        sourceNodeId: "field-name",
+        enabled: true,
+        conditions: [
+          {
+            id: "condition-field-allowed",
+            enabled: true,
+            source: { kind: "field_value", fieldId: "field-name" },
+            operator: "equals",
+            expectedValue: "allowed",
+          },
+        ],
+        actions: [
+          {
+            id: "action-field-condition",
+            kind: "dispatch_event",
+            target: { nodeId: "field-name", nodeType: "field" },
+            config: {
+              eventType: "field.allowed",
+              payload: { source: "field-condition" },
+            },
+            continueOnError: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  engine.dispatch(fieldChangeEvent("field-name", "blocked"));
+  assert.equal(engine.getTrace().filter((entry) => entry.event.type === "field.allowed").length, 0);
+
+  engine.dispatch(fieldChangeEvent("field-name", "allowed"));
+  assert.equal(engine.getTrace().filter((entry) => entry.event.type === "field.allowed").length, 1);
+});
+
+test("event payload listener conditions can inspect checkbox group payloads", () => {
+  const document = createDocument();
+  const field = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "field-name");
+  assert.ok(field);
+
+  field.runtime = {
+    eventSources: [
+      {
+        id: "event-checkbox-condition",
+        name: "checkboxGroup.change",
+        sourceNodeId: "field-name",
+        sourceNodeType: "field",
+      },
+    ],
+    listeners: [
+      {
+        id: "listener-checkbox-condition",
+        label: "Emit only when selected values contain education",
+        eventName: "checkboxGroup.change",
+        sourceNodeId: "field-name",
+        enabled: true,
+        conditions: [
+          {
+            id: "condition-selected-values",
+            enabled: true,
+            source: { kind: "event_payload", path: "selectedValues" },
+            operator: "contains",
+            expectedValue: "education",
+          },
+        ],
+        actions: [
+          {
+            id: "action-checkbox-condition",
+            kind: "dispatch_event",
+            target: { nodeId: "field-name", nodeType: "field" },
+            config: {
+              eventType: "checkbox.education_selected",
+              payload: { source: "checkbox-condition" },
+            },
+            continueOnError: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  engine.dispatch({
+    ...fieldChangeEvent("field-name", ["pension"]),
+    type: "checkboxGroup.change",
+    payload: {
+      fieldId: "field-name",
+      selectedValues: ["pension"],
+      nextValue: ["pension"],
+    },
+  });
+  assert.equal(engine.getTrace().filter((entry) => entry.event.type === "checkbox.education_selected").length, 0);
+
+  engine.dispatch({
+    ...fieldChangeEvent("field-name", ["pension", "education"]),
+    type: "checkboxGroup.change",
+    payload: {
+      fieldId: "field-name",
+      selectedValues: ["pension", "education"],
+      nextValue: ["pension", "education"],
+    },
+  });
+  assert.equal(engine.getTrace().filter((entry) => entry.event.type === "checkbox.education_selected").length, 1);
+});
+
 test("AS3-style dispatch runs capture, target, and bubble listeners with event context", () => {
   const document = createDocument();
   const section = document.steps[0]?.sections[0];
@@ -744,7 +876,7 @@ test("AS3-style dispatch runs capture, target, and bubble listeners with event c
     priority: 0,
     eventName: "checkboxGroup.change",
     enabled: true,
-    ruleGuards: [],
+    conditions: [],
     actions: [
       {
         id: "action-form-capture",
@@ -775,7 +907,7 @@ test("AS3-style dispatch runs capture, target, and bubble listeners with event c
         priority: 0,
         eventName: "checkboxGroup.change",
         enabled: true,
-        ruleGuards: [],
+        conditions: [],
         actions: [
           {
             id: "action-section-bubble-low",
@@ -801,7 +933,7 @@ test("AS3-style dispatch runs capture, target, and bubble listeners with event c
         priority: 10,
         eventName: "checkboxGroup.change",
         enabled: true,
-        ruleGuards: [],
+        conditions: [],
         actions: [
           {
             id: "action-section-bubble-high",
@@ -833,7 +965,7 @@ test("AS3-style dispatch runs capture, target, and bubble listeners with event c
         priority: 0,
         eventName: "checkboxGroup.change",
         enabled: true,
-        ruleGuards: [],
+        conditions: [],
         actions: [
           {
             id: "action-field-target",
@@ -927,7 +1059,7 @@ test("non-bubbling events do not invoke ancestor bubble listeners", () => {
         priority: 0,
         eventName: "checkboxGroup.change",
         enabled: true,
-        ruleGuards: [],
+        conditions: [],
         actions: [
           {
             id: "action-section-bubble",
@@ -972,4 +1104,97 @@ test("non-bubbling events do not invoke ancestor bubble listeners", () => {
   });
 
   assert.equal(engine.getTrace().some((entry) => entry.event.type === "bubble.should_not_fire"), false);
+});
+
+test("cross-item listeners stored on a target node can listen at a shared dispatcher", () => {
+  const document = createDocument();
+  const section = document.steps[0]?.sections[0];
+  assert.ok(section);
+  section.fields.push({
+    id: "field-radio",
+    stableKey: "field-radio",
+    label: "Benefit priority",
+    helpText: null,
+    semanticType: "radio",
+    required: false,
+    confidence: 1,
+    options: [
+      { value: "health", label: "Health care", orderIndex: 0, selectedByDefault: false, evidence: [] },
+      { value: "education", label: "Education", orderIndex: 1, selectedByDefault: false, evidence: [] },
+    ],
+    validations: [],
+    layoutHints: {},
+    rendererHints: {},
+    sourcePriority: [],
+    sourceConflicts: [],
+    lineage: [],
+    sourceFieldIds: [],
+    provenanceAnchorIds: [],
+    runtime: {
+      eventSources: [],
+      listeners: [
+        {
+          id: "listener-radio-reacts-to-checkbox",
+          label: "Radio reacts to checkbox",
+          type: "checkboxGroup.change",
+          dispatcherId: "section-1",
+          dispatcherType: "section",
+          eventSourceNodeId: "field-name",
+          eventSourceNodeType: "field",
+          eventSourceLabel: "Applicant name",
+          targetNodeId: "field-radio",
+          targetNodeType: "field",
+          wiringMode: "cross_item",
+          useCapture: false,
+          priority: 0,
+          eventName: "checkboxGroup.change",
+          sourceNodeId: "field-radio",
+          enabled: true,
+          conditions: [],
+          actions: [
+            {
+              id: "action-set-radio",
+              kind: "set_field_value",
+              target: { nodeId: "field-radio", nodeType: "field" },
+              config: { fieldId: "field-radio", value: "education" },
+              continueOnError: false,
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const result = engine.dispatch({
+    type: "checkboxGroup.change",
+    version: "1.0",
+    target: {
+      runtimeId: "runtime-test",
+      formId: "form-test",
+      projectId: "project-test",
+      nodeId: "field-name",
+      nodeType: "field",
+    },
+    source: {
+      runtimeId: "runtime-test",
+      formId: "form-test",
+      projectId: "project-test",
+      nodeId: "field-name",
+      nodeType: "field",
+    },
+    bubbles: true,
+    payload: { fieldId: "field-name", nextValue: ["education"] },
+    correlationId: "corr-cross-item",
+    timestamp: "2026-05-01T12:00:32.000Z",
+  });
+
+  assert.equal(result.values["field-radio"], "education");
 });

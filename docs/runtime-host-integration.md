@@ -19,6 +19,9 @@ integration wiring.
 
 The runtime and host communicate through a structured event envelope.
 
+The full core event catalog is documented in
+[Runtime Item Event Reference](./runtime-event-reference.md).
+
 The runtime:
 
 - loads authored form JSON

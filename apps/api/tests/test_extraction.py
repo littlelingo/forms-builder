@@ -1799,7 +1799,6 @@ def test_order_section_items_preserves_global_order_when_groups_consolidate():
                     review_status=ReviewStatus.NEEDS_REVIEW,
                     options=[],
                     validations=[],
-                    conditionals=[],
                     renderer_hints={},
                 )
             ],
@@ -1842,7 +1841,6 @@ def test_order_section_items_preserves_global_order_when_groups_consolidate():
                     review_status=ReviewStatus.NEEDS_REVIEW,
                     options=[],
                     validations=[],
-                    conditionals=[],
                     renderer_hints={},
                 )
             ],
@@ -1868,7 +1866,6 @@ def test_order_section_items_preserves_global_order_when_groups_consolidate():
             review_status=ReviewStatus.NEEDS_REVIEW,
             options=[],
             validations=[],
-            conditionals=[],
             renderer_hints={},
         ),
         FieldNode(
@@ -1889,7 +1886,6 @@ def test_order_section_items_preserves_global_order_when_groups_consolidate():
             review_status=ReviewStatus.NEEDS_REVIEW,
             options=[],
             validations=[],
-            conditionals=[],
             renderer_hints={},
         ),
         FieldNode(
@@ -1910,7 +1906,6 @@ def test_order_section_items_preserves_global_order_when_groups_consolidate():
             review_status=ReviewStatus.NEEDS_REVIEW,
             options=[],
             validations=[],
-            conditionals=[],
             renderer_hints={},
         ),
     ]
@@ -2006,7 +2001,6 @@ def test_order_section_items_uses_parent_heading_to_sort_mixed_subitems():
         review_status=ReviewStatus.NEEDS_REVIEW,
         options=[],
         validations=[],
-        conditionals=[],
         renderer_hints={},
     )
 
@@ -2068,7 +2062,6 @@ def test_order_section_items_assigns_global_unique_order_indexes():
             review_status=ReviewStatus.NEEDS_REVIEW,
             options=[],
             validations=[],
-            conditionals=[],
             renderer_hints={},
         ),
         FieldNode(
@@ -2089,7 +2082,6 @@ def test_order_section_items_assigns_global_unique_order_indexes():
             review_status=ReviewStatus.NEEDS_REVIEW,
             options=[],
             validations=[],
-            conditionals=[],
             renderer_hints={},
         ),
         FieldNode(
@@ -2110,7 +2102,6 @@ def test_order_section_items_assigns_global_unique_order_indexes():
             review_status=ReviewStatus.NEEDS_REVIEW,
             options=[],
             validations=[],
-            conditionals=[],
             renderer_hints={},
         ),
     ]
@@ -2162,7 +2153,6 @@ def test_order_section_items_attaches_same_numbered_fields_into_statement_groups
                     review_status=ReviewStatus.NEEDS_REVIEW,
                     options=[],
                     validations=[],
-                    conditionals=[],
                     renderer_hints={},
                 )
             ],
@@ -2196,7 +2186,6 @@ def test_order_section_items_attaches_same_numbered_fields_into_statement_groups
                     review_status=ReviewStatus.NEEDS_REVIEW,
                     options=[],
                     validations=[],
-                    conditionals=[],
                     renderer_hints={},
                 )
             ],
@@ -2222,7 +2211,6 @@ def test_order_section_items_attaches_same_numbered_fields_into_statement_groups
             review_status=ReviewStatus.NEEDS_REVIEW,
             options=[],
             validations=[],
-            conditionals=[],
             renderer_hints={},
         ),
         FieldNode(
@@ -2243,7 +2231,6 @@ def test_order_section_items_attaches_same_numbered_fields_into_statement_groups
             review_status=ReviewStatus.NEEDS_REVIEW,
             options=[],
             validations=[],
-            conditionals=[],
             renderer_hints={},
         ),
         FieldNode(
@@ -2264,7 +2251,6 @@ def test_order_section_items_attaches_same_numbered_fields_into_statement_groups
             review_status=ReviewStatus.NEEDS_REVIEW,
             options=[],
             validations=[],
-            conditionals=[],
             renderer_hints={},
         ),
         FieldNode(
@@ -2285,7 +2271,6 @@ def test_order_section_items_attaches_same_numbered_fields_into_statement_groups
             review_status=ReviewStatus.NEEDS_REVIEW,
             options=[],
             validations=[],
-            conditionals=[],
             renderer_hints={},
         ),
     ]
@@ -2323,7 +2308,6 @@ def test_order_section_items_synthesizes_groups_for_repeated_numbered_fields():
             review_status=ReviewStatus.NEEDS_REVIEW,
             options=[],
             validations=[],
-            conditionals=[],
             renderer_hints={},
         ),
         FieldNode(
@@ -2344,7 +2328,6 @@ def test_order_section_items_synthesizes_groups_for_repeated_numbered_fields():
             review_status=ReviewStatus.NEEDS_REVIEW,
             options=[],
             validations=[],
-            conditionals=[],
             renderer_hints={},
         ),
         FieldNode(
@@ -2365,7 +2348,6 @@ def test_order_section_items_synthesizes_groups_for_repeated_numbered_fields():
             review_status=ReviewStatus.NEEDS_REVIEW,
             options=[],
             validations=[],
-            conditionals=[],
             renderer_hints={},
         ),
         FieldNode(
@@ -2386,7 +2368,6 @@ def test_order_section_items_synthesizes_groups_for_repeated_numbered_fields():
             review_status=ReviewStatus.NEEDS_REVIEW,
             options=[],
             validations=[],
-            conditionals=[],
             renderer_hints={},
         ),
     ]
@@ -2424,7 +2405,6 @@ def test_order_section_items_suppresses_standalone_currency_markers():
             review_status=ReviewStatus.NEEDS_REVIEW,
             options=[],
             validations=[],
-            conditionals=[],
             renderer_hints={},
         ),
         FieldNode(
@@ -2445,7 +2425,6 @@ def test_order_section_items_suppresses_standalone_currency_markers():
             review_status=ReviewStatus.NEEDS_REVIEW,
             options=[],
             validations=[],
-            conditionals=[],
             renderer_hints={},
         ),
         FieldNode(
@@ -2466,7 +2445,6 @@ def test_order_section_items_suppresses_standalone_currency_markers():
             review_status=ReviewStatus.NEEDS_REVIEW,
             options=[],
             validations=[],
-            conditionals=[],
             renderer_hints={},
         ),
     ]

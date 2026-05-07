@@ -12,7 +12,6 @@ import type {
   AuthoringProjectRecord,
   AuthoringSection,
   AuthoringStep,
-  ConditionalRule,
   Coordinates,
   FieldNode,
   GroupNode,
@@ -22,18 +21,20 @@ import type {
   ReviewStatus,
   RuntimeActionDefinition,
   RuntimeActionKind,
+  RuntimeConditionDefinition,
   RuntimeDocumentBehavior,
   RuntimeEventEnvelope,
   RuntimeEventDefinition,
   RuntimeListenerDefinition,
   RuntimeNodeBehavior,
+  RuntimeNodeType,
   RuntimeNodeState,
   RuntimePayloadMode,
   RuntimeSessionState,
   SemanticType,
   SectionNode,
 } from "@form-builder/schema";
-import { runtimeCoreEventsForDispatcher } from "@form-builder/schema";
+import { runtimeCoreEventTypes, runtimeCoreEventsForDispatcher } from "@form-builder/schema";
 import { PanelCard, StatusBadge } from "@form-builder/ui";
 
 import {
@@ -74,7 +75,8 @@ type ReviewFlowMode = "new_project" | "resume_import";
 type WorkspaceLandingMode = "promoted_import" | "reopened_import";
 type InspectorTab = "properties" | "behavior" | "map";
 type BuilderFieldTypeOption = SemanticType | "action_button";
-type BehaviorPresetCategory = "recommended" | "visibility" | "validation" | "data" | "navigation" | "host" | "advanced";
+type BehaviorPresetCategory = "recommended" | "source" | "visibility" | "validation" | "data" | "navigation" | "host" | "advanced";
+type BehaviorPresetGroupCategory = Exclude<BehaviorPresetCategory, "recommended" | "source" | "advanced">;
 
 interface RuntimeEditorScope {
   scopeKind: "form" | "step" | "section" | "group" | "field" | "component";
@@ -88,16 +90,75 @@ interface BehaviorPresetBase {
   id: string;
   label: string;
   description: string;
-  category: Exclude<BehaviorPresetCategory, "recommended" | "advanced">;
+  category: BehaviorPresetGroupCategory;
   actionSummary: string;
   componentLabel?: string;
 }
 
-interface BehaviorRulePreset extends BehaviorPresetBase {
-  effects: ConditionalRule["effect"][];
-  operator: ConditionalRule["operator"];
+interface RuntimeSourceEventOption {
+  type: string;
+  label: string;
+  bubbles: boolean;
+}
+
+interface RuntimeEventSourceCandidate {
+  id: string;
+  nodeType: RuntimeNodeType;
+  label: string;
+  componentLabel: string;
+  locationLabel: string;
+  semanticType?: SemanticType | null;
+  pathIds: string[];
+  events: RuntimeSourceEventOption[];
+}
+
+interface CrossItemActionStarter {
+  id: string;
+  label: string;
+  description: string;
+  actionSummary: string;
+  createActions: () => RuntimeActionDefinition[];
+}
+
+interface LegacyConditionalRule {
+  ruleId: string;
+  whenFieldId: string;
+  operator: RuntimeConditionDefinition["operator"];
   expectedValue?: string;
-  includeClearValueFlow?: boolean;
+  effect: "show" | "hide" | "require" | "disable";
+  enabled?: boolean;
+}
+
+interface LogicMapConditionalEntry {
+  id: string;
+  title: string;
+  detail: string;
+  scopeLabel: string;
+  sourceFieldLabel: string;
+  sourceFieldId: string;
+  targetFieldLabel: string;
+  targetFieldId: string;
+  effectLabel: string;
+  enabled: boolean;
+  stepId: string;
+  sectionId: string;
+  sourceSelection: AuthoringSelection;
+  ruleIndex: number;
+  graphSelection: BehaviorGraphSelection;
+}
+
+interface LegacyConditionalRuleGroupMember {
+  rule: LegacyConditionalRule;
+  index: number;
+}
+
+interface LegacyConditionalRuleGroup {
+  key: string;
+  sourceFieldLabel: string;
+  conditionTitle: string;
+  conditionDetail: string;
+  effectsSummary: string;
+  members: LegacyConditionalRuleGroupMember[];
 }
 
 interface RuntimePreset extends BehaviorPresetBase {
@@ -210,7 +271,7 @@ type BehaviorGraphMode = "focus" | "overview";
 type BehaviorGraphDensity = "comfortable" | "dense";
 type BehaviorStudioView = "studio" | "advanced";
 type BehaviorStudioMode = "create" | "manage" | "test" | "graph";
-type BehaviorStudioManagerMode = "all" | "rules" | "flows" | "index";
+type BehaviorStudioManagerMode = "all" | "conditions" | "flows" | "index";
 type BehaviorStudioCreationKind = "rule" | "listener" | "event";
 type BehaviorStudioAnchor = {
   top: number;
@@ -234,24 +295,6 @@ type DocumentBehaviorClusterFamily = Exclude<DocumentBehaviorClusterFocus, "all"
 type DocumentBehaviorCanvasDensity = "comfortable" | "dense";
 type DocumentBehaviorExpandedTarget = "form" | string | null;
 type BehaviorWorkspaceMode = "authoring" | "document_graph";
-
-interface LogicMapConditionalEntry {
-  id: string;
-  title: string;
-  detail: string;
-  scopeLabel: string;
-  sourceFieldLabel: string;
-  sourceFieldId: string;
-  targetFieldLabel: string;
-  targetFieldId: string;
-  effectLabel: string;
-  enabled: boolean;
-  stepId: string;
-  sectionId: string;
-  sourceSelection: AuthoringSelection;
-  ruleIndex: number;
-  graphSelection: BehaviorGraphSelection;
-}
 
 interface LogicMapListenerEntry {
   id: string;
@@ -287,7 +330,7 @@ interface LogicMapStepEntry {
   selection: AuthoringSelection;
   sectionCount: number;
   fieldCount: number;
-  conditionalRules: LogicMapConditionalEntry[];
+  conditionalBehavior: LogicMapConditionalEntry[];
   runtimeListeners: LogicMapListenerEntry[];
 }
 
@@ -296,23 +339,9 @@ interface BehaviorScopeCluster {
   title: string;
   kindLabel: string;
   detail: string;
-  rules: LogicMapConditionalEntry[];
+  conditions: LogicMapConditionalEntry[];
   listeners: LogicMapListenerEntry[];
   selection: AuthoringSelection | null;
-}
-
-interface ConditionalRuleGroupMember {
-  rule: ConditionalRule;
-  index: number;
-}
-
-interface ConditionalRuleGroup {
-  key: string;
-  sourceFieldLabel: string;
-  conditionTitle: string;
-  conditionDetail: string;
-  effectsSummary: string;
-  members: ConditionalRuleGroupMember[];
 }
 
 interface DocumentBehaviorClusterGroupSummary {
@@ -329,7 +358,7 @@ interface RuntimeActionChainTemplate {
   id: string;
   label: string;
   description: string;
-  category: Exclude<BehaviorPresetCategory, "recommended" | "advanced">;
+  category: BehaviorPresetGroupCategory;
   actionSummary: string;
   createActions: () => RuntimeActionDefinition[];
 }
@@ -408,23 +437,11 @@ const runtimeActionOptions: Array<{ value: RuntimeActionKind; label: string }> =
   { value: "host_action", label: "Request host action" },
 ];
 
-const builtInRuntimeEventNames = new Set<string>([
-  "form.load",
-  "form.submit",
-  "form.submit_success",
-  "form.submit_error",
-  "form.validation_failed",
-  "step.enter",
-  "step.leave",
-  "field.change",
-  "field.focus",
-  "field.blur",
-  "component.click",
-  "host.context_updated",
-]);
+const builtInRuntimeEventNames = new Set<string>(runtimeCoreEventTypes.map((eventType) => eventType.type));
 
 const behaviorPresetCategoryLabels: Record<BehaviorPresetCategory, string> = {
   recommended: "Recommended",
+  source: "Another item",
   visibility: "Visibility",
   validation: "Validation",
   data: "Data",
@@ -523,6 +540,44 @@ function createRuntimeAction(kind: RuntimeActionKind, config: Record<string, unk
   };
 }
 
+function createFieldValueCondition(
+  fieldId: string,
+  operator: RuntimeConditionDefinition["operator"],
+  expectedValue?: unknown,
+  label?: string,
+): RuntimeConditionDefinition {
+  return {
+    id: crypto.randomUUID(),
+    label: label ?? null,
+    enabled: true,
+    source: {
+      kind: "field_value",
+      fieldId,
+    },
+    operator,
+    expectedValue,
+  };
+}
+
+function createEventPayloadCondition(
+  path: string,
+  operator: RuntimeConditionDefinition["operator"],
+  expectedValue?: unknown,
+  label?: string,
+): RuntimeConditionDefinition {
+  return {
+    id: crypto.randomUUID(),
+    label: label ?? null,
+    enabled: true,
+    source: {
+      kind: "event_payload",
+      path,
+    },
+    operator,
+    expectedValue,
+  };
+}
+
 function createRuntimeListener(
   eventName: string,
   actions: RuntimeActionDefinition[],
@@ -534,21 +589,39 @@ function createRuntimeListener(
     type: eventName,
     dispatcherId: sourceNodeId ?? null,
     dispatcherType: null,
+    eventSourceNodeId: sourceNodeId ?? null,
+    eventSourceNodeType: null,
+    eventSourceLabel: null,
+    targetNodeId: sourceNodeId ?? null,
+    targetNodeType: null,
+    wiringMode: "local",
     useCapture: false,
     priority: 0,
     eventName,
     sourceNodeId: sourceNodeId ?? null,
     enabled: true,
-    ruleGuards: [],
+    conditions: [],
     actions,
   };
 }
 
-function isConditionalRuleEnabled(rule: ConditionalRule): boolean {
+type LegacyRuleField = AuthoringField & { conditionals?: LegacyConditionalRule[] };
+
+function legacyFieldConditionals(field: AuthoringField | null | undefined): LegacyConditionalRule[] {
+  return ((field as LegacyRuleField | null | undefined)?.conditionals ?? []);
+}
+
+function mutableLegacyFieldConditionals(field: AuthoringField): LegacyConditionalRule[] {
+  const legacyField = field as LegacyRuleField;
+  legacyField.conditionals ??= [];
+  return legacyField.conditionals;
+}
+
+function isLegacyConditionalRuleEnabled(rule: LegacyConditionalRule): boolean {
   return rule.enabled !== false;
 }
 
-function setConditionalRuleEnabled(rule: ConditionalRule, enabled: boolean): void {
+function setLegacyConditionalRuleEnabled(rule: LegacyConditionalRule, enabled: boolean): void {
   rule.enabled = enabled;
 }
 
@@ -559,10 +632,6 @@ function createListenerGraphSelection(listener: RuntimeListenerDefinition): Beha
     phase: listener.actions.length ? "action" : "trigger",
     actionId: listener.actions[0]?.id,
   };
-}
-
-function isRuntimePreset(preset: BehaviorRulePreset | RuntimePreset): preset is RuntimePreset {
-  return "triggerName" in preset;
 }
 
 function findAuthoringFieldById(document: AuthoringDocument, fieldId: string): AuthoringField | null {
@@ -699,7 +768,7 @@ function isRuntimePayloadReference(value: unknown): value is { $runtime: Runtime
   );
 }
 
-const runtimeIdentifierPattern = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
+const runtimeIdentifierPattern = /^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$/;
 
 function inferRuntimePayloadFieldType(value: unknown): RuntimePayloadFieldType {
   if (isRuntimePayloadReference(value)) {
@@ -878,7 +947,7 @@ function validateRuntimeIdentifier(value: string | undefined | null, label: stri
     return `${label} is required. Try ${example}.`;
   }
   if (!runtimeIdentifierPattern.test(trimmed)) {
-    return `${label} should use lowercase words separated by dots, dashes, or underscores. Try ${example}.`;
+    return `${label} should use letters or numbers separated by dots, dashes, or underscores. Try ${example}.`;
   }
   return null;
 }
@@ -1520,18 +1589,17 @@ function fieldFirstOptionValue(field: AuthoringField | null | undefined): string
   return field?.options[0]?.value ?? field?.options[0]?.label ?? "";
 }
 
-function defaultConditionalOperatorForField(field: AuthoringField | null | undefined): ConditionalRule["operator"] {
+function defaultConditionOperatorForField(field: AuthoringField | null | undefined): RuntimeConditionDefinition["operator"] {
   return field?.semanticType === "checkbox" ? "contains" : "equals";
 }
 
-function defaultConditionalExpectedValueForField(field: AuthoringField | null | undefined): string {
+function defaultConditionExpectedValueForField(field: AuthoringField | null | undefined): string {
   return field?.semanticType === "checkbox" || field?.semanticType === "radio" || field?.semanticType === "select"
     ? fieldFirstOptionValue(field)
     : "";
 }
 
 function runtimeFieldChangedEventName(field: AuthoringField | null | undefined): string {
-  const base = sanitizeRuntimeIdentifier(field?.stableKey ?? field?.label, "field");
   switch (field?.semanticType) {
     case "checkbox":
       return "checkboxGroup.change";
@@ -1539,6 +1607,7 @@ function runtimeFieldChangedEventName(field: AuthoringField | null | undefined):
       return "radio.change";
     case "select":
       return "select.change";
+    case "text":
     case "textarea":
       return "input.textChange";
     case "date":
@@ -1550,9 +1619,13 @@ function runtimeFieldChangedEventName(field: AuthoringField | null | undefined):
     case "email":
       return "input.change";
     case "signature_attestation":
-      return `${base}.signature.changed`;
+      return "signature.change";
+    case "repeatable_group":
+      return "repeatableGroup.change";
+    case "statement":
+      return "state.change";
     default:
-      return `${base}.changed`;
+      return "field.change";
   }
 }
 
@@ -1561,25 +1634,48 @@ function runtimeFieldEventNameSuggestions(field: AuthoringField | null | undefin
   const coreEvents = runtimeCoreEventsForDispatcher("field", field?.semanticType).map((eventType) => eventType.type);
   switch (field?.semanticType) {
     case "checkbox":
-      return ["checkboxGroup.change", "checkbox.change", "checkbox.checked", "checkbox.unchecked", `${base}.checkbox.changed`];
+      return uniqueRuntimeEventTypes(["checkboxGroup.change", "checkbox.change", "checkbox.checked", "checkbox.unchecked", ...coreEvents, `${base}.checkbox.changed`]);
     case "radio":
-      return ["radio.change", "radio.selected", "radio.cleared", `${base}.radio.changed`];
+      return uniqueRuntimeEventTypes(["radio.change", "radio.selected", "radio.cleared", ...coreEvents, `${base}.radio.changed`]);
     case "select":
-      return ["select.change", "select.selected", "select.cleared", `${base}.selection.changed`];
+      return uniqueRuntimeEventTypes(["select.change", "select.selected", "select.cleared", "select.opened", "select.closed", ...coreEvents, `${base}.selection.changed`]);
+    case "text":
     case "textarea":
-      return ["input.textChange", "input.change", `${base}.text.changed`, `${base}.changed`];
+      return uniqueRuntimeEventTypes([
+        "input.textChange",
+        "field.input",
+        "input.change",
+        "input.before_input",
+        "input.composition_start",
+        "input.composition_update",
+        "input.composition_end",
+        ...coreEvents,
+        `${base}.text.changed`,
+        `${base}.changed`,
+      ]);
     case "date":
-      return ["input.change", `${base}.date.changed`, `${base}.changed`];
+      return uniqueRuntimeEventTypes(["input.change", ...coreEvents, `${base}.date.changed`, `${base}.changed`]);
     case "number":
-      return ["input.change", `${base}.number.changed`, `${base}.changed`];
+      return uniqueRuntimeEventTypes(["input.change", ...coreEvents, `${base}.number.changed`, `${base}.changed`]);
     case "phone":
-      return ["input.change", `${base}.phone.changed`, `${base}.changed`];
+      return uniqueRuntimeEventTypes(["input.change", ...coreEvents, `${base}.phone.changed`, `${base}.changed`]);
     case "email":
-      return ["input.change", `${base}.email.changed`, `${base}.changed`];
+      return uniqueRuntimeEventTypes(["input.change", ...coreEvents, `${base}.email.changed`, `${base}.changed`]);
     case "signature_attestation":
-      return [`${base}.signature.changed`, `${base}.signature.attested`, `${base}.changed`];
+      return uniqueRuntimeEventTypes(["signature.change", "signature.attested", "signature.cleared", ...coreEvents, `${base}.signature.changed`, `${base}.changed`]);
+    case "repeatable_group":
+      return uniqueRuntimeEventTypes([
+        "repeatableGroup.change",
+        "repeatableGroup.item_added",
+        "repeatableGroup.item_removed",
+        "repeatableGroup.item_moved",
+        ...coreEvents,
+        `${base}.items.changed`,
+      ]);
+    case "statement":
+      return uniqueRuntimeEventTypes([...coreEvents, `${base}.viewed`, `${base}.updated`]);
     default:
-      return [...coreEvents, `${base}.changed`, `${base}.updated`, `${base}.validated`];
+      return uniqueRuntimeEventTypes([...coreEvents, `${base}.changed`, `${base}.updated`, `${base}.validated`]);
   }
 }
 
@@ -1605,8 +1701,15 @@ function runtimeFieldTriggerSuggestions(field: AuthoringField | null | undefined
       return uniqueRuntimeEventTypes(["radio.change", "radio.selected", primaryEvent, secondaryEvent, "field.change"]);
     case "select":
       return uniqueRuntimeEventTypes(["select.change", "select.selected", primaryEvent, secondaryEvent, "field.change"]);
-    case "textarea":
     case "text":
+    case "textarea":
+      return uniqueRuntimeEventTypes(["input.textChange", "field.input", "input.change", "field.change", "field.focus", "field.blur"]);
+    case "signature_attestation":
+      return uniqueRuntimeEventTypes(["signature.change", "signature.attested", "signature.cleared", "field.change"]);
+    case "repeatable_group":
+      return uniqueRuntimeEventTypes(["repeatableGroup.change", "repeatableGroup.item_added", "repeatableGroup.item_removed", "repeatableGroup.item_moved"]);
+    case "statement":
+      return uniqueRuntimeEventTypes(["component.show", "component.hide", "state.change"]);
     case "date":
     case "number":
     case "phone":
@@ -1615,6 +1718,151 @@ function runtimeFieldTriggerSuggestions(field: AuthoringField | null | undefined
     default:
       return uniqueRuntimeEventTypes(["field.change", primaryEvent]);
   }
+}
+
+function runtimeNodeDefaultTriggerSuggestions(nodeType: RuntimeNodeType): string[] {
+  switch (nodeType) {
+    case "form":
+      return ["form.load", "form.submit", "form.validation_failed", "form.reset"];
+    case "step":
+      return ["step.enter", "step.leave", "step.completed", "step.validation_failed"];
+    case "section":
+      return ["section.enter", "section.leave", "section.change"];
+    case "group":
+      return ["group.enter", "group.leave", "group.change"];
+    case "component":
+      return ["component.click", "button.click", "component.double_click", "component.key_down", "component.key_up"];
+    case "field":
+      return ["field.change", "field.input", "field.focus", "field.blur", "field.invalid"];
+    default:
+      return ["state.change"];
+  }
+}
+
+function runtimeSourceEventOptionsForNode(
+  nodeType: RuntimeNodeType,
+  semanticType: SemanticType | null | undefined,
+  eventSources: RuntimeEventDefinition[] | null | undefined,
+  field?: AuthoringField | null,
+): RuntimeSourceEventOption[] {
+  const coreDefinitionsByType = new Map(runtimeCoreEventTypes.map((eventType) => [eventType.type, eventType]));
+  const preferredEventTypes =
+    nodeType === "field" && field
+      ? runtimeFieldTriggerSuggestions(field)
+      : runtimeNodeDefaultTriggerSuggestions(nodeType);
+  const coreEventTypes = runtimeCoreEventsForDispatcher(nodeType, semanticType).map((eventType) => eventType.type);
+  const options = new Map<string, RuntimeSourceEventOption>();
+  const addType = (type: string, bubbles?: boolean | null) => {
+    if (!type || options.has(type)) {
+      return;
+    }
+    const core = coreDefinitionsByType.get(type);
+    options.set(type, {
+      type,
+      label: core?.label ?? formatLabel(type),
+      bubbles: bubbles ?? core?.bubbles ?? true,
+    });
+  };
+
+  [...preferredEventTypes, ...coreEventTypes].forEach((type) => addType(type));
+  eventSources?.forEach((eventSource) => addType(eventSource.type ?? eventSource.name ?? "", eventSource.bubbles));
+  return Array.from(options.values());
+}
+
+function collectRuntimeEventSourceCandidates(document: AuthoringDocument): RuntimeEventSourceCandidate[] {
+  const candidates: RuntimeEventSourceCandidate[] = [];
+  const pushCandidate = (candidate: RuntimeEventSourceCandidate) => {
+    candidates.push(candidate);
+  };
+
+  pushCandidate({
+    id: document.id,
+    nodeType: "form",
+    label: document.title,
+    componentLabel: "Form",
+    locationLabel: "Document",
+    pathIds: [document.id],
+    events: runtimeSourceEventOptionsForNode("form", null, document.runtime?.formEvents),
+  });
+
+  for (const step of document.steps) {
+    const stepLocation = step.title;
+    pushCandidate({
+      id: step.id,
+      nodeType: "step",
+      label: step.title,
+      componentLabel: "Step",
+      locationLabel: stepLocation,
+      pathIds: [document.id, step.id],
+      events: runtimeSourceEventOptionsForNode("step", null, step.runtime?.eventSources),
+    });
+
+    for (const section of step.sections) {
+      const sectionLocation = `${step.title} / ${section.title}`;
+      pushCandidate({
+        id: section.id,
+        nodeType: "section",
+        label: section.title,
+        componentLabel: "Section",
+        locationLabel: sectionLocation,
+        pathIds: [document.id, step.id, section.id],
+        events: runtimeSourceEventOptionsForNode("section", null, section.runtime?.eventSources),
+      });
+
+      for (const field of section.fields) {
+        const nodeType: RuntimeNodeType = field.rendererHints.component === "button" ? "component" : "field";
+        pushCandidate({
+          id: field.id,
+          nodeType,
+          label: field.label,
+          componentLabel: componentChromeLabel(field),
+          locationLabel: sectionLocation,
+          semanticType: field.semanticType,
+          pathIds: [document.id, step.id, section.id, field.id],
+          events: runtimeSourceEventOptionsForNode(nodeType, field.semanticType, field.runtime?.eventSources, field),
+        });
+      }
+
+      for (const group of section.groups) {
+        const groupLocation = `${sectionLocation} / ${group.label}`;
+        pushCandidate({
+          id: group.id,
+          nodeType: "group",
+          label: group.label,
+          componentLabel: "Group",
+          locationLabel: groupLocation,
+          pathIds: [document.id, step.id, section.id, group.id],
+          events: runtimeSourceEventOptionsForNode("group", null, group.runtime?.eventSources),
+        });
+
+        for (const field of group.fields) {
+          const nodeType: RuntimeNodeType = field.rendererHints.component === "button" ? "component" : "field";
+          pushCandidate({
+            id: field.id,
+            nodeType,
+            label: field.label,
+            componentLabel: componentChromeLabel(field),
+            locationLabel: groupLocation,
+            semanticType: field.semanticType,
+            pathIds: [document.id, step.id, section.id, group.id, field.id],
+            events: runtimeSourceEventOptionsForNode(nodeType, field.semanticType, field.runtime?.eventSources, field),
+          });
+        }
+      }
+    }
+  }
+
+  return candidates;
+}
+
+function findNearestSharedDispatcher(
+  source: RuntimeEventSourceCandidate,
+  target: RuntimeEventSourceCandidate,
+  candidatesById: Map<string, RuntimeEventSourceCandidate>,
+): RuntimeEventSourceCandidate {
+  const targetPath = new Set(target.pathIds);
+  const sharedId = [...source.pathIds].reverse().find((pathId) => targetPath.has(pathId));
+  return (sharedId ? candidatesById.get(sharedId) : null) ?? candidatesById.get(source.pathIds[0] ?? "") ?? target;
 }
 
 function defaultPreviewRuntimeValue(field: AuthoringField): unknown {
@@ -1653,7 +1901,7 @@ function runtimeFieldError(field: AuthoringField, sessionState: RuntimeSessionSt
 
 function summarizeFieldBehavior(field: AuthoringField): { ruleCount: number; flowCount: number } {
   return {
-    ruleCount: field.conditionals.length,
+    ruleCount: 0,
     flowCount: field.runtime?.listeners.length ?? 0,
   };
 }
@@ -2760,6 +3008,31 @@ export default function App() {
       ]),
     ]);
   }, [activeDocument]);
+  const runtimeEventSourceCandidates = useMemo(
+    () => (activeDocument ? collectRuntimeEventSourceCandidates(activeDocument) : []),
+    [activeDocument],
+  );
+  const runtimeEventSourceCandidateById = useMemo(
+    () => new Map(runtimeEventSourceCandidates.map((candidate) => [candidate.id, candidate])),
+    [runtimeEventSourceCandidates],
+  );
+  const activeRuntimeTarget = useMemo(() => {
+    if (!activeDocument) {
+      return null;
+    }
+    if (!selectedAuthoring) {
+      return runtimeEventSourceCandidateById.get(activeDocument.id) ?? null;
+    }
+    const nodeId =
+      selectedAuthoring.kind === "step"
+        ? selectedAuthoring.stepId
+        : selectedAuthoring.kind === "section"
+          ? selectedAuthoring.sectionId
+          : selectedAuthoring.kind === "group"
+            ? selectedAuthoring.groupId
+            : selectedAuthoring.fieldId;
+    return runtimeEventSourceCandidateById.get(nodeId) ?? null;
+  }, [activeDocument, runtimeEventSourceCandidateById, selectedAuthoring]);
   const runtimeNodeLabelById = useMemo(() => {
     const labels = new Map<string, string>();
     if (!activeDocument) {
@@ -2827,7 +3100,7 @@ export default function App() {
       const visible = actions.slice(0, 3).map(formatActionSummary);
       return actions.length > 3 ? `${visible.join(" -> ")} -> +${actions.length - 3} more` : visible.join(" -> ");
     };
-    const describeRuleOperator = (rule: ConditionalRule) => {
+    const describeRuleOperator = (rule: LegacyConditionalRule) => {
       if (rule.operator === "exists") {
         return "has any value";
       }
@@ -2839,7 +3112,7 @@ export default function App() {
       }
       return `equals "${rule.expectedValue ?? ""}"`;
     };
-    const describeRuleEffect = (rule: ConditionalRule) => {
+    const describeRuleEffect = (rule: LegacyConditionalRule) => {
       switch (rule.effect) {
         case "show":
           return "show";
@@ -2888,7 +3161,7 @@ export default function App() {
       })) ?? [];
 
     const steps = activeDocument.steps.map<LogicMapStepEntry>((step) => {
-      const conditionalRules: LogicMapConditionalEntry[] = [];
+      const conditionalBehavior: LogicMapConditionalEntry[] = [];
       const runtimeListeners: LogicMapListenerEntry[] = [];
 
       if (step.runtime?.listeners.length) {
@@ -2931,8 +3204,8 @@ export default function App() {
         }
 
         section.fields.forEach((field) => {
-          field.conditionals.forEach((rule, ruleIndex) => {
-            conditionalRules.push({
+          mutableLegacyFieldConditionals(field).forEach((rule, ruleIndex) => {
+            conditionalBehavior.push({
               id: rule.ruleId,
               title: `${field.label} reacts to ${fieldLabelById.get(rule.whenFieldId) ?? "another field"}`,
               detail: `When ${fieldLabelById.get(rule.whenFieldId) ?? "that field"} ${describeRuleOperator(rule)}, ${describeRuleEffect(rule)} ${field.label}.`,
@@ -2942,7 +3215,7 @@ export default function App() {
               targetFieldLabel: field.label,
               targetFieldId: field.id,
                 effectLabel: describeRuleEffect(rule),
-                enabled: isConditionalRuleEnabled(rule),
+                enabled: isLegacyConditionalRuleEnabled(rule),
                 stepId: step.id,
                 sectionId: section.id,
                 sourceSelection: { kind: "field", stepId: step.id, sectionId: section.id, fieldId: field.id },
@@ -2994,8 +3267,8 @@ export default function App() {
             );
           }
           group.fields.forEach((field) => {
-            field.conditionals.forEach((rule, ruleIndex) => {
-              conditionalRules.push({
+            mutableLegacyFieldConditionals(field).forEach((rule, ruleIndex) => {
+              conditionalBehavior.push({
                 id: rule.ruleId,
                 title: `${field.label} reacts to ${fieldLabelById.get(rule.whenFieldId) ?? "another field"}`,
                 detail: `When ${fieldLabelById.get(rule.whenFieldId) ?? "that field"} ${describeRuleOperator(rule)}, ${describeRuleEffect(rule)} ${field.label}.`,
@@ -3005,7 +3278,7 @@ export default function App() {
                 targetFieldLabel: field.label,
                 targetFieldId: field.id,
                 effectLabel: describeRuleEffect(rule),
-                enabled: isConditionalRuleEnabled(rule),
+                enabled: isLegacyConditionalRuleEnabled(rule),
                 stepId: step.id,
                 sectionId: section.id,
                 sourceSelection: { kind: "field", stepId: step.id, sectionId: section.id, groupId: group.id, fieldId: field.id },
@@ -3045,13 +3318,13 @@ export default function App() {
         selection: { kind: "step", stepId: step.id },
         sectionCount: step.sections.length,
         fieldCount: countStepFields(step),
-        conditionalRules,
+        conditionalBehavior,
         runtimeListeners,
       };
     });
 
     return {
-      totalConditionals: steps.reduce((total, step) => total + step.conditionalRules.length, 0),
+      totalConditionals: steps.reduce((total, step) => total + step.conditionalBehavior.length, 0),
       totalListeners: formListeners.length + steps.reduce((total, step) => total + step.runtimeListeners.length, 0),
       formListeners,
       steps,
@@ -3327,7 +3600,7 @@ export default function App() {
     }
     if (selectedBehaviorNode.kind === "rule") {
       const focusKey = `rule:${selectedBehaviorNode.ruleId}`;
-      if (activeBuilderField?.conditionals.some((rule) => rule.ruleId === selectedBehaviorNode.ruleId)) {
+      if (legacyFieldConditionals(activeBuilderField).some((rule) => rule.ruleId === selectedBehaviorNode.ruleId)) {
         if (pendingBehaviorFocusRef.current === focusKey) {
           pendingBehaviorFocusRef.current = null;
         }
@@ -3486,19 +3759,30 @@ export default function App() {
 
   function runtimeTriggerSuggestions(scope: RuntimeEditorScope | null, field: AuthoringField | null): string[] {
     const base = runtimeScopeIdentifierBase(scope, field);
+    const coreEvents = scope ? runtimeCoreEventsForDispatcher(scope.scopeKind, field?.semanticType).map((eventType) => eventType.type) : [];
     switch (scope?.scopeKind) {
       case "component":
-        return ["component.click", "button.click", `${base}.requested`];
+        return uniqueRuntimeEventTypes([
+          "component.click",
+          "button.click",
+          "component.double_click",
+          "component.pointer_down",
+          "component.pointer_up",
+          "component.key_down",
+          "component.key_up",
+          ...coreEvents,
+          `${base}.requested`,
+        ]);
       case "field":
         return runtimeFieldTriggerSuggestions(field);
       case "form":
-        return ["form.load", "form.submit", "form.validation_failed"];
+        return uniqueRuntimeEventTypes(["form.load", "form.submit", "form.validation_failed", ...coreEvents]);
       case "step":
-        return ["step.enter", "step.leave", `${base}.opened`];
+        return uniqueRuntimeEventTypes(["step.enter", "step.leave", "step.completed", "step.validation_failed", ...coreEvents, `${base}.opened`]);
       case "section":
-        return ["section.enter", "section.leave", `${base}.updated`];
+        return uniqueRuntimeEventTypes(["section.enter", "section.leave", "section.change", ...coreEvents, `${base}.updated`]);
       case "group":
-        return ["group.enter", "group.leave", `${base}.changed`, `${base}.updated`];
+        return uniqueRuntimeEventTypes(["group.enter", "group.leave", "group.change", ...coreEvents, `${base}.changed`, `${base}.updated`]);
       default:
         return ["form.load"];
     }
@@ -3628,34 +3912,173 @@ export default function App() {
     }
   }
 
+  function createCrossItemPayload(
+    source: RuntimeEventSourceCandidate,
+    eventOption: RuntimeSourceEventOption,
+    dispatcher: RuntimeEventSourceCandidate,
+    target: RuntimeEventSourceCandidate,
+  ): Record<string, unknown> {
+    return {
+      sourceNodeId: source.id,
+      sourceNodeType: source.nodeType,
+      sourceLabel: source.label,
+      sourceEventType: eventOption.type,
+      dispatcherId: dispatcher.id,
+      dispatcherType: dispatcher.nodeType,
+      targetNodeId: target.id,
+      targetNodeType: target.nodeType,
+      targetLabel: target.label,
+      eventType: { $runtime: "current.event.type" },
+      eventTargetId: { $runtime: "current.event.target.id" },
+      eventTargetType: { $runtime: "current.event.target.type" },
+      eventPhase: { $runtime: "current.event.phase" },
+    };
+  }
+
+  function crossItemActionStartersForTarget(
+    source: RuntimeEventSourceCandidate,
+    eventOption: RuntimeSourceEventOption,
+    dispatcher: RuntimeEventSourceCandidate,
+    target: RuntimeEventSourceCandidate,
+  ): CrossItemActionStarter[] {
+    const targetLabel = target.componentLabel.toLowerCase();
+    const payload = createCrossItemPayload(source, eventOption, dispatcher, target);
+    const targetField = activeDocument ? findAuthoringFieldById(activeDocument, target.id) : null;
+    const targetValue = targetField ? fieldFirstOptionValue(targetField) : "";
+    const starters: CrossItemActionStarter[] = [];
+
+    if (target.nodeType !== "form") {
+      starters.push(
+        {
+          id: "show-target",
+          label: `Show this ${targetLabel}`,
+          description: `Show ${target.label} when ${source.label} dispatches ${eventOption.type}.`,
+          actionSummary: "Show target",
+          createActions: () => [createRuntimeAction("show_node", { nodeId: target.id })],
+        },
+        {
+          id: "hide-target",
+          label: `Hide this ${targetLabel}`,
+          description: `Hide ${target.label} when ${source.label} dispatches ${eventOption.type}.`,
+          actionSummary: "Hide target",
+          createActions: () => [createRuntimeAction("hide_node", { nodeId: target.id })],
+        },
+      );
+    }
+
+    if (target.nodeType === "field") {
+      starters.push(
+        {
+          id: "require-target",
+          label: `Require this ${targetLabel}`,
+          description: `Mark ${target.label} required when ${source.label} dispatches ${eventOption.type}.`,
+          actionSummary: "Mark required",
+          createActions: () => [createRuntimeAction("mark_required", { nodeId: target.id })],
+        },
+        {
+          id: "clear-target",
+          label: `Clear this ${targetLabel}`,
+          description: `Clear ${target.label} when ${source.label} dispatches ${eventOption.type}.`,
+          actionSummary: "Clear value",
+          createActions: () => [createRuntimeAction("clear_field_value", { fieldId: target.id })],
+        },
+        {
+          id: "set-target",
+          label: `Set this ${targetLabel}`,
+          description: `Set ${target.label} to a starter value when ${source.label} dispatches ${eventOption.type}.`,
+          actionSummary: "Set value",
+          createActions: () => [createRuntimeAction("set_field_value", { fieldId: target.id, value: targetValue })],
+        },
+      );
+    }
+
+    if (target.nodeType === "field" || target.nodeType === "component") {
+      starters.push({
+        id: "enable-target",
+        label: `Enable this ${targetLabel}`,
+        description: `Enable ${target.label} when ${source.label} dispatches ${eventOption.type}.`,
+        actionSummary: "Enable target",
+        createActions: () => [createRuntimeAction("enable_node", { nodeId: target.id })],
+      });
+    }
+
+    starters.push(
+      {
+        id: "host-cross-item",
+        label: "Request host action",
+        description: `Send ${source.label} event context and ${target.label} target context to the host.`,
+        actionSummary: "Request host action",
+        createActions: () => [
+          createRuntimeAction("host_action", {
+            handlerKey: `host.${sanitizeRuntimeIdentifier(target.label, "target")}.sync`,
+            payload,
+          }),
+        ],
+      },
+      {
+        id: "dispatch-follow-up",
+        label: "Dispatch follow-up event",
+        description: `Broadcast that ${target.label} reacted to ${source.label}.`,
+        actionSummary: "Dispatch follow-up",
+        createActions: () => [
+          createRuntimeAction("dispatch_event", {
+            eventType: `${sanitizeRuntimeIdentifier(target.label, "target")}.reacted`,
+            bubbles: true,
+            payload,
+          }),
+        ],
+      },
+    );
+
+    return starters;
+  }
+
+  function defaultConditionForCrossItemSource(source: RuntimeEventSourceCandidate): RuntimeConditionDefinition | null {
+    if (source.nodeType !== "field" || !activeDocument) {
+      return null;
+    }
+    const sourceField = findAuthoringFieldById(activeDocument, source.id);
+    if (!sourceField || sourceField.semanticType === "statement") {
+      return null;
+    }
+    const operator = defaultConditionOperatorForField(sourceField);
+    const expectedValue = defaultConditionExpectedValueForField(sourceField);
+    return createFieldValueCondition(
+      source.id,
+      operator,
+      expectedValue,
+      operator === "exists" ? `${source.label} has a value` : `${source.label} matches ${expectedValue || "the selected value"}`,
+    );
+  }
+
   function cloneRuntimeActionConfig(config: Record<string, unknown>): Record<string, unknown> {
     return JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
   }
 
-  function createConditionalRuleDraft(
-    effect: ConditionalRule["effect"],
-    config?: Partial<ConditionalRule>,
-  ): ConditionalRule {
+  function createLegacyConditionalRuleDraft(
+    effect: LegacyConditionalRule["effect"],
+    config?: Partial<LegacyConditionalRule>,
+  ): LegacyConditionalRule {
     const whenFieldId = config?.whenFieldId ?? defaultConditionalSourceFieldId();
     const sourceField = activeDocument && whenFieldId ? findAuthoringFieldById(activeDocument, whenFieldId) : null;
     return {
       ruleId: crypto.randomUUID(),
       whenFieldId,
-      operator: config?.operator ?? defaultConditionalOperatorForField(sourceField),
-      expectedValue: config?.expectedValue ?? defaultConditionalExpectedValueForField(sourceField),
+      operator: config?.operator ?? defaultConditionOperatorForField(sourceField),
+      expectedValue: config?.expectedValue ?? defaultConditionExpectedValueForField(sourceField),
       effect,
     };
   }
 
-  function createConditionalRuleGroupKey(rule: ConditionalRule) {
+  function createLegacyConditionalRuleGroupKey(rule: LegacyConditionalRule) {
     return [rule.whenFieldId, rule.operator, rule.expectedValue ?? ""].join("::");
   }
 
-  function buildConditionalRuleGroups(rules: ConditionalRule[]) {
-    const groups = new Map<string, ConditionalRuleGroup>();
-    rules.forEach((rule, index) => {
+  function buildLegacyConditionalRuleGroups(conditions: LegacyConditionalRule[]) {
+    const groups = new Map<string, LegacyConditionalRuleGroup>();
+    conditions.forEach((rule, index) => {
       const sourceFieldLabel = builderFieldOptions.find((option) => option.id === rule.whenFieldId)?.label ?? "Choose field";
-      const key = createConditionalRuleGroupKey(rule);
+      const key = createLegacyConditionalRuleGroupKey(rule);
       const existing = groups.get(key);
       const conditionTitle = rule.operator === "exists" ? "Has any value" : formatLabel(rule.operator);
       const conditionDetail =
@@ -4165,6 +4588,11 @@ export default function App() {
         const nodeId = activeDocument?.id;
         listener.dispatcherId ??= nodeId ?? null;
         listener.dispatcherType ??= "form";
+        listener.eventSourceNodeId ??= nodeId ?? null;
+        listener.eventSourceNodeType ??= "form";
+        listener.targetNodeId ??= nodeId ?? null;
+        listener.targetNodeType ??= "form";
+        listener.wiringMode ??= "local";
         listener.type = eventType;
         listener.eventName = eventType;
         ensureUniqueEventSource(formRuntime.formEvents, eventType, activeRuntimeScope ?? {
@@ -4189,6 +4617,11 @@ export default function App() {
                   : undefined;
         listener.dispatcherId ??= nodeId ?? null;
         listener.dispatcherType ??= scopeKind;
+        listener.eventSourceNodeId ??= nodeId ?? null;
+        listener.eventSourceNodeType ??= scopeKind;
+        listener.targetNodeId ??= nodeId ?? null;
+        listener.targetNodeType ??= scopeKind;
+        listener.wiringMode ??= "local";
         listener.type = eventType;
         listener.eventName = eventType;
         if (activeRuntimeScope) {
@@ -4261,33 +4694,33 @@ export default function App() {
     return null;
   }
 
-  function toggleConditionalRuleForSelection(selection: AuthoringSelection, ruleId: string) {
+  function toggleLegacyConditionalRuleForSelection(selection: AuthoringSelection, ruleId: string) {
     let nextEnabled: boolean | null = null;
     updateAuthoringDocument((document) => {
       const field = getSelectionContext(document, selection).field;
-      const rule = field?.conditionals.find((candidate) => candidate.ruleId === ruleId);
+      const rule = legacyFieldConditionals(field).find((candidate) => candidate.ruleId === ruleId);
       if (!rule) {
         return;
       }
-      nextEnabled = !isConditionalRuleEnabled(rule);
-      setConditionalRuleEnabled(rule, nextEnabled);
+      nextEnabled = !isLegacyConditionalRuleEnabled(rule);
+      setLegacyConditionalRuleEnabled(rule, nextEnabled);
     }, selection);
     if (nextEnabled !== null) {
-      setMessage(`Rule ${nextEnabled ? "enabled" : "disabled"}.`);
+      setMessage(`Condition flow ${nextEnabled ? "enabled" : "disabled"}.`);
     }
   }
 
-  function duplicateConditionalRuleForSelection(selection: AuthoringSelection, ruleId: string) {
+  function duplicateLegacyConditionalRuleForSelection(selection: AuthoringSelection, ruleId: string) {
     const nextRuleId = crypto.randomUUID();
     let duplicated = false;
     updateAuthoringDocument((document) => {
       const field = getSelectionContext(document, selection).field;
-      const ruleIndex = field?.conditionals.findIndex((candidate) => candidate.ruleId === ruleId) ?? -1;
+      const ruleIndex = legacyFieldConditionals(field).findIndex((candidate) => candidate.ruleId === ruleId) ?? -1;
       if (!field || ruleIndex < 0) {
         return;
       }
-      field.conditionals.splice(ruleIndex + 1, 0, {
-        ...field.conditionals[ruleIndex],
+      mutableLegacyFieldConditionals(field).splice(ruleIndex + 1, 0, {
+        ...mutableLegacyFieldConditionals(field)[ruleIndex],
         ruleId: nextRuleId,
       });
       duplicated = true;
@@ -4298,21 +4731,21 @@ export default function App() {
     pendingBehaviorFocusRef.current = `rule:${nextRuleId}`;
     setSelectedBehaviorNode({ kind: "rule", ruleId: nextRuleId, phase: "condition" });
     setExpandedBehaviorIndexObjectKey(`rule:${nextRuleId}`);
-    setMessage("Rule duplicated.");
+    setMessage("Condition flow duplicated.");
   }
 
-  function removeConditionalRuleForSelection(selection: AuthoringSelection, ruleId: string) {
+  function removeLegacyConditionalRuleForSelection(selection: AuthoringSelection, ruleId: string) {
     updateAuthoringDocument((document) => {
       const field = getSelectionContext(document, selection).field;
       if (!field) {
         return;
       }
-      field.conditionals = field.conditionals.filter((rule) => rule.ruleId !== ruleId);
+      (field as LegacyRuleField).conditionals = legacyFieldConditionals(field).filter((rule) => rule.ruleId !== ruleId);
     }, selection);
     setEditingRuleIndex(null);
     setExpandedBehaviorIndexObjectKey((current) => (current === `rule:${ruleId}` ? null : current));
     setSelectedBehaviorNode((current) => (current?.kind === "rule" && current.ruleId === ruleId ? null : current));
-    setMessage("Rule deleted.");
+    setMessage("Condition flow deleted.");
   }
 
   function toggleRuntimeListenerForSelection(selection: AuthoringSelection | null, listenerId: string) {
@@ -4353,7 +4786,7 @@ export default function App() {
       listeners.splice(listenerIndex + 1, 0, {
         ...sourceListener,
         id: nextListenerId,
-        ruleGuards: sourceListener.ruleGuards.map((guard) => ({ ...guard })),
+        conditions: sourceListener.conditions.map((guard) => ({ ...guard })),
         actions,
       });
       duplicated = true;
@@ -4630,87 +5063,6 @@ export default function App() {
       createRuntimePayloadEntry("requestSource", "runtime", "string"),
     ]);
   }
-
-  const rulePresets = useMemo<BehaviorRulePreset[]>(() => {
-    if (selectedAuthoring?.kind !== "field" || !activeBuilderField) {
-      return [];
-    }
-    const targetComponentLabel = behaviorFieldComponentLabel(activeBuilderField);
-    const sourceField = defaultConditionalSourceField();
-    const sourceComponentLabel = behaviorFieldComponentLabel(sourceField).toLowerCase();
-    const sourceValueNoun = fieldValueNoun(sourceField);
-    const defaultOperator = defaultConditionalOperatorForField(sourceField);
-    const defaultExpectedValue = defaultConditionalExpectedValueForField(sourceField);
-    return [
-      {
-        id: "rule-show-require",
-        label: "Show and require",
-        description: `Reveal this ${targetComponentLabel.toLowerCase()} and make it required from the same ${sourceComponentLabel} condition.`,
-        category: "validation",
-        componentLabel: targetComponentLabel,
-        actionSummary: "Show + require",
-        effects: ["show", "require"],
-        operator: defaultOperator,
-        expectedValue: defaultExpectedValue,
-      },
-      {
-        id: "rule-show",
-        label: "Show when",
-        description: `Show this ${targetComponentLabel.toLowerCase()} only when the ${sourceValueNoun} matches the condition.`,
-        category: "visibility",
-        componentLabel: targetComponentLabel,
-        actionSummary: "Show target",
-        effects: ["show"],
-        operator: defaultOperator,
-        expectedValue: defaultExpectedValue,
-      },
-      {
-        id: "rule-hide",
-        label: "Hide when",
-        description: `Hide this ${targetComponentLabel.toLowerCase()} when the ${sourceValueNoun} matches the condition.`,
-        category: "visibility",
-        componentLabel: targetComponentLabel,
-        actionSummary: "Hide target",
-        effects: ["hide"],
-        operator: defaultOperator,
-        expectedValue: defaultExpectedValue,
-      },
-      {
-        id: "rule-hide-clear",
-        label: "Hide and clear dependent value",
-        description: `Hide this ${targetComponentLabel.toLowerCase()}, then clear its value when the controlling ${sourceComponentLabel} changes.`,
-        category: "data",
-        componentLabel: targetComponentLabel,
-        actionSummary: "Hide + clear value",
-        effects: ["hide"],
-        operator: defaultOperator,
-        expectedValue: defaultExpectedValue,
-        includeClearValueFlow: true,
-      },
-      {
-        id: "rule-require",
-        label: "Require when",
-        description: `Make this ${targetComponentLabel.toLowerCase()} required only when the ${sourceValueNoun} matches.`,
-        category: "validation",
-        componentLabel: targetComponentLabel,
-        actionSummary: "Mark required",
-        effects: ["require"],
-        operator: defaultOperator,
-        expectedValue: defaultExpectedValue,
-      },
-      {
-        id: "rule-disable",
-        label: "Disable when",
-        description: `Disable this ${targetComponentLabel.toLowerCase()} when the ${sourceValueNoun} matches.`,
-        category: "visibility",
-        componentLabel: targetComponentLabel,
-        actionSummary: "Disable target",
-        effects: ["disable"],
-        operator: defaultOperator,
-        expectedValue: defaultExpectedValue,
-      },
-    ];
-  }, [activeBuilderField, activeDocument, builderFieldOptions, selectedAuthoring]);
 
   const runtimePresets = useMemo<RuntimePreset[]>(() => {
     if (!activeRuntimeScope) {
@@ -5326,7 +5678,7 @@ export default function App() {
     return "component.click";
   }
 
-  function openBehaviorRulesManager() {
+  function openBehaviorBehaviorManager() {
     setBehaviorStudioCreationKind(null);
     setBehaviorStudioAnchor(null);
     setBehaviorStudioMode("manage");
@@ -5339,7 +5691,7 @@ export default function App() {
   function openBehaviorNodeInStudio(node: BehaviorGraphSelection, ruleIndex?: number | null) {
     setBehaviorStudioCreationKind(null);
     setBehaviorStudioAnchor(null);
-    setBehaviorStudioManagerMode(node.kind === "rule" ? "rules" : "flows");
+    setBehaviorStudioManagerMode(node.kind === "rule" ? "conditions" : "flows");
     setEditingRuleIndex(node.kind === "rule" ? ruleIndex ?? null : null);
     setSelectedBehaviorNode(node);
     setBehaviorStudioMode("create");
@@ -5348,7 +5700,7 @@ export default function App() {
     setInspectorTab("behavior");
   }
 
-  function openBehaviorObjectInRulesManager(options: {
+  function openBehaviorObjectInBehaviorManager(options: {
     objectKey?: string | null;
     selection?: AuthoringSelection | null;
     graphSelection?: BehaviorGraphSelection | null;
@@ -5412,9 +5764,9 @@ export default function App() {
     } as NonNullable<RuntimeEventEnvelope["target"]>;
   }
 
-  function handleTestSelectedRule(rule: ConditionalRule | null) {
+  function handleTestSelectedRule(rule: LegacyConditionalRule | null) {
     if (!activeDocument || !rule) {
-      setMessage("Select a rule before running a targeted rule test.");
+      setMessage("Select a conditional listener before running a targeted behavior test.");
       return;
     }
     const sourceField = findAuthoringFieldById(activeDocument, rule.whenFieldId);
@@ -5447,7 +5799,7 @@ export default function App() {
       timestamp: new Date().toISOString(),
     });
     setSelectedRuntimeEvidenceKey(null);
-    setMessage("Test this rule dispatched a field.change event through the simulator.");
+    setMessage("Test this listener dispatched a field.change event through the simulator.");
   }
 
   function handleTestSelectedChain(listener: RuntimeListenerDefinition | null) {
@@ -5485,7 +5837,8 @@ export default function App() {
   }
 
   function openBehaviorStudioRule() {
-    beginBehaviorStudioCreation("rule");
+    beginBehaviorStudioCreation("listener");
+    setBehaviorPresetCategory("source");
   }
 
   function openBehaviorStudioListener(seedAction: "listener" | "event") {
@@ -6800,7 +7153,7 @@ export default function App() {
         ) : null}
         {behaviorSummary.ruleCount || behaviorSummary.flowCount ? (
           <div className="mb-3 flex flex-wrap gap-2">
-            {behaviorSummary.ruleCount ? <span className="app-pill">{behaviorSummary.ruleCount} rule{behaviorSummary.ruleCount === 1 ? "" : "s"}</span> : null}
+            {behaviorSummary.ruleCount ? <span className="app-pill">{behaviorSummary.ruleCount} condition{behaviorSummary.ruleCount === 1 ? "" : "s"}</span> : null}
             {behaviorSummary.flowCount ? <span className="app-pill">{behaviorSummary.flowCount} flow{behaviorSummary.flowCount === 1 ? "" : "s"}</span> : null}
           </div>
         ) : null}
@@ -6816,20 +7169,20 @@ export default function App() {
     );
   }
 
-  function updateConditionalRule(index: number, mutate: (rule: ConditionalRule) => void) {
+  function updateLegacyConditionalRule(index: number, mutate: (rule: LegacyConditionalRule) => void) {
     updateSelectedField((field) => {
-      if (!field.conditionals[index]) {
+      if (!mutableLegacyFieldConditionals(field)[index]) {
         return;
       }
-      mutate(field.conditionals[index]);
+      mutate(mutableLegacyFieldConditionals(field)[index]);
     });
   }
 
-  function addConditionalRule(config?: Partial<ConditionalRule>) {
-    const nextIndex = activeBuilderField?.conditionals.length ?? 0;
-    const nextRule = createConditionalRuleDraft(config?.effect ?? "show", config);
+  function addLegacyConditionalRule(config?: Partial<LegacyConditionalRule>) {
+    const nextIndex = legacyFieldConditionals(activeBuilderField).length;
+    const nextRule = createLegacyConditionalRuleDraft(config?.effect ?? "show", config);
     updateSelectedField((field) => {
-      field.conditionals.push(nextRule);
+      mutableLegacyFieldConditionals(field).push(nextRule);
     });
     pendingBehaviorFocusRef.current = `rule:${nextRule.ruleId}`;
     setEditingRuleIndex(nextIndex);
@@ -6840,16 +7193,16 @@ export default function App() {
     });
   }
 
-  function addConditionalRuleBundle(effects: ConditionalRule["effect"][], config?: Partial<ConditionalRule>) {
+  function addLegacyConditionalRuleBundle(effects: LegacyConditionalRule["effect"][], config?: Partial<LegacyConditionalRule>) {
     if (!effects.length) {
       return;
     }
-    const nextIndex = activeBuilderField?.conditionals.length ?? 0;
-    const nextRules = effects.map((effect) => createConditionalRuleDraft(effect, config));
+    const nextIndex = legacyFieldConditionals(activeBuilderField).length;
+    const nextBehavior = effects.map((effect) => createLegacyConditionalRuleDraft(effect, config));
     updateSelectedField((field) => {
-      field.conditionals.push(...nextRules);
+      mutableLegacyFieldConditionals(field).push(...nextBehavior);
     });
-    const focusRule = nextRules[0];
+    const focusRule = nextBehavior[0];
     pendingBehaviorFocusRef.current = `rule:${focusRule.ruleId}`;
     setEditingRuleIndex(nextIndex);
     setSelectedBehaviorNode({
@@ -6860,10 +7213,10 @@ export default function App() {
     setMessage(`${effects.map((effect) => formatLabel(effect)).join(" + ")} bundle added for ${activeBuilderField?.label ?? "this field"}.`);
   }
 
-  function removeConditionalRule(index: number) {
-    const removedRuleId = activeBuilderField?.conditionals[index]?.ruleId ?? null;
+  function removeLegacyConditionalRule(index: number) {
+    const removedRuleId = legacyFieldConditionals(activeBuilderField)[index]?.ruleId ?? null;
     updateSelectedField((field) => {
-      field.conditionals.splice(index, 1);
+      mutableLegacyFieldConditionals(field).splice(index, 1);
     });
     setEditingRuleIndex((current) => (current === index ? null : current !== null && current > index ? current - 1 : current));
     setSelectedBehaviorNode((current) =>
@@ -6871,19 +7224,19 @@ export default function App() {
     );
   }
 
-  function addSiblingConditionalRule(ruleId: string, effect: ConditionalRule["effect"]) {
-    const sourceRule = activeBuilderField?.conditionals.find((candidate) => candidate.ruleId === ruleId);
+  function addSiblingLegacyConditionalRule(ruleId: string, effect: LegacyConditionalRule["effect"]) {
+    const sourceRule = legacyFieldConditionals(activeBuilderField).find((candidate) => candidate.ruleId === ruleId);
     if (!sourceRule) {
       return;
     }
-    const existingMatch = activeBuilderField?.conditionals.some(
-      (candidate) => createConditionalRuleGroupKey(candidate) === createConditionalRuleGroupKey(sourceRule) && candidate.effect === effect,
+    const existingMatch = legacyFieldConditionals(activeBuilderField).some(
+      (candidate) => createLegacyConditionalRuleGroupKey(candidate) === createLegacyConditionalRuleGroupKey(sourceRule) && candidate.effect === effect,
     );
     if (existingMatch) {
       setMessage(`${formatLabel(effect)} is already part of this conditional bundle.`);
       return;
     }
-    addConditionalRule({
+    addLegacyConditionalRule({
       whenFieldId: sourceRule.whenFieldId,
       operator: sourceRule.operator,
       expectedValue: sourceRule.expectedValue,
@@ -6899,90 +7252,17 @@ export default function App() {
 
   function applyBehaviorRuleStarter(
     starter:
-      | { mode: "single"; effect?: ConditionalRule["effect"] }
-      | { mode: "bundle"; effects: ConditionalRule["effect"][] },
+      | { mode: "single"; effect?: LegacyConditionalRule["effect"] }
+      | { mode: "bundle"; effects: LegacyConditionalRule["effect"][] },
   ) {
-    if (selectedAuthoring?.kind !== "field" || !activeBuilderField) {
-      setMessage("Select a field to create a state rule.");
-      return;
-    }
-    const sourceField = defaultConditionalSourceField();
-    const baseConfig = {
-      operator: defaultConditionalOperatorForField(sourceField),
-      expectedValue: defaultConditionalExpectedValueForField(sourceField),
-    };
-    if (starter.mode === "bundle") {
-      addConditionalRuleBundle(starter.effects, baseConfig);
-    } else {
-      addConditionalRule(starter.effect ? { ...baseConfig, effect: starter.effect } : baseConfig);
-    }
-    setBehaviorStudioManagerMode("rules");
+    void starter;
+    setMessage("State conditions have been retired. Use event listeners with inline conditions.");
     finalizeBehaviorStudioCreation();
   }
 
   function applyBehaviorRulePreset(presetId: string) {
-    const preset = rulePresets.find((candidate) => candidate.id === presetId);
-    if (!preset || selectedAuthoring?.kind !== "field" || !activeBuilderField) {
-      setMessage("Select a field to create a state rule.");
-      return;
-    }
-
-    const sourceFieldId = defaultConditionalSourceFieldId();
-    const targetFieldId = activeBuilderField.id;
-    const nextIndex = activeBuilderField.conditionals.length;
-    const nextRules = preset.effects.map((effect) =>
-      createConditionalRuleDraft(effect, {
-        whenFieldId: sourceFieldId,
-        operator: preset.operator,
-        expectedValue: preset.expectedValue ?? "",
-      }),
-    );
-    const focusRule = nextRules[0];
-
-    updateAuthoringDocument((document) => {
-      const targetField = findAuthoringFieldById(document, targetFieldId);
-      if (!targetField) {
-        return;
-      }
-      targetField.conditionals.push(...nextRules);
-
-      if (!preset.includeClearValueFlow || !sourceFieldId || sourceFieldId === targetFieldId) {
-        return;
-      }
-
-      const sourceField = findAuthoringFieldById(document, sourceFieldId);
-      if (!sourceField) {
-        return;
-      }
-      sourceField.runtime ??= createRuntimeNodeBehavior();
-      const sourceScope: RuntimeEditorScope = {
-        scopeKind: sourceField.rendererHints.component === "button" ? "component" : "field",
-        label: sourceField.label,
-        description: "Field-level preset flow generated from a rule bundle.",
-        eventSources: sourceField.runtime.eventSources,
-        listeners: sourceField.runtime.listeners,
-      };
-      const sourceEventType = runtimeFieldTriggerSuggestions(sourceField)[0] ?? "field.change";
-      ensureUniqueEventSource(sourceField.runtime.eventSources, sourceEventType, sourceScope, sourceField.id);
-      sourceField.runtime.listeners.push(
-        createRuntimeListener(
-          sourceEventType,
-          [createRuntimeAction("clear_field_value", { fieldId: targetFieldId })],
-          sourceField.id,
-        ),
-      );
-    }, selectedAuthoring);
-
-    pendingBehaviorFocusRef.current = `rule:${focusRule.ruleId}`;
-    setEditingRuleIndex(nextIndex);
-    setSelectedBehaviorNode({
-      kind: "rule",
-      ruleId: focusRule.ruleId,
-      phase: "condition",
-    });
-    setBehaviorStudioManagerMode("rules");
-    finalizeBehaviorStudioCreation();
-    setMessage(`${preset.label} preset added for ${activeBuilderField.label}.`);
+    void presetId;
+    setMessage("State conditions have been retired. Use event listeners with inline conditions.");
   }
 
   function createBlankBehaviorStudioListener(seedAction: "listener" | "event", triggerName = defaultBehaviorTriggerName()) {
@@ -7005,6 +7285,46 @@ export default function App() {
     finalizeBehaviorStudioCreation();
   }
 
+  function createCrossItemBehaviorListener(
+    source: RuntimeEventSourceCandidate,
+    eventOption: RuntimeSourceEventOption,
+    starter: CrossItemActionStarter | null,
+  ) {
+    if (!activeRuntimeScope || !activeRuntimeTarget) {
+      setMessage("Select the item that should react before creating a cross-item listener.");
+      return;
+    }
+    if (!eventOption.bubbles && source.id !== activeRuntimeTarget.id) {
+      setMessage(`${eventOption.type} does not bubble, so it cannot be heard from another item through a shared dispatcher.`);
+      return;
+    }
+
+    const dispatcher = findNearestSharedDispatcher(source, activeRuntimeTarget, runtimeEventSourceCandidateById);
+    const listener = createRuntimeListener(
+      eventOption.type,
+      starter?.createActions() ?? [],
+      activeRuntimeTarget.id,
+    );
+    listener.label = `${activeRuntimeTarget.label} reacts to ${source.label}`;
+    listener.dispatcherId = dispatcher.id;
+    listener.dispatcherType = dispatcher.nodeType;
+    listener.eventSourceNodeId = source.id;
+    listener.eventSourceNodeType = source.nodeType;
+    listener.eventSourceLabel = source.label;
+    listener.targetNodeId = activeRuntimeTarget.id;
+    listener.targetNodeType = activeRuntimeTarget.nodeType;
+    listener.wiringMode = "cross_item";
+    const defaultCondition = defaultConditionForCrossItemSource(source);
+    if (defaultCondition) {
+      listener.conditions = [defaultCondition];
+    }
+
+    addRuntimeListener(listener);
+    setBehaviorStudioManagerMode("flows");
+    finalizeBehaviorStudioCreation();
+    setMessage(`${activeRuntimeTarget.label} now reacts to ${eventOption.type} from ${source.label}.`);
+  }
+
   function applyBehaviorFlowPreset(presetId: string) {
     const preset = runtimePresets.find((candidate) => candidate.id === presetId);
     if (!preset || !activeRuntimeScope) {
@@ -7016,8 +7336,8 @@ export default function App() {
     finalizeBehaviorStudioCreation();
   }
 
-  function renderConditionalRuleEditor(rule: ConditionalRule, index: number, options?: { compact?: boolean }) {
-    const conditionalGroup = buildConditionalRuleGroups(activeBuilderField?.conditionals ?? []).find((group) =>
+  function renderLegacyConditionalRuleEditor(rule: LegacyConditionalRule, index: number, options?: { compact?: boolean }) {
+    const conditionalGroup = buildLegacyConditionalRuleGroups(legacyFieldConditionals(activeBuilderField)).find((group) =>
       group.members.some((member) => member.rule.ruleId === rule.ruleId),
     );
     const availableSiblingEffects = (["show", "hide", "require", "disable"] as const).filter(
@@ -7027,8 +7347,8 @@ export default function App() {
       <div className={`rounded-[1rem] border border-blue-200 bg-blue-50/60 ${options?.compact ? "p-4" : "p-5"}`}>
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Rule editor</p>
-            <p className="mt-2 text-sm text-slate-700">Refine the condition and effect here without leaving the current field selection.</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Condition editor</p>
+            <p className="mt-2 text-sm text-slate-700">Refine the listener condition and effect here without leaving the current field selection.</p>
           </div>
           <button
             type="button"
@@ -7047,7 +7367,7 @@ export default function App() {
               <div>
                 <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Conditional bundle</p>
                 <p className="mt-2 text-sm text-slate-700">
-                  One condition can drive several effects. Keep related visibility, required, and enabled-state rules grouped here.
+                  One condition can drive several effects. Keep related visibility, required, and enabled-conditional listener flows grouped here.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -7074,7 +7394,7 @@ export default function App() {
                     <button
                       key={`${rule.ruleId}-${effect}`}
                       type="button"
-                      onClick={() => addSiblingConditionalRule(rule.ruleId, effect)}
+                      onClick={() => addSiblingLegacyConditionalRule(rule.ruleId, effect)}
                       className={actionButtonClass("secondary")}
                     >
                       Add {formatLabel(effect)}
@@ -7090,7 +7410,7 @@ export default function App() {
             <label className="text-xs uppercase tracking-[0.18em] text-slate-500">When this field matches</label>
             <select
               value={rule.whenFieldId}
-              onChange={(event) => updateConditionalRule(index, (current) => { current.whenFieldId = event.target.value; })}
+              onChange={(event) => updateLegacyConditionalRule(index, (current) => { current.whenFieldId = event.target.value; })}
               className="mt-2 w-full rounded-2xl border border-soft px-4 py-2.5 text-sm text-slate-800"
             >
               {builderFieldOptions.map((option) => (
@@ -7106,8 +7426,8 @@ export default function App() {
               <select
                 value={rule.operator}
                 onChange={(event) =>
-                  updateConditionalRule(index, (current) => {
-                    current.operator = event.target.value as ConditionalRule["operator"];
+                  updateLegacyConditionalRule(index, (current) => {
+                    current.operator = event.target.value as LegacyConditionalRule["operator"];
                   })
                 }
                 className="mt-2 w-full rounded-2xl border border-soft px-4 py-2.5 text-sm text-slate-800"
@@ -7123,8 +7443,8 @@ export default function App() {
               <select
                 value={rule.effect}
                 onChange={(event) =>
-                  updateConditionalRule(index, (current) => {
-                    current.effect = event.target.value as ConditionalRule["effect"];
+                  updateLegacyConditionalRule(index, (current) => {
+                    current.effect = event.target.value as LegacyConditionalRule["effect"];
                   })
                 }
                 className="mt-2 w-full rounded-2xl border border-soft px-4 py-2.5 text-sm text-slate-800"
@@ -7141,14 +7461,14 @@ export default function App() {
               <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Expected value</label>
               <input
                 value={rule.expectedValue ?? ""}
-                onChange={(event) => updateConditionalRule(index, (current) => { current.expectedValue = event.target.value; })}
+                onChange={(event) => updateLegacyConditionalRule(index, (current) => { current.expectedValue = event.target.value; })}
                 placeholder="Expected value"
                 className="mt-2 w-full rounded-2xl border border-soft px-4 py-2.5 text-sm text-slate-800"
               />
             </div>
           ) : null}
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => removeConditionalRule(index)} className={actionButtonClass("danger")}>
+            <button type="button" onClick={() => removeLegacyConditionalRule(index)} className={actionButtonClass("danger")}>
               Remove
             </button>
             <button
@@ -7964,10 +8284,33 @@ export default function App() {
     listenerIndex: number,
     options?: { selectedActionId?: string | null },
   ) {
-    const triggerSuggestions = runtimeTriggerSuggestions(activeRuntimeScope, activeBuilderField);
+    const listenerSource = listener.eventSourceNodeId ? runtimeEventSourceCandidateById.get(listener.eventSourceNodeId) ?? null : null;
+    const listenerTarget = listener.targetNodeId ? runtimeEventSourceCandidateById.get(listener.targetNodeId) ?? null : activeRuntimeTarget;
+    const listenerDispatcher = listener.dispatcherId ? runtimeEventSourceCandidateById.get(listener.dispatcherId) ?? null : null;
+    const triggerSuggestions = listenerSource?.events.map((eventOption) => eventOption.type) ?? runtimeTriggerSuggestions(activeRuntimeScope, activeBuilderField);
     const eventType = getRuntimeListenerEventType(listener);
     const triggerIssue = validateRuntimeIdentifier(eventType, "Event type", triggerSuggestions[0] ?? "form.load");
     const chainTemplates = runtimeActionChainTemplatesForListener(listener);
+    const addListenerCondition = () => {
+      const defaultFieldId = listener.eventSourceNodeId ?? activeBuilderField?.id ?? builderFieldOptions[0]?.id ?? "";
+      if (!defaultFieldId) {
+        updateRuntimeListener(listener.id, (current) => {
+          current.conditions.push(createEventPayloadCondition("value", "exists", undefined, "Event payload has value"));
+        });
+        return;
+      }
+      const sourceField = activeDocument ? findAuthoringFieldById(activeDocument, defaultFieldId) : null;
+      updateRuntimeListener(listener.id, (current) => {
+        current.conditions.push(
+          createFieldValueCondition(
+            defaultFieldId,
+            defaultConditionOperatorForField(sourceField),
+            defaultConditionExpectedValueForField(sourceField),
+            `${sourceField?.label ?? "Selected field"} matches`,
+          ),
+        );
+      });
+    };
     return (
       <div className="space-y-4 rounded-[1rem] border border-blue-200 bg-blue-50/60 p-5">
         <div className="flex items-start justify-between gap-3">
@@ -8013,9 +8356,29 @@ export default function App() {
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(9rem,12rem)]">
             <div className="rounded-2xl border border-soft bg-white px-4 py-3">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Dispatcher</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">{activeRuntimeScope?.label ?? "Form"}</p>
-              <p className="mt-1 text-xs text-slate-500">
-                Target events run here; bubbled descendant events can be heard here when the event bubbles.
+              <select
+                value={listener.dispatcherId ?? activeRuntimeTarget?.id ?? activeDocument?.id ?? ""}
+                onChange={(event) =>
+                  updateRuntimeListener(listener.id, (current) => {
+                    const dispatcher = runtimeEventSourceCandidateById.get(event.target.value);
+                    current.dispatcherId = dispatcher?.id ?? event.target.value;
+                    current.dispatcherType = dispatcher?.nodeType ?? current.dispatcherType ?? null;
+                    current.wiringMode = current.wiringMode === "cross_item" ? "cross_item" : "advanced_dispatcher";
+                  })
+                }
+                className="mt-2 w-full rounded-2xl border border-soft bg-white px-3 py-2 text-sm text-slate-800"
+              >
+                {runtimeEventSourceCandidates
+                  .map((candidate) => (
+                    <option key={`listener-dispatcher-${listener.id}-${candidate.id}`} value={candidate.id}>
+                      {candidate.componentLabel} · {candidate.label}
+                    </option>
+                  ))}
+              </select>
+              <p className="mt-2 text-xs text-slate-500">
+                {listener.wiringMode === "cross_item" && listenerSource && listenerTarget
+                  ? `Smart wiring: listen at ${listenerDispatcher?.label ?? "shared dispatcher"} for ${listenerSource.label}, then update ${listenerTarget.label}.`
+                  : "Target events run here; bubbled descendant events can be heard here when the event bubbles."}
               </p>
             </div>
             <div>
@@ -8058,6 +8421,173 @@ export default function App() {
           </label>
         </div>
 
+        <div className="rounded-[0.95rem] border border-soft bg-white p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Conditions</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Conditions are optional checks on this listener. When they pass, the action chain runs.
+              </p>
+            </div>
+            <button type="button" onClick={addListenerCondition} className={actionButtonClass("secondary")}>
+              Add condition
+            </button>
+          </div>
+          {listener.conditions.length ? (
+            <div className="mt-3 space-y-3">
+              {listener.conditions.map((condition, conditionIndex) => {
+                const sourceFieldId = condition.source.kind === "field_value" ? condition.source.fieldId : "";
+                const payloadPath = condition.source.kind === "event_payload" ? condition.source.path : "value";
+                return (
+                  <div key={condition.id} className="rounded-[0.85rem] border border-slate-200 bg-slate-50 p-3">
+                    <div className="grid gap-3 md:grid-cols-[minmax(8rem,10rem)_minmax(0,1fr)_minmax(8rem,10rem)_minmax(0,1fr)_auto]">
+                      <label className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                        Source
+                        <select
+                          value={condition.source.kind}
+                          onChange={(event) =>
+                            updateRuntimeListener(listener.id, (current) => {
+                              const nextCondition = current.conditions[conditionIndex];
+                              if (!nextCondition) {
+                                return;
+                              }
+                              if (event.target.value === "event_payload") {
+                                nextCondition.source = { kind: "event_payload", path: payloadPath || "value" };
+                                return;
+                              }
+                              const nextFieldId = sourceFieldId || listener.eventSourceNodeId || activeBuilderField?.id || builderFieldOptions[0]?.id || "";
+                              const sourceField = activeDocument ? findAuthoringFieldById(activeDocument, nextFieldId) : null;
+                              nextCondition.source = { kind: "field_value", fieldId: nextFieldId };
+                              nextCondition.operator = defaultConditionOperatorForField(sourceField);
+                              nextCondition.expectedValue = defaultConditionExpectedValueForField(sourceField);
+                            })
+                          }
+                          className="mt-1 w-full rounded-xl border border-soft bg-white px-3 py-2 text-sm normal-case tracking-normal text-slate-800"
+                        >
+                          <option value="field_value">field value</option>
+                          <option value="event_payload">event payload</option>
+                        </select>
+                      </label>
+                      {condition.source.kind === "field_value" ? (
+                        <label className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                          Field
+                          <select
+                            value={sourceFieldId}
+                            onChange={(event) =>
+                              updateRuntimeListener(listener.id, (current) => {
+                                const nextCondition = current.conditions[conditionIndex];
+                                if (!nextCondition) {
+                                  return;
+                                }
+                                const sourceField = activeDocument ? findAuthoringFieldById(activeDocument, event.target.value) : null;
+                                nextCondition.source = { kind: "field_value", fieldId: event.target.value };
+                                nextCondition.operator = defaultConditionOperatorForField(sourceField);
+                                nextCondition.expectedValue = defaultConditionExpectedValueForField(sourceField);
+                              })
+                            }
+                            className="mt-1 w-full rounded-xl border border-soft bg-white px-3 py-2 text-sm normal-case tracking-normal text-slate-800"
+                          >
+                            {builderFieldOptions.map((option) => (
+                              <option key={`listener-condition-field-${condition.id}-${option.id}`} value={option.id}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : (
+                        <label className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                          Payload path
+                          <input
+                            value={payloadPath}
+                            placeholder="value"
+                            onChange={(event) =>
+                              updateRuntimeListener(listener.id, (current) => {
+                                const nextCondition = current.conditions[conditionIndex];
+                                if (nextCondition) {
+                                  nextCondition.source = { kind: "event_payload", path: event.target.value };
+                                }
+                              })
+                            }
+                            className="mt-1 w-full rounded-xl border border-soft bg-white px-3 py-2 text-sm normal-case tracking-normal text-slate-800"
+                          />
+                        </label>
+                      )}
+                      <label className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                        Operator
+                        <select
+                          value={condition.operator}
+                          onChange={(event) =>
+                            updateRuntimeListener(listener.id, (current) => {
+                              const nextCondition = current.conditions[conditionIndex];
+                              if (nextCondition) {
+                                nextCondition.operator = event.target.value as RuntimeConditionDefinition["operator"];
+                              }
+                            })
+                          }
+                          className="mt-1 w-full rounded-xl border border-soft bg-white px-3 py-2 text-sm normal-case tracking-normal text-slate-800"
+                        >
+                          <option value="equals">equals</option>
+                          <option value="not_equals">does not equal</option>
+                          <option value="contains">contains</option>
+                          <option value="exists">has any value</option>
+                        </select>
+                      </label>
+                      <label className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                        Value
+                        <input
+                          value={condition.expectedValue === undefined || condition.expectedValue === null ? "" : String(condition.expectedValue)}
+                          disabled={condition.operator === "exists"}
+                          onChange={(event) =>
+                            updateRuntimeListener(listener.id, (current) => {
+                              const nextCondition = current.conditions[conditionIndex];
+                              if (nextCondition) {
+                                nextCondition.expectedValue = event.target.value;
+                              }
+                            })
+                          }
+                          className="mt-1 w-full rounded-xl border border-soft bg-white px-3 py-2 text-sm normal-case tracking-normal text-slate-800 disabled:bg-slate-100"
+                        />
+                      </label>
+                      <div className="flex items-end gap-2">
+                        <label className="flex items-center gap-2 rounded-xl border border-soft bg-white px-3 py-2 text-sm text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={condition.enabled !== false}
+                            onChange={(event) =>
+                              updateRuntimeListener(listener.id, (current) => {
+                                const nextCondition = current.conditions[conditionIndex];
+                                if (nextCondition) {
+                                  nextCondition.enabled = event.target.checked;
+                                }
+                              })
+                            }
+                          />
+                          Enabled
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateRuntimeListener(listener.id, (current) => {
+                              current.conditions.splice(conditionIndex, 1);
+                            })
+                          }
+                          className={actionButtonClass("danger")}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="app-muted-card mt-3 p-3 text-sm text-slate-500">
+              No conditions. This listener runs whenever the selected event reaches the dispatcher.
+            </div>
+          )}
+        </div>
+
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -8083,6 +8613,12 @@ export default function App() {
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <span className="app-pill">Listen for {formatLabel(eventType)}</span>
                 <span className="app-pill">{listener.useCapture ? "Capture" : "Target + bubble"}</span>
+                {listener.wiringMode === "cross_item" && listenerSource ? (
+                  <span className="app-pill">From {listenerSource.label}</span>
+                ) : null}
+                {listener.wiringMode === "cross_item" && listenerTarget ? (
+                  <span className="app-pill">Update {listenerTarget.label}</span>
+                ) : null}
                 {listener.actions.map((action, actionIndex) => (
                   <Fragment key={`${listener.id}-summary-${action.id}`}>
                     <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Then</span>
@@ -8201,11 +8737,14 @@ export default function App() {
     setBehaviorGraphOffset({ x: 0, y: 0 });
   }
 
-  function currentBehaviorSelectionSummary(selectedRule?: ConditionalRule | null, selectedListener?: RuntimeListenerDefinition | null) {
+  function currentBehaviorSelectionSummary(selectedRule?: LegacyConditionalRule | null, selectedListener?: RuntimeListenerDefinition | null) {
     if (selectedBehaviorNode?.kind === "rule" && selectedRule) {
       return `Conditional bundle on ${activeBuilderField?.label ?? "current field"}`;
     }
     if (selectedBehaviorNode?.kind === "listener" && selectedListener) {
+      if (selectedListener.wiringMode === "cross_item" && selectedListener.eventSourceLabel) {
+        return `${activeRuntimeScope?.label ?? "Current selection"} reacts to ${selectedListener.eventSourceLabel}`;
+      }
       return `Interaction flow on ${activeRuntimeScope?.label ?? "current selection"}`;
     }
     if (selectedAuthoring === null) {
@@ -8227,7 +8766,6 @@ export default function App() {
     if (!activeDocument) {
       return null;
     }
-    const canCreateRule = selectedAuthoring?.kind === "field" && Boolean(activeBuilderField);
     const canCreateFlow = Boolean(activeRuntimeScope);
     const isCompact = options?.compact ?? false;
     const toolButtonClass = `group relative inline-flex ${isCompact ? "h-8 w-8" : "h-9 w-9"} items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:pointer-events-none disabled:opacity-45`;
@@ -8255,17 +8793,6 @@ export default function App() {
             {options?.label ?? "Behavior"}
           </span>
           <div className="flex items-center gap-1.5" role="toolbar" aria-label="Behavior quick actions">
-            <button
-              type="button"
-              title={canCreateRule ? "Add rule" : "Select a field to add a rule"}
-              aria-label={canCreateRule ? "Add rule" : "Select a field to add a rule"}
-              disabled={!canCreateRule}
-              onClick={(event) => runToolbarAction(event, (anchor) => beginBehaviorStudioCreation("rule", anchor))}
-              className={toolButtonClass}
-            >
-              <LogicIcon />
-              <span className={tooltipClass}>Add rule</span>
-            </button>
             <button
               type="button"
               title={canCreateFlow ? "Add event listener" : "Select a behavior-capable scope"}
@@ -8306,7 +8833,7 @@ export default function App() {
 
   function renderBehaviorInspectorPanel() {
     const conditionalGroups =
-      selectedAuthoring?.kind === "field" && activeBuilderField ? buildConditionalRuleGroups(activeBuilderField.conditionals) : [];
+      selectedAuthoring?.kind === "field" && activeBuilderField ? buildLegacyConditionalRuleGroups(legacyFieldConditionals(activeBuilderField)) : [];
     const scopeListeners = activeRuntimeScope?.listeners ?? [];
     const currentScopeTitle =
       selectedAuthoring === null
@@ -8346,14 +8873,14 @@ export default function App() {
           </div>
           {hasInlineBehaviorToolbar ? (
             <div className="mt-3 rounded-[0.95rem] border border-dashed border-slate-200 bg-slate-50 p-3 text-sm leading-6 text-slate-600">
-              Use the behavior toolbar on the selected card for add rule, listener, event, and test actions. This rail is status only.
+              Use the behavior toolbar on the selected card for event listener, dispatch event, and test actions. This rail is status only.
             </div>
           ) : null}
           <div className="mt-3 grid gap-3">
             <div className="rounded-[0.95rem] border border-soft bg-slate-50 p-3">
-              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Rules</p>
+              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Behavior</p>
               <p className="mt-2 font-semibold text-slate-950">{conditionalGroups.length ? `${conditionalGroups.length} available` : "None yet"}</p>
-              <p className="mt-1 text-sm leading-6 text-slate-600">State logic belongs in the studio-managed rules list, not inside the rail.</p>
+              <p className="mt-1 text-sm leading-6 text-slate-600">State logic belongs in the studio-managed conditions list, not inside the rail.</p>
             </div>
             <div className="rounded-[0.95rem] border border-soft bg-slate-50 p-3">
               <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Flows</p>
@@ -8368,7 +8895,7 @@ export default function App() {
 
   function renderBehaviorStudioManager() {
     const conditionalGroups =
-      selectedAuthoring?.kind === "field" && activeBuilderField ? buildConditionalRuleGroups(activeBuilderField.conditionals) : [];
+      selectedAuthoring?.kind === "field" && activeBuilderField ? buildLegacyConditionalRuleGroups(legacyFieldConditionals(activeBuilderField)) : [];
     const scopeListeners = activeRuntimeScope?.listeners ?? [];
     const currentScopeTitle =
       selectedAuthoring === null
@@ -8393,10 +8920,10 @@ export default function App() {
     const behaviorIndexFieldId = selectedAuthoring?.kind === "field" ? selectedAuthoring.fieldId : null;
     const allRuleObjects =
       logicMapData?.steps.flatMap((step) =>
-        step.conditionalRules.map((rule) => ({
+        step.conditionalBehavior.map((rule) => ({
           id: rule.id,
           kind: "rule" as const,
-          objectLabel: "Rule",
+          objectLabel: "Condition",
           title: rule.title,
           detail: rule.detail,
           stepId: step.id,
@@ -8502,7 +9029,7 @@ export default function App() {
     const behaviorIndexObjectKey = (item: (typeof behaviorIndexObjects)[number]) => `${item.kind}:${item.id}`;
     const toggleBehaviorIndexObject = (item: (typeof behaviorIndexObjects)[number]) => {
       if (item.kind === "rule" && item.selection) {
-        toggleConditionalRuleForSelection(item.selection, item.id);
+        toggleLegacyConditionalRuleForSelection(item.selection, item.id);
         return;
       }
       if (item.kind === "flow") {
@@ -8511,7 +9038,7 @@ export default function App() {
     };
     const duplicateBehaviorIndexObject = (item: (typeof behaviorIndexObjects)[number]) => {
       if (item.kind === "rule" && item.selection) {
-        duplicateConditionalRuleForSelection(item.selection, item.id);
+        duplicateLegacyConditionalRuleForSelection(item.selection, item.id);
         return;
       }
       if (item.kind === "flow") {
@@ -8520,7 +9047,7 @@ export default function App() {
     };
     const removeBehaviorIndexObject = (item: (typeof behaviorIndexObjects)[number]) => {
       if (item.kind === "rule" && item.selection) {
-        removeConditionalRuleForSelection(item.selection, item.id);
+        removeLegacyConditionalRuleForSelection(item.selection, item.id);
         return;
       }
       if (item.kind === "flow") {
@@ -8528,11 +9055,11 @@ export default function App() {
       }
     };
     const showIndex = behaviorStudioManagerMode === "index";
-    const showRules = behaviorStudioManagerMode !== "flows" && !showIndex;
-    const showFlows = behaviorStudioManagerMode !== "rules" && !showIndex;
+    const showBehavior = false;
+    const showFlows = behaviorStudioManagerMode !== "conditions" && !showIndex;
 
     if (!showIndex) {
-      const scopedObjectCount = visibleRuleGroups.length + visibleListeners.length;
+      const scopedObjectCount = visibleListeners.length;
       return (
         <div className="space-y-3">
           <div className="rounded-[0.95rem] border border-soft bg-white p-3">
@@ -8541,7 +9068,6 @@ export default function App() {
                 <p className="text-[0.66rem] font-semibold uppercase tracking-[0.18em] text-slate-500">Attached behavior</p>
                 <h4 className="mt-1 truncate text-base font-semibold text-slate-950">{currentScopeTitle}</h4>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <span className="app-pill">{visibleRuleGroups.length} rules</span>
                   <span className="app-pill">{visibleListeners.length} listeners/chains</span>
                   {activeRuntimeScope ? <span className="app-pill">{activeRuntimeScope.label}</span> : null}
                 </div>
@@ -8561,9 +9087,6 @@ export default function App() {
               </button>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" onClick={openBehaviorStudioRule} disabled={selectedAuthoring?.kind !== "field"} className={actionButtonClass("primary")}>
-                Add rule
-              </button>
               <button type="button" onClick={() => openBehaviorStudioListener("listener")} disabled={!activeRuntimeScope} className={actionButtonClass()}>
                 Add event listener
               </button>
@@ -8582,7 +9105,7 @@ export default function App() {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap gap-1.5">
-                          <span className="app-pill">Rule</span>
+                          <span className="app-pill">Condition</span>
                           {group.members.map((member) => (
                             <span key={`compact-rule-effect-${member.rule.ruleId}`} className="app-pill">
                               {formatLabel(member.rule.effect)}
@@ -8686,7 +9209,7 @@ export default function App() {
             </div>
           ) : (
             <div className="rounded-[0.95rem] border border-dashed border-slate-300 bg-white px-4 py-5 text-sm leading-6 text-slate-600">
-              No rules, event listeners, or dispatch chains are attached to this selection yet. Add one here, or open the full manager to inspect document-wide behavior.
+              No event listeners or dispatch chains are attached to this selection yet. Add one here, or open the full manager to inspect document-wide behavior.
             </div>
           )}
         </div>
@@ -8698,16 +9221,13 @@ export default function App() {
         <div className="rounded-[1.15rem] border border-soft bg-white p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Rules and flows manager</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Behavior manager</p>
               <h4 className="mt-2 text-lg font-semibold text-slate-950">{currentScopeTitle}</h4>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                This is the primary manager for behavior authoring. Search, filter, create, and reopen rule bundles and interaction flows from one dedicated surface.
+                Search, filter, create, and reopen event listeners and dispatch chains from one dedicated surface.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={openBehaviorStudioRule} className={actionButtonClass("primary")}>
-                Add rule
-              </button>
               <button type="button" onClick={() => openBehaviorStudioListener("listener")} className={actionButtonClass()}>
                 Add event listener
               </button>
@@ -8717,7 +9237,6 @@ export default function App() {
             </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            {conditionalGroups.length ? <span className="app-pill">{conditionalGroups.length} rule bundle{conditionalGroups.length === 1 ? "" : "s"}</span> : null}
             {scopeListeners.length ? <span className="app-pill">{scopeListeners.length} interaction flow{scopeListeners.length === 1 ? "" : "s"}</span> : null}
             {activeRuntimeScope ? <span className="app-pill">{activeRuntimeScope.label}</span> : null}
             <span className="app-pill">{currentBehaviorSelectionSummary()}</span>
@@ -8726,7 +9245,7 @@ export default function App() {
             <input
               value={behaviorStudioManagerQuery}
               onChange={(event) => setBehaviorStudioManagerQuery(event.target.value)}
-              placeholder="Search rules, events, and actions"
+              placeholder="Search events, actions, sources, and targets"
               className="w-full rounded-2xl border border-soft bg-slate-50 px-4 py-3 text-sm text-slate-800"
             />
             <div className="flex flex-wrap gap-2">
@@ -8736,13 +9255,6 @@ export default function App() {
                 className={actionButtonClass("secondary")}
               >
                 All
-              </button>
-              <button
-                type="button"
-                onClick={() => setBehaviorStudioManagerMode("rules")}
-                className={actionButtonClass("secondary")}
-              >
-                Rules
               </button>
               <button
                 type="button"
@@ -8779,10 +9291,10 @@ export default function App() {
           <div className="rounded-[1.15rem] border border-soft bg-white p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Rules Manager</p>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Behavior Manager</p>
                 <h5 className="mt-2 text-base font-semibold text-slate-950">Document behavior index</h5>
                 <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Manage rules, event listeners, and dispatch chains as objects first. The graph is now an overview and trace target, not the primary list.
+                  Manage event listeners and dispatch chains as objects first. The graph is an overview and trace target, not the primary list.
                 </p>
               </div>
               <span className="app-pill">{visibleBehaviorIndexObjects.length} shown</span>
@@ -8958,18 +9470,18 @@ export default function App() {
           </div>
         ) : null}
 
-        {showRules ? (
+        {showBehavior ? (
         <div className="rounded-[1.15rem] border border-soft bg-white p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Rules manager</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Behavior manager</p>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                Rules should read as explicit objects you can inspect and reopen, not hidden branches inside the graph.
+                Behavior should read as explicit objects you can inspect and reopen, not hidden branches inside the graph.
               </p>
             </div>
             {selectedAuthoring?.kind === "field" ? (
               <button type="button" onClick={openBehaviorStudioRule} className={actionButtonClass()}>
-                New rule
+                New listener
               </button>
             ) : null}
           </div>
@@ -9012,13 +9524,13 @@ export default function App() {
             ) : (
               <div className="app-muted-card mt-4 p-4 text-sm text-slate-500">
                 {conditionalGroups.length
-                  ? "No rule bundles match the current search."
-                  : "No field rules yet. Create the first rule in the behavior studio so conditions and effects can be wired with room to breathe."}
+                  ? "No conditional listener flows match the current search."
+                  : "No field listener conditions yet. Create a listener in Behavior Studio so conditions and actions can be wired with room to breathe."}
               </div>
             )
           ) : (
             <div className="app-muted-card mt-4 p-4 text-sm text-slate-500">
-              Select a field to manage state rules. Step, section, and form behavior can still use listeners and events.
+              Select a field to manage conditional listener flows. Step, section, and form behavior can still use listeners and events.
             </div>
           )}
         </div>
@@ -9103,32 +9615,28 @@ export default function App() {
       return null;
     }
 
-    const isRuleCreation = behaviorStudioCreationKind === "rule";
+    const isRuleCreation = false;
     const isEventCreation = behaviorStudioCreationKind === "event";
     const flowPresets = isEventCreation
       ? runtimePresets.filter((preset) => preset.actionKinds.includes("dispatch_event"))
       : runtimePresets;
-    const presetCards: Array<BehaviorRulePreset | RuntimePreset> = isRuleCreation ? rulePresets : flowPresets;
+    const presetCards: RuntimePreset[] = flowPresets;
     const recommendedPresetIds = new Set(presetCards.slice(0, 5).map((preset) => preset.id));
     const normalizedPresetSearch = behaviorPresetSearch.trim().toLowerCase();
     const rawTriggerNames = activeRuntimeScope
       ? Array.from(
           new Set([
             ...runtimeTriggerSuggestions(activeRuntimeScope, activeBuilderField),
-            ...(activeRuntimeScope.scopeKind === "form"
-              ? ["form.load", "form.submit", "form.submit_success", "form.submit_error", "form.validation_failed", "host.context_updated"]
-              : activeRuntimeScope.scopeKind === "step"
-                ? ["step.enter", "step.leave"]
-                : activeRuntimeScope.scopeKind === "field"
-                  ? ["host.context_updated"]
-                  : activeRuntimeScope.scopeKind === "component"
-                    ? ["component.click"]
-                    : []),
+            ...runtimeCoreEventsForDispatcher(activeRuntimeScope.scopeKind, activeBuilderField?.semanticType).map((eventType) => eventType.type),
+            ...(activeRuntimeScope.scopeKind === "field" ? ["host.context_updated"] : []),
           ]),
         )
       : [];
-    const availableCategories = (["recommended", "visibility", "validation", "data", "navigation", "host", "advanced"] as BehaviorPresetCategory[])
+    const availableCategories = (["recommended", "source", "visibility", "validation", "data", "navigation", "host", "advanced"] as BehaviorPresetCategory[])
       .filter((category) => {
+        if (category === "source") {
+          return !isRuleCreation && !isEventCreation;
+        }
         if (category === "recommended" || category === "advanced") {
           return true;
         }
@@ -9144,7 +9652,7 @@ export default function App() {
           preset.actionSummary,
           preset.componentLabel ?? "",
           behaviorPresetCategoryLabels[preset.category],
-          isRuntimePreset(preset) ? preset.triggerName : preset.effects.map((effect) => formatLabel(effect)).join(" "),
+          preset.triggerName,
         ]
           .join(" ")
           .toLowerCase()
@@ -9158,7 +9666,7 @@ export default function App() {
       if (activePresetCategory === "recommended") {
         return recommendedPresetIds.has(preset.id);
       }
-      if (activePresetCategory === "advanced") {
+      if (activePresetCategory === "advanced" || activePresetCategory === "source") {
         return false;
       }
       return preset.category === activePresetCategory;
@@ -9167,15 +9675,16 @@ export default function App() {
       !normalizedPresetSearch || triggerName.toLowerCase().includes(normalizedPresetSearch) || formatLabel(triggerName).toLowerCase().includes(normalizedPresetSearch),
     );
     const shouldShowAdvancedChoices = activePresetCategory === "advanced" || (normalizedPresetSearch.length > 0 && visiblePresets.length === 0);
+    const shouldShowCrossItemChoices = activePresetCategory === "source" && !isRuleCreation && !isEventCreation;
     const title =
       behaviorStudioCreationKind === "rule"
-        ? "Create rule"
+        ? "Create conditional listener"
         : behaviorStudioCreationKind === "event"
           ? "Dispatch event"
           : "Create event listener";
     const summary =
       behaviorStudioCreationKind === "rule"
-        ? "Choose the state change this field should control, then refine the condition in the editor."
+        ? "Choose the listener/action flow that should update this item."
         : behaviorStudioCreationKind === "event"
           ? "Choose the event pattern to dispatch, then refine payload and follow-up actions in the editor."
           : "Choose an event/action starter, then refine the listener chain in the editor.";
@@ -9203,7 +9712,7 @@ export default function App() {
         </div>
 
         {isRuleCreation && !(selectedAuthoring?.kind === "field" && activeBuilderField) ? (
-          <div className="app-muted-card mt-3 p-4 text-sm text-slate-500">Select a field before creating a state rule.</div>
+          <div className="app-muted-card mt-3 p-4 text-sm text-slate-500">Select a field before creating a conditional listener flow.</div>
         ) : !isRuleCreation && !activeRuntimeScope ? (
           <div className="app-muted-card mt-3 p-4 text-sm text-slate-500">Select a form, button, or interactive field before creating a listener.</div>
         ) : (
@@ -9235,25 +9744,21 @@ export default function App() {
                   type="search"
                   value={behaviorPresetSearch}
                   onChange={(event) => setBehaviorPresetSearch(event.target.value)}
-                  placeholder={isRuleCreation ? "Search rule presets..." : "Search presets or triggers..."}
+                  placeholder={isRuleCreation ? "Search condition presets..." : shouldShowCrossItemChoices ? "Search source items or events..." : "Search presets or triggers..."}
                   className="mt-1 w-full rounded-[0.8rem] border border-soft bg-white px-3 py-2 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
               </div>
             </div>
             <div className="mt-2">
-              {!shouldShowAdvancedChoices ? (
+              {shouldShowCrossItemChoices ? (
+                renderCrossItemEventPicker(normalizedPresetSearch)
+              ) : !shouldShowAdvancedChoices ? (
                 <div className="grid gap-2">
                   {visiblePresets.map((preset) => (
                     <button
                       key={`creation-preset-${preset.id}`}
                       type="button"
-                      onClick={() => {
-                        if (isRuntimePreset(preset)) {
-                          applyBehaviorFlowPreset(preset.id);
-                        } else {
-                          applyBehaviorRulePreset(preset.id);
-                        }
-                      }}
+                      onClick={() => applyBehaviorFlowPreset(preset.id)}
                       className="rounded-[0.85rem] border border-blue-200 bg-white px-3 py-2.5 text-left transition hover:border-blue-400 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -9264,30 +9769,25 @@ export default function App() {
                         {recommendedPresetIds.has(preset.id) ? <span className="app-pill shrink-0">Suggested</span> : null}
                       </div>
                       <div className="mt-2 flex flex-wrap gap-1.5">
-                        <span className="app-pill">
-                          {isRuntimePreset(preset) ? `When ${formatLabel(preset.triggerName)}` : "When answer matches"}
-                        </span>
+                        <span className="app-pill">When {formatLabel(preset.triggerName)}</span>
                         {preset.componentLabel ? <span className="app-pill">{preset.componentLabel}</span> : null}
                         <span className="app-pill">Then {preset.actionSummary}</span>
                         <span className="app-pill">{behaviorPresetCategoryLabels[preset.category]}</span>
-                        {!isRuntimePreset(preset) && preset.includeClearValueFlow ? <span className="app-pill">Adds clear action</span> : null}
                       </div>
                     </button>
                   ))}
                   {!visiblePresets.length ? (
                     <div className="app-muted-card p-3 text-sm text-slate-500">
-                      {isRuleCreation
-                        ? "No matching presets. Choose Advanced to start a custom rule."
-                        : "No matching presets. Choose Advanced to pick an exact trigger and build the chain manually."}
+                      No matching presets. Choose Advanced to pick an exact trigger and build the chain manually.
                     </div>
                   ) : null}
                 </div>
               ) : isRuleCreation ? (
                 <div className="grid gap-2">
                   <div className="rounded-[0.85rem] border border-dashed border-blue-200 bg-blue-50/70 px-3 py-2">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Custom rule</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Custom conditional listener</p>
                     <p className="mt-1 text-xs leading-5 text-slate-600">
-                      Advanced mode starts from a blank editable state rule. Choose the source, condition, and effect after it opens.
+                      Advanced mode starts from a blank editable conditional listener flow. Choose the source, condition, and effect after it opens.
                     </p>
                   </div>
                   <button
@@ -9295,8 +9795,8 @@ export default function App() {
                     onClick={() => applyBehaviorRuleStarter({ mode: "single" })}
                     className="rounded-[0.85rem] border border-blue-200 bg-white px-3 py-2.5 text-left transition hover:border-blue-400 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
                   >
-                    <p className="text-sm font-semibold text-slate-950">Start custom state rule</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-600">Create one editable rule without applying a bundled preset.</p>
+                    <p className="text-sm font-semibold text-slate-950">Start custom conditional listener flow</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-600">Create one editable conditional listener without applying a bundled preset.</p>
                   </button>
                 </div>
               ) : (
@@ -9329,7 +9829,7 @@ export default function App() {
             <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-[0.8rem] border border-soft bg-slate-50 px-3 py-2">
               <p className="text-xs leading-5 text-slate-600">
                 {isRuleCreation
-                  ? "Start from intent first; use Advanced only when you need a custom state rule."
+                  ? "Start from intent first; use Advanced only when you need a custom conditional listener flow."
                   : "Start from intent first; use Advanced only when you need the exact runtime trigger."}
               </p>
               <button
@@ -9343,7 +9843,7 @@ export default function App() {
                 }}
                 className={actionButtonClass("secondary")}
               >
-                {isRuleCreation ? "Custom rule" : isEventCreation ? "Custom dispatch chain" : "Custom event listener"}
+                {isRuleCreation ? "Custom conditional listener" : isEventCreation ? "Custom dispatch chain" : "Custom event listener"}
               </button>
             </div>
           </div>
@@ -9352,12 +9852,149 @@ export default function App() {
     );
   }
 
+  function renderCrossItemEventPicker(normalizedPresetSearch: string) {
+    if (!activeRuntimeTarget) {
+      return <div className="app-muted-card p-3 text-sm text-slate-500">Select the item that should react before choosing another event source.</div>;
+    }
+
+    const targetStepId = activeRuntimeTarget.pathIds[1] ?? "";
+    const targetSectionId = activeRuntimeTarget.pathIds[2] ?? "";
+    const sourceOrderById = new Map(runtimeEventSourceCandidates.map((candidate, index) => [candidate.id, index]));
+    const targetOrder = sourceOrderById.get(activeRuntimeTarget.id) ?? 0;
+    const filteredSources = runtimeEventSourceCandidates
+      .filter((candidate) => candidate.id !== activeRuntimeTarget.id && !activeRuntimeTarget.pathIds.includes(candidate.id))
+      .filter((candidate) => {
+        if (!normalizedPresetSearch) {
+          return true;
+        }
+        return [
+          candidate.label,
+          candidate.componentLabel,
+          candidate.locationLabel,
+          candidate.nodeType,
+          candidate.semanticType ?? "",
+          candidate.events.map((eventOption) => eventOption.type).join(" "),
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedPresetSearch);
+      })
+      .sort((left, right) => {
+        const leftSameStep = left.pathIds[1] === targetStepId ? 0 : 1;
+        const rightSameStep = right.pathIds[1] === targetStepId ? 0 : 1;
+        const leftSameSection = left.pathIds[2] === targetSectionId ? 0 : 1;
+        const rightSameSection = right.pathIds[2] === targetSectionId ? 0 : 1;
+        const leftDistance = Math.abs((sourceOrderById.get(left.id) ?? 0) - targetOrder);
+        const rightDistance = Math.abs((sourceOrderById.get(right.id) ?? 0) - targetOrder);
+        return (
+          leftSameStep - rightSameStep ||
+          leftSameSection - rightSameSection ||
+          leftDistance - rightDistance ||
+          left.locationLabel.localeCompare(right.locationLabel) ||
+          left.label.localeCompare(right.label)
+        );
+      });
+    const sameStepSources = filteredSources.filter((source) => source.pathIds[1] === targetStepId);
+    const scopedSources = normalizedPresetSearch ? filteredSources : sameStepSources.length ? sameStepSources : filteredSources;
+    const visibleSources = scopedSources.slice(0, normalizedPresetSearch ? 12 : 6);
+    const hiddenSourceCount = filteredSources.length - visibleSources.length;
+
+    return (
+      <div className="grid gap-2">
+        <div className="rounded-[0.85rem] border border-dashed border-blue-200 bg-blue-50/70 px-3 py-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">React to another item</p>
+          <p className="mt-1 text-xs leading-5 text-slate-600">
+            Choose the item that dispatches the event. The listener stays with {activeRuntimeTarget.label}, but the runtime listens at the nearest shared dispatcher.
+          </p>
+          {hiddenSourceCount > 0 ? (
+            <p className="mt-1 text-xs leading-5 text-blue-700">
+              Showing {visibleSources.length} of {filteredSources.length} matching sources. Search by label, component type, or event name to narrow the full project.
+            </p>
+          ) : null}
+        </div>
+        {visibleSources.map((source) => {
+          const dispatcher = findNearestSharedDispatcher(source, activeRuntimeTarget, runtimeEventSourceCandidateById);
+          const eventOptions = source.events
+            .filter((eventOption) => eventOption.bubbles)
+            .filter(
+              (eventOption) =>
+                !normalizedPresetSearch ||
+                eventOption.type.toLowerCase().includes(normalizedPresetSearch) ||
+                eventOption.label.toLowerCase().includes(normalizedPresetSearch) ||
+                source.label.toLowerCase().includes(normalizedPresetSearch),
+            )
+            .slice(0, normalizedPresetSearch ? 6 : 4);
+
+          return (
+            <div key={`cross-source-${source.id}`} className="rounded-[0.95rem] border border-blue-100 bg-white p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-950">{source.label}</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">
+                    {source.componentLabel} · {source.locationLabel}
+                  </p>
+                </div>
+                <span className="app-pill shrink-0">Listen at {dispatcher.componentLabel}</span>
+              </div>
+              {eventOptions.length ? (
+                <div className="mt-3 grid gap-2">
+                  {eventOptions.map((eventOption) => {
+                    const actionStarters = crossItemActionStartersForTarget(source, eventOption, dispatcher, activeRuntimeTarget).slice(0, 4);
+                    return (
+                      <div key={`cross-source-${source.id}-${eventOption.type}`} className="rounded-[0.8rem] border border-soft bg-slate-50 px-3 py-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">When {formatLabel(eventOption.type)}</p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {source.label} dispatches `{eventOption.type}`; {activeRuntimeTarget.label} reacts.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => createCrossItemBehaviorListener(source, eventOption, null)}
+                            className={actionButtonClass("secondary")}
+                          >
+                            Listener only
+                          </button>
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {actionStarters.map((starter) => (
+                            <button
+                              key={`cross-source-${source.id}-${eventOption.type}-${starter.id}`}
+                              type="button"
+                              onClick={() => createCrossItemBehaviorListener(source, eventOption, starter)}
+                              className={actionButtonClass(starter.id === "require-target" ? "primary" : "secondary")}
+                              title={starter.description}
+                            >
+                              {starter.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="app-muted-card mt-3 p-3 text-sm text-slate-500">
+                  No bubbling events are available for this source. Use Advanced when you need strict dispatcher wiring for non-bubbling events.
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {!filteredSources.length ? (
+          <div className="app-muted-card p-3 text-sm text-slate-500">No matching event sources. Try a field label, component type, or event name.</div>
+        ) : null}
+      </div>
+    );
+  }
+
   function renderBehaviorStudioSurface() {
     const selectedRuleIndex =
       selectedBehaviorNode?.kind === "rule" && selectedAuthoring?.kind === "field" && activeBuilderField
-        ? activeBuilderField.conditionals.findIndex((rule) => rule.ruleId === selectedBehaviorNode.ruleId)
+        ? legacyFieldConditionals(activeBuilderField).findIndex((rule) => rule.ruleId === selectedBehaviorNode.ruleId)
         : -1;
-    const selectedRule = selectedRuleIndex >= 0 && activeBuilderField ? activeBuilderField.conditionals[selectedRuleIndex] : null;
+    const selectedRule = selectedRuleIndex >= 0 && activeBuilderField ? legacyFieldConditionals(activeBuilderField)[selectedRuleIndex] : null;
     const selectedListenerIndex =
       selectedBehaviorNode?.kind === "listener" && activeRuntimeScope
         ? activeRuntimeScope.listeners.findIndex((listener) => listener.id === selectedBehaviorNode.listenerId)
@@ -9373,7 +10010,7 @@ export default function App() {
         ) : (
           <div className="rounded-[1.05rem] border border-soft bg-white p-3.5 shadow-[0_16px_32px_rgba(15,23,42,0.07)] sm:p-4">
             {selectedRule && selectedRuleIndex >= 0 ? (
-              renderConditionalRuleEditor(selectedRule, selectedRuleIndex)
+              renderLegacyConditionalRuleEditor(selectedRule, selectedRuleIndex)
             ) : selectedListener && selectedListenerIndex >= 0 ? (
               renderRuntimeListenerComposer(selectedListener, selectedListenerIndex, {
                 selectedActionId:
@@ -9386,11 +10023,11 @@ export default function App() {
                 <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">Create behavior</p>
                 <h5 className="mt-1.5 text-base font-semibold text-slate-950">Choose the next behavior object for this selection</h5>
                 <p className="mt-2 max-w-2xl text-sm leading-5 text-slate-600">
-                  The create path keeps one rule, event listener, or dispatch chain in focus so wiring does not start with a long manager stack.
+                  The create path keeps one listener or dispatch chain in focus so wiring does not start with a long manager stack.
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button type="button" onClick={openBehaviorStudioRule} disabled={selectedAuthoring?.kind !== "field"} className={actionButtonClass("primary")}>
-                    Add rule
+                    React to another item
                   </button>
                   <button type="button" onClick={() => openBehaviorStudioListener("listener")} disabled={!activeRuntimeScope} className={actionButtonClass()}>
                     Add event listener
@@ -9417,9 +10054,9 @@ export default function App() {
   function renderBehaviorStudioTestPanel() {
     const selectedRuleIndex =
       selectedBehaviorNode?.kind === "rule" && selectedAuthoring?.kind === "field" && activeBuilderField
-        ? activeBuilderField.conditionals.findIndex((rule) => rule.ruleId === selectedBehaviorNode.ruleId)
+        ? legacyFieldConditionals(activeBuilderField).findIndex((rule) => rule.ruleId === selectedBehaviorNode.ruleId)
         : -1;
-    const selectedRule = selectedRuleIndex >= 0 && activeBuilderField ? activeBuilderField.conditionals[selectedRuleIndex] : null;
+    const selectedRule = selectedRuleIndex >= 0 && activeBuilderField ? legacyFieldConditionals(activeBuilderField)[selectedRuleIndex] : null;
     const selectedListenerIndex =
       selectedBehaviorNode?.kind === "listener" && activeRuntimeScope
         ? activeRuntimeScope.listeners.findIndex((listener) => listener.id === selectedBehaviorNode.listenerId)
@@ -9470,7 +10107,7 @@ export default function App() {
               disabled={!selectedRule}
               className={actionButtonClass(selectedRule ? "primary" : "secondary")}
             >
-              Test this rule
+              Test this listener
             </button>
             <button
               type="button"
@@ -9513,7 +10150,7 @@ export default function App() {
               </h5>
               <p className="mt-1 text-xs leading-5 text-slate-700">
                 {selectedStructuredTraceEvidence?.summary ??
-                  "Run a selected rule or chain to inspect dispatched events and host actions here."}
+                  "Run a selected listener or chain to inspect dispatched events and host actions here."}
               </p>
             </div>
             <button
@@ -9748,7 +10385,7 @@ export default function App() {
           {renderBehaviorEdgeLabel("When")}
           {renderBehaviorGraphNode({
             eyebrow: "Condition",
-            title: "Evaluate rule",
+            title: "Evaluate condition",
             detail: rule.detail,
             tone: "amber",
           })}
@@ -9830,7 +10467,7 @@ export default function App() {
         title: config.title,
         kindLabel: config.kindLabel,
         detail: "",
-        rules: [],
+        conditions: [],
         listeners: [],
         selection: config.selection,
       };
@@ -9838,7 +10475,7 @@ export default function App() {
       return cluster;
     };
 
-    step.conditionalRules.forEach((rule) => {
+    step.conditionalBehavior.forEach((rule) => {
       const [kindLabel, ...labelParts] = rule.scopeLabel.split(" · ");
       const title = labelParts.join(" · ") || rule.targetFieldLabel;
       ensureCluster({
@@ -9846,7 +10483,7 @@ export default function App() {
         title,
         kindLabel,
         selection: rule.sourceSelection,
-      }).rules.push(rule);
+      }).conditions.push(rule);
     });
 
     step.runtimeListeners.forEach((listener) => {
@@ -9862,7 +10499,7 @@ export default function App() {
 
     return Array.from(clusters.values()).map((cluster) => ({
       ...cluster,
-      detail: `${cluster.rules.length} state rule${cluster.rules.length === 1 ? "" : "s"} · ${cluster.listeners.length} interaction flow${
+      detail: `${cluster.conditions.length} conditional listener flow${cluster.conditions.length === 1 ? "" : "s"} · ${cluster.listeners.length} interaction flow${
         cluster.listeners.length === 1 ? "" : "s"
       }`,
     }));
@@ -9873,10 +10510,10 @@ function buildBehaviorScopeClustersForDocument(steps: LogicMapStepEntry[]): Beha
       key: step.id,
       title: step.title,
       kindLabel: "Step",
-      detail: `${step.conditionalRules.length} state rule${step.conditionalRules.length === 1 ? "" : "s"} · ${step.runtimeListeners.length} interaction flow${
+      detail: `${step.conditionalBehavior.length} conditional listener flow${step.conditionalBehavior.length === 1 ? "" : "s"} · ${step.runtimeListeners.length} interaction flow${
         step.runtimeListeners.length === 1 ? "" : "s"
       }`,
-      rules: step.conditionalRules,
+      conditions: step.conditionalBehavior,
       listeners: step.runtimeListeners,
       selection: step.selection,
   }));
@@ -9931,7 +10568,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                 setBehaviorGraphEntryContext({
                   source: "map",
                   title: "Opened from Map",
-                  detail: "Graph overview handed you into the behavior workspace. Choose a step, rule, or flow to continue editing.",
+                  detail: "Graph overview handed you into the behavior workspace. Choose a step, listener, or flow to continue editing.",
                 });
                 resetBehaviorGraphViewport();
                 setInspectorTab("behavior");
@@ -9946,7 +10583,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
           </div>
 	          <div className="mt-4 flex flex-wrap gap-2">
 	            <span className="app-pill">{logicMapData.steps.length} steps</span>
-	            <span className="app-pill">{logicMapData.totalConditionals} state rules</span>
+	            <span className="app-pill">{logicMapData.totalConditionals} conditional listener flows</span>
 	            <span className="app-pill">{logicMapData.totalListeners} behavior flows</span>
 	          </div>
 	        </div>
@@ -10001,7 +10638,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                   <div className="mt-2 flex flex-wrap gap-2">
                     <span className="app-pill">{step.sectionCount} sections</span>
                     <span className="app-pill">{step.fieldCount} fields</span>
-                    <span className="app-pill">{step.conditionalRules.length} rules</span>
+                    <span className="app-pill">{step.conditionalBehavior.length} conditions</span>
                     <span className="app-pill">{step.runtimeListeners.length} flows</span>
                   </div>
                 </div>
@@ -10012,16 +10649,16 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
 
               <div className="mt-4 space-y-4">
                 <div className="rounded-[1rem] border border-soft bg-slate-50 p-4">
-                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">State rules</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">State conditions</p>
                   <p className="mt-2 text-sm leading-6 text-slate-700">
-                    Visibility, requirement, and field-state logic read here as rule chains instead of summaries.
+                    Visibility, requirement, and field-state logic read here as conditional listener flows instead of summaries.
                   </p>
                   <div className="mt-4 space-y-3">
-                    {step.conditionalRules.length ? (
-                      step.conditionalRules.map((rule) => renderMapRuleFlowCard(rule))
+                    {step.conditionalBehavior.length ? (
+                      step.conditionalBehavior.map((rule) => renderMapRuleFlowCard(rule))
                     ) : (
                       <div className="app-muted-card p-4 text-sm text-slate-500">
-                        No field state rules in this step yet.
+                        No field conditional listener flows in this step yet.
                       </div>
                     )}
                   </div>
@@ -10053,40 +10690,40 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
   function renderBehaviorWorkspace() {
     const selectedRuleIndex =
       selectedBehaviorNode?.kind === "rule" && selectedAuthoring?.kind === "field" && activeBuilderField
-        ? activeBuilderField.conditionals.findIndex((rule) => rule.ruleId === selectedBehaviorNode.ruleId)
+        ? legacyFieldConditionals(activeBuilderField).findIndex((rule) => rule.ruleId === selectedBehaviorNode.ruleId)
         : -1;
     const selectedRule =
-      selectedRuleIndex >= 0 && activeBuilderField ? activeBuilderField.conditionals[selectedRuleIndex] : null;
+      selectedRuleIndex >= 0 && activeBuilderField ? legacyFieldConditionals(activeBuilderField)[selectedRuleIndex] : null;
     const selectedListenerIndex =
       selectedBehaviorNode?.kind === "listener" && activeRuntimeScope
         ? activeRuntimeScope.listeners.findIndex((listener) => listener.id === selectedBehaviorNode.listenerId)
         : -1;
     const selectedListener =
       selectedListenerIndex >= 0 && activeRuntimeScope ? activeRuntimeScope.listeners[selectedListenerIndex] : null;
-    const stateRules = activeBuilderField?.conditionals ?? [];
+    const stateBehavior = legacyFieldConditionals(activeBuilderField);
     const interactionFlows = activeRuntimeScope?.listeners ?? [];
-    const hasStateRules = Boolean(stateRules.length);
+    const hasStateBehavior = Boolean(stateBehavior.length);
     const hasInteractionFlows = Boolean(interactionFlows.length);
-    const hasGraph = hasStateRules || hasInteractionFlows;
+    const hasGraph = hasStateBehavior || hasInteractionFlows;
     const showStateFlows = behaviorGraphFilter === "all" || behaviorGraphFilter === "state";
     const showInteractionFlows = behaviorGraphFilter === "all" || behaviorGraphFilter === "interaction";
-    const visibleStateRules = showStateFlows ? stateRules : [];
+    const visibleStateBehavior = showStateFlows ? stateBehavior : [];
     const visibleInteractionFlows = showInteractionFlows ? interactionFlows : [];
-    const visibleStateRuleGroups = buildConditionalRuleGroups(visibleStateRules);
-    const hasVisibleGraph = Boolean(visibleStateRules.length || visibleInteractionFlows.length);
+    const visibleStateRuleGroups = buildLegacyConditionalRuleGroups(visibleStateBehavior);
+    const hasVisibleGraph = Boolean(visibleStateBehavior.length || visibleInteractionFlows.length);
     const focusedRuleId =
-      selectedBehaviorNode?.kind === "rule" && visibleStateRules.some((rule) => rule.ruleId === selectedBehaviorNode.ruleId)
+      selectedBehaviorNode?.kind === "rule" && visibleStateBehavior.some((rule) => rule.ruleId === selectedBehaviorNode.ruleId)
         ? selectedBehaviorNode.ruleId
-        : visibleStateRules[0]?.ruleId ?? null;
+        : visibleStateBehavior[0]?.ruleId ?? null;
     const focusedListenerId =
       selectedBehaviorNode?.kind === "listener" &&
       visibleInteractionFlows.some((listener) => listener.id === selectedBehaviorNode.listenerId)
         ? selectedBehaviorNode.listenerId
         : visibleInteractionFlows[0]?.id ?? null;
-    const displayedStateRules =
+    const displayedStateBehavior =
       behaviorGraphMode === "focus" && focusedRuleId
-        ? visibleStateRules.filter((rule) => rule.ruleId === focusedRuleId)
-        : visibleStateRules;
+        ? visibleStateBehavior.filter((rule) => rule.ruleId === focusedRuleId)
+        : visibleStateBehavior;
     const displayedStateRuleGroups =
       behaviorGraphMode === "focus" && focusedRuleId
         ? visibleStateRuleGroups.filter((group) => group.members.some((member) => member.rule.ruleId === focusedRuleId))
@@ -10095,11 +10732,11 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
       behaviorGraphMode === "focus" && focusedListenerId
         ? visibleInteractionFlows.filter((listener) => listener.id === focusedListenerId)
         : visibleInteractionFlows;
-    const totalVisibleFlows = visibleStateRules.length + visibleInteractionFlows.length;
+    const totalVisibleFlows = visibleStateBehavior.length + visibleInteractionFlows.length;
     const hasFlowNavigator =
       behaviorGraphMode === "focus" &&
-      (visibleStateRules.length + visibleInteractionFlows.length > 1 ||
-        visibleStateRules.length > 1 ||
+      (visibleStateBehavior.length + visibleInteractionFlows.length > 1 ||
+        visibleStateBehavior.length > 1 ||
         visibleInteractionFlows.length > 1);
     const graphZoomPercent = Math.round(behaviorGraphZoom * 100);
     const graphCompact = behaviorGraphDensity === "dense";
@@ -10256,9 +10893,9 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
       })) ?? [];
     const clusterMatchesDocumentBehaviorFilters = (cluster: BehaviorScopeCluster) =>
       (behaviorGraphFilter === "all"
-        ? cluster.rules.length || cluster.listeners.length
+        ? cluster.conditions.length || cluster.listeners.length
         : behaviorGraphFilter === "state"
-          ? cluster.rules.length
+          ? cluster.conditions.length
           : cluster.listeners.length) &&
       (documentBehaviorClusterFocus === "all" || normalizeDocumentBehaviorClusterKind(cluster.kindLabel) === documentBehaviorClusterFocus);
     const getVisibleDocumentBehaviorClusters = (clusters: BehaviorScopeCluster[]) => clusters.filter((cluster) => clusterMatchesDocumentBehaviorFilters(cluster));
@@ -10277,7 +10914,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
           };
           existing.scopeCount += 1;
           existing.laneIds.add(step.id);
-          existing.ruleCount += cluster.rules.length;
+          existing.ruleCount += cluster.conditions.length;
           existing.listenerCount += cluster.listeners.length;
           groupMap.set(key, existing);
         });
@@ -10306,7 +10943,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
     const documentBehaviorVisibleLaneCount =
       1 +
       documentBehaviorOverviewLanes.filter(({ step, clusters }) =>
-        step.conditionalRules.length || step.runtimeListeners.length || getVisibleDocumentBehaviorClusters(clusters).length,
+        step.conditionalBehavior.length || step.runtimeListeners.length || getVisibleDocumentBehaviorClusters(clusters).length,
       ).length;
     const documentBehaviorMaxClusterCount = documentBehaviorOverviewLanes.reduce((max, { clusters }) => {
       const visibleClusterCount = getVisibleDocumentBehaviorClusters(clusters).length;
@@ -10392,12 +11029,12 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
       {
         key: "active",
         title: "Behavior lanes",
-        description: "Lanes with authored rules, flows, or currently visible scope clusters stay grouped here for fast scanning.",
+        description: "Lanes with authored conditions, flows, or currently visible scope clusters stay grouped here for fast scanning.",
         lanes: documentBehaviorCanvasVisibleLanes.filter(({ step, clusters }) => {
           if (activeDocumentBehaviorTarget === step.id || documentBehaviorPinnedLaneIdSet.has(step.id)) {
             return false;
           }
-          return Boolean(step.conditionalRules.length || step.runtimeListeners.length || getVisibleDocumentBehaviorClusters(clusters).length);
+          return Boolean(step.conditionalBehavior.length || step.runtimeListeners.length || getVisibleDocumentBehaviorClusters(clusters).length);
         }),
       },
       {
@@ -10408,7 +11045,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
           if (activeDocumentBehaviorTarget === step.id || documentBehaviorPinnedLaneIdSet.has(step.id)) {
             return false;
           }
-          return !step.conditionalRules.length && !step.runtimeListeners.length && !getVisibleDocumentBehaviorClusters(clusters).length;
+          return !step.conditionalBehavior.length && !step.runtimeListeners.length && !getVisibleDocumentBehaviorClusters(clusters).length;
         }),
       },
     ].filter((bucket) => bucket.lanes.length);
@@ -10599,18 +11236,18 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
     ) => {
       setExpandedDocumentBehaviorTarget(cluster.selection?.stepId ?? "form");
       setBehaviorWorkspaceMode("authoring");
-      if (filter !== "interaction" && cluster.rules.length) {
+      if (filter !== "interaction" && cluster.conditions.length) {
         focusBehaviorGraphNode({
-          selection: cluster.rules[0].sourceSelection,
-          graphSelection: cluster.rules[0].graphSelection,
-          ruleIndex: cluster.rules[0].ruleIndex,
+          selection: cluster.conditions[0].sourceSelection,
+          graphSelection: cluster.conditions[0].graphSelection,
+          ruleIndex: cluster.conditions[0].ruleIndex,
           filter: "state",
           mode: "focus",
           viewport: "reset",
           entryContext: {
             source: "navigator",
             title: `Opened from ${originLabel}`,
-            detail: `State rules for ${cluster.title} were opened from the ${originLabel.toLowerCase()} and the graph viewport was recentered on that scope.`,
+            detail: `State conditions for ${cluster.title} were opened from the ${originLabel.toLowerCase()} and the graph viewport was recentered on that scope.`,
           },
         });
         return;
@@ -10653,11 +11290,11 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
       const isPinnedLane = documentBehaviorPinnedLaneIdSet.has(step.id);
       const isExpandedLane = isFocusedLane || isPinnedLane;
       const laneDensity =
-        step.conditionalRules.length + step.runtimeListeners.length >= 6
+        step.conditionalBehavior.length + step.runtimeListeners.length >= 6
           ? "High activity"
-          : step.conditionalRules.length + step.runtimeListeners.length >= 3
+          : step.conditionalBehavior.length + step.runtimeListeners.length >= 3
             ? "Moderate activity"
-            : step.conditionalRules.length + step.runtimeListeners.length > 0
+            : step.conditionalBehavior.length + step.runtimeListeners.length > 0
               ? "Light activity"
               : "No behavior yet";
       return (
@@ -10673,7 +11310,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
               <p className="mt-2 font-semibold text-slate-950">{step.title}</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <span className="app-pill">{step.fieldCount} fields</span>
-                {step.conditionalRules.length ? <span className="app-pill">{step.conditionalRules.length} rules</span> : null}
+                {step.conditionalBehavior.length ? <span className="app-pill">{step.conditionalBehavior.length} conditions</span> : null}
                 {step.runtimeListeners.length ? <span className="app-pill">{step.runtimeListeners.length} flows</span> : null}
                 <span className="app-pill">{laneDensity}</span>
                 {isActiveLane ? <span className="app-pill">Current lane</span> : null}
@@ -10799,13 +11436,13 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                             Open scope
                           </button>
                         ) : null}
-                        {cluster.rules.length ? (
+                        {cluster.conditions.length ? (
                           <button
                             type="button"
                             onClick={() => focusDocumentBehaviorCluster(cluster, "state", "Document graph canvas")}
                             className={actionButtonClass(behaviorGraphFilter === "interaction" ? "secondary" : "primary")}
                           >
-                            Open rules
+                            Open condition flows
                           </button>
                         ) : null}
                         {cluster.listeners.length ? (
@@ -10819,7 +11456,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                         ) : null}
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
-                        {cluster.rules.length ? <span className="app-pill">{cluster.rules.length} state rules</span> : null}
+                        {cluster.conditions.length ? <span className="app-pill">{cluster.conditions.length} conditional listener flows</span> : null}
                         {cluster.listeners.length ? <span className="app-pill">{cluster.listeners.length} interaction flows</span> : null}
                       </div>
                     </div>
@@ -10830,7 +11467,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                   {behaviorGraphFilter === "all"
                     ? "No authored behavior in this lane yet."
                     : behaviorGraphFilter === "state"
-                      ? "No state-rule scopes match this lane."
+                      ? "No conditional listener scopes match this lane."
                       : "No interaction-flow scopes match this lane."}
                 </div>
               )}
@@ -10848,13 +11485,13 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
               <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Behavior graph</p>
               <h4 className="mt-2 text-lg font-semibold text-slate-950">Trigger, condition, and effect flows</h4>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                The graph is now a secondary visualization for tracing and debugging. Create and manage behavior in the Rules Manager, then open specific nodes here only when the shape needs inspection.
+                The graph is now a secondary visualization for tracing and debugging. Create and manage behavior in the Behavior Manager, then open specific nodes here only when the shape needs inspection.
               </p>
               <p className="mt-2 text-sm leading-6 text-slate-500">{behaviorGraphSummary}</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={openBehaviorRulesManager} className={actionButtonClass("primary")}>
-                Open Rules Manager
+              <button type="button" onClick={openBehaviorBehaviorManager} className={actionButtonClass("primary")}>
+                Open Behavior Manager
               </button>
               <button
                 type="button"
@@ -10889,7 +11526,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
-            {hasStateRules ? <span className="app-pill">{stateRules.length} state rules</span> : null}
+            {hasStateBehavior ? <span className="app-pill">{stateBehavior.length} conditional listener flows</span> : null}
             {hasInteractionFlows ? <span className="app-pill">{interactionFlows.length} interaction flows</span> : null}
             {activeRuntimeScope ? <span className="app-pill">{activeRuntimeScope.label}</span> : null}
             <span className="app-pill">{selectedBehaviorSummary}</span>
@@ -10935,7 +11572,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
             <div className="flex flex-wrap gap-2">
               {[
                 { value: "all" as const, label: "All flows" },
-                { value: "state" as const, label: "State rules" },
+                { value: "state" as const, label: "State conditions" },
                 { value: "interaction" as const, label: "Interaction flows" },
               ].map((option) => (
                 <button
@@ -11029,7 +11666,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <span className="app-pill">{logicMapData.steps.length} step lanes</span>
-                  <span className="app-pill">{logicMapData.totalConditionals} rules</span>
+                  <span className="app-pill">{logicMapData.totalConditionals} conditions</span>
                   <span className="app-pill">{logicMapData.totalListeners} flows</span>
                   <button
                     type="button"
@@ -11068,7 +11705,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                 <span className="app-pill">
                   {documentBehaviorSurfaceMode === "canvas" ? "Global canvas" : documentBehaviorSurfaceMode === "minimap" ? "Spatial mini-map" : "Clustered board"}
                 </span>
-                <span className="app-pill">{behaviorGraphFilter === "all" ? "All behavior" : behaviorGraphFilter === "state" ? "State rules only" : "Interaction flows only"}</span>
+                <span className="app-pill">{behaviorGraphFilter === "all" ? "All behavior" : behaviorGraphFilter === "state" ? "Conditional flows only" : "Interaction flows only"}</span>
                 <span className="app-pill">{documentBehaviorClusterFocusLabel(documentBehaviorClusterFocus)}</span>
               </div>
               <div className="mt-3 rounded-[0.95rem] border border-soft bg-white p-4">
@@ -11186,11 +11823,11 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                     const visibleClusters = getVisibleDocumentBehaviorClusters(clusters);
                     const isActiveLane = activeNavigatorStepId === step.id;
                     const laneDensity =
-                      step.conditionalRules.length + step.runtimeListeners.length >= 6
+                      step.conditionalBehavior.length + step.runtimeListeners.length >= 6
                         ? "High activity"
-                        : step.conditionalRules.length + step.runtimeListeners.length >= 3
+                        : step.conditionalBehavior.length + step.runtimeListeners.length >= 3
                           ? "Moderate activity"
-                          : step.conditionalRules.length + step.runtimeListeners.length > 0
+                          : step.conditionalBehavior.length + step.runtimeListeners.length > 0
                             ? "Light activity"
                             : "No behavior yet";
                     return (
@@ -11206,7 +11843,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                             <p className="mt-2 font-semibold text-slate-950">{step.title}</p>
                             <div className="mt-2 flex flex-wrap gap-2">
                               <span className="app-pill">{step.fieldCount} fields</span>
-                              {step.conditionalRules.length ? <span className="app-pill">{step.conditionalRules.length} rules</span> : null}
+                              {step.conditionalBehavior.length ? <span className="app-pill">{step.conditionalBehavior.length} conditions</span> : null}
                               {step.runtimeListeners.length ? <span className="app-pill">{step.runtimeListeners.length} flows</span> : null}
                               <span className="app-pill">{laneDensity}</span>
                               {isActiveLane ? <span className="app-pill">Current lane</span> : null}
@@ -11277,13 +11914,13 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                     <p className="mt-2 text-sm leading-6 text-slate-600">{cluster.detail}</p>
                                   </div>
                                   <div className="flex flex-wrap gap-2">
-                                    {cluster.rules.length ? (
+                                    {cluster.conditions.length ? (
                                       <button
                                         type="button"
                                         onClick={() => focusDocumentBehaviorCluster(cluster, "state")}
                                         className={actionButtonClass(behaviorGraphFilter === "interaction" ? "secondary" : "primary")}
                                       >
-                                        Open rules
+                                        Open condition flows
                                       </button>
                                     ) : null}
                                     {cluster.listeners.length ? (
@@ -11307,7 +11944,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                   </div>
                                 </div>
                                 <div className="mt-3 flex flex-wrap gap-2">
-                                  {cluster.rules.length ? <span className="app-pill">{cluster.rules.length} state rules</span> : null}
+                                  {cluster.conditions.length ? <span className="app-pill">{cluster.conditions.length} conditional listener flows</span> : null}
                                   {cluster.listeners.length ? <span className="app-pill">{cluster.listeners.length} interaction flows</span> : null}
                                   {isSelectedBehaviorCluster(cluster) ? <span className="app-pill">Current scope</span> : null}
                                 </div>
@@ -11319,7 +11956,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                             {behaviorGraphFilter === "all"
                               ? "No authored behavior in this step yet."
                               : behaviorGraphFilter === "state"
-                                ? "No state-rule scopes match the current filter in this step."
+                                ? "No conditional listener scopes match the current filter in this step."
                                 : "No interaction-flow scopes match the current filter in this step."}
                           </div>
                         )}
@@ -11338,7 +11975,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <span className="app-pill">{logicMapData.formListeners.length} form flows</span>
-                      <span className="app-pill">{documentBehaviorOverviewLanes.filter(({ step }) => step.conditionalRules.length || step.runtimeListeners.length).length} active step lanes</span>
+                      <span className="app-pill">{documentBehaviorOverviewLanes.filter(({ step }) => step.conditionalBehavior.length || step.runtimeListeners.length).length} active step lanes</span>
                     </div>
                   </div>
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[1rem] border border-soft bg-white/75 px-3 py-3">
@@ -11457,11 +12094,11 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                         const isActiveLane = activeNavigatorStepId === step.id;
                         const isFocusedLane = activeDocumentBehaviorTarget === step.id;
                         const laneDensity =
-                          step.conditionalRules.length + step.runtimeListeners.length >= 6
+                          step.conditionalBehavior.length + step.runtimeListeners.length >= 6
                             ? "High activity"
-                            : step.conditionalRules.length + step.runtimeListeners.length >= 3
+                            : step.conditionalBehavior.length + step.runtimeListeners.length >= 3
                               ? "Moderate activity"
-                              : step.conditionalRules.length + step.runtimeListeners.length > 0
+                              : step.conditionalBehavior.length + step.runtimeListeners.length > 0
                                 ? "Light activity"
                                 : "No behavior yet";
                         const clustersOnLeft = laneIndex % 2 === 0;
@@ -11495,13 +12132,13 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                       >
                                         {activeDocumentBehaviorTarget === step.id ? "Expanded lane" : "Expand lane"}
                                       </button>
-                                      {cluster.rules.length ? (
+                                      {cluster.conditions.length ? (
                                         <button
                                           type="button"
                                           onClick={() => focusDocumentBehaviorCluster(cluster, "state")}
                                           className={actionButtonClass(behaviorGraphFilter === "interaction" ? "secondary" : "primary")}
                                         >
-                                          Open rules
+                                          Open condition flows
                                         </button>
                                       ) : null}
                                       {cluster.listeners.length ? (
@@ -11530,7 +12167,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                   {behaviorGraphFilter === "all"
                                     ? "No authored behavior in this lane yet."
                                     : behaviorGraphFilter === "state"
-                                      ? "No state-rule scopes match this lane."
+                                      ? "No conditional listener scopes match this lane."
                                       : "No interaction-flow scopes match this lane."}
                                 </div>
                               )}
@@ -11548,7 +12185,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                   <p className="mt-2 font-semibold text-slate-950">{step.title}</p>
                                   <div className="mt-2 flex flex-wrap gap-2">
                                     <span className="app-pill">{step.fieldCount} fields</span>
-                                    {step.conditionalRules.length ? <span className="app-pill">{step.conditionalRules.length} rules</span> : null}
+                                    {step.conditionalBehavior.length ? <span className="app-pill">{step.conditionalBehavior.length} conditions</span> : null}
                                     {step.runtimeListeners.length ? <span className="app-pill">{step.runtimeListeners.length} flows</span> : null}
                                     <span className="app-pill">{laneDensity}</span>
                                     {isActiveLane ? <span className="app-pill">Current lane</span> : null}
@@ -11726,7 +12363,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                 <div>
                                   <p className="font-semibold text-slate-950">{group.label}</p>
                                   <p className="mt-2 text-sm leading-6 text-slate-600">
-                                    {group.scopeCount} scopes across {group.laneCount} lanes · {group.ruleCount} rules · {group.listenerCount} flows
+                                    {group.scopeCount} scopes across {group.laneCount} lanes · {group.ruleCount} conditions · {group.listenerCount} flows
                                   </p>
                                 </div>
                                 <div className="flex flex-wrap gap-2">
@@ -11946,7 +12583,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                     <div>
                                       <p className="font-semibold text-slate-950">{trail.label}</p>
                                       <p className="mt-2 text-sm leading-6 text-slate-600">
-                                        {trail.scopeCount} scopes across {trail.laneCount} lanes · {trail.ruleCount} rules · {trail.listenerCount} flows
+                                        {trail.scopeCount} scopes across {trail.laneCount} lanes · {trail.ruleCount} conditions · {trail.listenerCount} flows
                                       </p>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
@@ -12094,7 +12731,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                     <div>
                                       <p className="font-semibold text-slate-950">{step.title}</p>
                                       <p className="mt-2 text-sm leading-6 text-slate-600">
-                                        {matchingClusters.length} matching scopes · {matchingClusters.reduce((count, cluster) => count + cluster.rules.length, 0)} rules · {matchingClusters.reduce((count, cluster) => count + cluster.listeners.length, 0)} flows
+                                        {matchingClusters.length} matching scopes · {matchingClusters.reduce((count, cluster) => count + cluster.conditions.length, 0)} conditions · {matchingClusters.reduce((count, cluster) => count + cluster.listeners.length, 0)} flows
                                       </p>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
@@ -12307,8 +12944,8 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                     <div className="mt-4 space-y-4">
                       <div className="flex flex-wrap gap-2">
                         <span className="app-pill">{expandedDocumentBehaviorLane.step.fieldCount} fields</span>
-                        {expandedDocumentBehaviorLane.step.conditionalRules.length ? (
-                          <span className="app-pill">{expandedDocumentBehaviorLane.step.conditionalRules.length} rules</span>
+                        {expandedDocumentBehaviorLane.step.conditionalBehavior.length ? (
+                          <span className="app-pill">{expandedDocumentBehaviorLane.step.conditionalBehavior.length} conditions</span>
                         ) : null}
                         {expandedDocumentBehaviorLane.step.runtimeListeners.length ? (
                           <span className="app-pill">{expandedDocumentBehaviorLane.step.runtimeListeners.length} flows</span>
@@ -12351,13 +12988,13 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                     Open scope
                                   </button>
                                 ) : null}
-                                {cluster.rules.length ? (
+                                {cluster.conditions.length ? (
                                   <button
                                     type="button"
                                     onClick={() => focusDocumentBehaviorCluster(cluster, "state", "Expanded lane detail")}
                                     className={actionButtonClass(behaviorGraphFilter === "interaction" ? "secondary" : "primary")}
                                   >
-                                    Open rules
+                                    Open condition flows
                                   </button>
                                 ) : null}
                                 {cluster.listeners.length ? (
@@ -12378,7 +13015,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                           {behaviorGraphFilter === "all"
                             ? "No authored behavior exists in the expanded lane yet."
                             : behaviorGraphFilter === "state"
-                              ? "No state-rule scopes match the current filter inside this lane."
+                              ? "No conditional listener scopes match the current filter inside this lane."
                               : "No interaction-flow scopes match the current filter inside this lane."}
                         </div>
                       )}
@@ -12446,27 +13083,27 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                             Open scope
                           </button>
                         ) : null}
-                        {cluster.rules.length ? (
+                        {cluster.conditions.length ? (
                           <button
                             type="button"
                             onClick={() =>
                               focusBehaviorGraphNode({
-                                selection: cluster.rules[0].sourceSelection,
-                                graphSelection: cluster.rules[0].graphSelection,
-                                ruleIndex: cluster.rules[0].ruleIndex,
+                                selection: cluster.conditions[0].sourceSelection,
+                                graphSelection: cluster.conditions[0].graphSelection,
+                                ruleIndex: cluster.conditions[0].ruleIndex,
                                 filter: "state",
                                 mode: "focus",
                                 viewport: "reset",
                                 entryContext: {
                                   source: "clusters",
                                   title: "Opened from Scope clusters",
-                                  detail: `State rules for ${cluster.title} were opened from the clustered behavior view.`,
+                                  detail: `State conditions for ${cluster.title} were opened from the clustered behavior view.`,
                                 },
                               })
                             }
                             className={actionButtonClass("secondary")}
                           >
-                            Open rules
+                            Open condition flows
                           </button>
                         ) : null}
                         {cluster.listeners.length ? (
@@ -12494,7 +13131,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                       </div>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {cluster.rules.length ? <span className="app-pill">{cluster.rules.length} rules</span> : null}
+                      {cluster.conditions.length ? <span className="app-pill">{cluster.conditions.length} conditions</span> : null}
                       {cluster.listeners.length ? <span className="app-pill">{cluster.listeners.length} flows</span> : null}
                     </div>
                   </div>
@@ -12512,14 +13149,14 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                     Focus mode now keeps one flow in view at a time. Use these jump points to swap flows without scrolling a long stack, or switch to overview mode to scan everything at once.
                   </p>
                 </div>
-                <span className="app-pill">{visibleStateRules.length + visibleInteractionFlows.length} focus targets</span>
+                <span className="app-pill">{visibleStateBehavior.length + visibleInteractionFlows.length} focus targets</span>
               </div>
               <div className="mt-4 grid gap-4 xl:grid-cols-2">
-                {visibleStateRules.length ? (
+                {visibleStateBehavior.length ? (
                   <div className="space-y-3">
                     <p className="text-xs uppercase tracking-[0.18em] text-slate-500">State flows</p>
                     <div className="flex gap-3 overflow-x-auto pb-1">
-                      {visibleStateRules.map((rule, index) => {
+                      {visibleStateBehavior.map((rule, index) => {
                         const sourceLabel = builderFieldOptions.find((option) => option.id === rule.whenFieldId)?.label ?? "Choose field";
                         const active = rule.ruleId === focusedRuleId;
                         return (
@@ -12594,13 +13231,13 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
               <div style={graphViewportStyle} className="grid gap-3 xl:grid-cols-2">
               {showStateFlows && selectedAuthoring?.kind === "field" && activeBuilderField ? (
                 <div className="rounded-[1rem] border border-soft bg-slate-50 p-4">
-                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">State rule handoff</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Conditional flow handoff</p>
                   <p className="mt-2 text-sm leading-6 text-slate-700">
-                    Creation and lifecycle edits now belong in Rules Manager or the guided studio. Use this graph only to inspect how state rules connect.
+                    Creation and lifecycle edits now belong in Behavior Manager or the guided studio. Use this graph only to inspect how conditional listener flows connect.
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <button type="button" onClick={openBehaviorRulesManager} className={actionButtonClass("primary")}>
-                      Open Rules Manager
+                    <button type="button" onClick={openBehaviorBehaviorManager} className={actionButtonClass("primary")}>
+                      Open Behavior Manager
                     </button>
                     <button
                       type="button"
@@ -12623,8 +13260,8 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                     Listener and event creation starts in the studio. This graph stays focused on overview, tracing, and debugging.
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <button type="button" onClick={openBehaviorRulesManager} className={actionButtonClass("primary")}>
-                      Open Rules Manager
+                    <button type="button" onClick={openBehaviorBehaviorManager} className={actionButtonClass("primary")}>
+                      Open Behavior Manager
                     </button>
                     <button
                       type="button"
@@ -12682,7 +13319,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                             <button
                               type="button"
                               onClick={() =>
-                                openBehaviorObjectInRulesManager({
+                                openBehaviorObjectInBehaviorManager({
                                   objectKey: `rule:${representativeRule.ruleId}`,
                                   selection: selectedAuthoring,
                                   graphSelection: { kind: "rule", ruleId: representativeRule.ruleId, phase: "condition" },
@@ -12776,7 +13413,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                         <button
                           type="button"
                           onClick={() =>
-                            openBehaviorObjectInRulesManager({
+                            openBehaviorObjectInBehaviorManager({
                               objectKey: `flow:${listener.id}`,
                               selection: selectedAuthoring,
                               graphSelection: { kind: "listener", listenerId: listener.id, phase: "trigger" },
@@ -12833,7 +13470,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                         <button
                           type="button"
                           onClick={() =>
-                            openBehaviorObjectInRulesManager({
+                            openBehaviorObjectInBehaviorManager({
                               objectKey: `flow:${listener.id}`,
                               selection: selectedAuthoring,
                               graphSelection: { kind: "listener", listenerId: listener.id, phase: "trigger" },
@@ -12859,7 +13496,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
             </div>
           ) : (
             <div className="app-muted-card mt-5 p-4 text-sm text-slate-500">
-              No behavior graph yet. Create the first rule or flow from Studio, then return here for visualization and runtime testing.
+              No behavior graph yet. Create the first listener or dispatch chain from Studio, then return here for visualization and runtime testing.
             </div>
           )}
             </>
@@ -12875,7 +13512,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                   <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Graph selection</p>
                   <h4 className="mt-2 text-lg font-semibold text-slate-950">Inspect here, edit in Studio</h4>
                   <p className="mt-2 text-sm leading-6 text-slate-600">
-                    Graph nodes now act as traceable handoffs. Use Studio for wiring and Rules Manager for lifecycle controls instead of editing directly in the graph workspace.
+                    Graph nodes now act as traceable handoffs. Use Studio for wiring and Behavior Manager for lifecycle controls instead of editing directly in the graph workspace.
                   </p>
                 </div>
                 {selectedBehaviorNode ? (
@@ -12888,10 +13525,10 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
               <div className="mt-4">
                 {selectedRule && selectedRuleIndex >= 0 ? (
                   <div className="rounded-[1rem] border border-blue-200 bg-blue-50/60 p-4">
-                    <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Selected state rule</p>
+                    <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Selected conditional listener flow</p>
                     <p className="mt-2 font-semibold text-slate-950">{formatLabel(selectedRule.effect)} this field</p>
                     <p className="mt-2 text-sm leading-6 text-slate-700">
-                      Open this rule in the guided editor to change the condition/effect, or manage its lifecycle from the full Rules Manager index.
+                      Open this listener in the guided editor to change the condition/effect, or manage its lifecycle from the full Behavior Manager index.
                     </p>
                     <div className="mt-4 flex flex-wrap gap-2">
                       <button
@@ -12911,7 +13548,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                       <button
                         type="button"
                         onClick={() =>
-                          openBehaviorObjectInRulesManager({
+                          openBehaviorObjectInBehaviorManager({
                             objectKey: `rule:${selectedRule.ruleId}`,
                             selection: selectedAuthoring,
                             graphSelection:
@@ -12932,7 +13569,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                     <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Selected interaction flow</p>
                     <p className="mt-2 font-semibold text-slate-950">When {formatLabel(selectedListener.eventName)}</p>
                     <p className="mt-2 text-sm leading-6 text-slate-700">
-                      Open this flow in Studio to edit the action chain, or manage enablement, duplication, and deletion from Rules Manager.
+                      Open this flow in Studio to edit the action chain, or manage enablement, duplication, and deletion from Behavior Manager.
                     </p>
                     <div className="mt-4 flex flex-wrap gap-2">
                       <button
@@ -12951,7 +13588,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                       <button
                         type="button"
                         onClick={() =>
-                          openBehaviorObjectInRulesManager({
+                          openBehaviorObjectInBehaviorManager({
                             objectKey: `flow:${selectedListener.id}`,
                             selection: selectedAuthoring,
                             graphSelection:
@@ -12972,7 +13609,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                   </div>
                 ) : (
                   <div className="app-muted-card p-4 text-sm text-slate-500">
-                    No behavior graph yet. Create the first rule or flow from Studio, then return here for visualization and runtime testing.
+                    No behavior graph yet. Create the first listener or dispatch chain from Studio, then return here for visualization and runtime testing.
                   </div>
                 )}
               </div>
@@ -12985,17 +13622,17 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                     <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Creation handoff</p>
                     <h4 className="mt-2 text-lg font-semibold text-slate-950">Start in Studio, not on the graph</h4>
                     <p className="mt-2 text-sm leading-6 text-slate-600">
-                      The graph stays empty until Studio creates a real rule, event listener, or dispatch chain. This keeps creation guided and keeps the graph useful for tracing.
+                      The graph stays empty until Studio creates a real listener or dispatch chain. This keeps creation guided and keeps the graph useful for tracing.
                     </p>
                   </div>
-                  <button type="button" onClick={openBehaviorRulesManager} className={actionButtonClass("primary")}>
-                    Open Rules Manager
+                  <button type="button" onClick={openBehaviorBehaviorManager} className={actionButtonClass("primary")}>
+                    Open Behavior Manager
                   </button>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {selectedAuthoring?.kind === "field" && activeBuilderField ? (
                     <button type="button" onClick={openBehaviorStudioRule} className={actionButtonClass()}>
-                      Create rule in Studio
+                      Create listener in Studio
                     </button>
                   ) : null}
                   {activeRuntimeScope ? (
@@ -13020,7 +13657,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
               <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Simulator</p>
               <h4 className="mt-2 text-lg font-semibold text-slate-950">Exercise the authored behavior in context</h4>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                Run the live runtime loop against the selected rule, listener, or event chain. Keep basic controls upfront and use advanced session debug only when needed.
+                Run the live runtime loop against the selected listener, listener, or event chain. Keep basic controls upfront and use advanced session debug only when needed.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -13030,7 +13667,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                 disabled={!selectedRule}
                 className={actionButtonClass(selectedRule ? "primary" : "secondary")}
               >
-                Test this rule
+                Test this listener
               </button>
               <button
                 type="button"
@@ -13062,10 +13699,10 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                 <p className="mt-2 font-semibold text-slate-950">{selectedBehaviorSummary}</p>
                 <p className="mt-2 text-sm leading-6 text-slate-700">
                   {selectedRule
-                    ? "Testing dispatches a field.change event for the watched field so the rule can resolve in the live session."
+                    ? "Testing dispatches a field.change event for the watched field so the listener condition can resolve in the live session."
                     : selectedListener
                       ? `Testing dispatches ${selectedListener.eventName} through the current runtime scope and shows the resulting authored evidence.`
-                      : "Pick a rule or flow from the Rules Manager, studio, or graph before using targeted tests."}
+                      : "Pick a listener or flow from the Behavior Manager, studio, or graph before using targeted tests."}
                 </p>
               </div>
               <button
@@ -14337,7 +14974,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                               const behaviorSummary = summarizeStepBehavior(step);
                               return behaviorSummary.ruleCount || behaviorSummary.flowCount ? (
                                 <span className="mt-2 flex flex-wrap gap-1.5">
-                                  {behaviorSummary.ruleCount ? <span className="app-pill">{behaviorSummary.ruleCount} rules</span> : null}
+                                  {behaviorSummary.ruleCount ? <span className="app-pill">{behaviorSummary.ruleCount} conditions</span> : null}
                                   {behaviorSummary.flowCount ? <span className="app-pill">{behaviorSummary.flowCount} flows</span> : null}
                                 </span>
                               ) : null;
@@ -14461,7 +15098,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                 const behaviorSummary = summarizeStepBehavior(activeStep);
                                 return (
                                   <>
-                                    {behaviorSummary.ruleCount ? <span className="app-pill">{behaviorSummary.ruleCount} rules</span> : null}
+                                    {behaviorSummary.ruleCount ? <span className="app-pill">{behaviorSummary.ruleCount} conditions</span> : null}
                                     {behaviorSummary.flowCount ? <span className="app-pill">{behaviorSummary.flowCount} flows</span> : null}
                                   </>
                                 );
@@ -14584,7 +15221,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                         const behaviorSummary = summarizeSectionBehavior(section);
                                         return behaviorSummary.ruleCount || behaviorSummary.flowCount ? (
                                           <div className="mt-3 flex flex-wrap gap-2">
-                                            {behaviorSummary.ruleCount ? <span className="app-pill">{behaviorSummary.ruleCount} rules</span> : null}
+                                            {behaviorSummary.ruleCount ? <span className="app-pill">{behaviorSummary.ruleCount} conditions</span> : null}
                                             {behaviorSummary.flowCount ? <span className="app-pill">{behaviorSummary.flowCount} flows</span> : null}
                                           </div>
                                         ) : null;
@@ -14673,7 +15310,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                                     const behaviorSummary = summarizeGroupBehavior(group);
                                                     return behaviorSummary.ruleCount || behaviorSummary.flowCount ? (
                                                       <div className="mt-3 flex flex-wrap gap-2">
-                                                        {behaviorSummary.ruleCount ? <span className="app-pill">{behaviorSummary.ruleCount} rules</span> : null}
+                                                        {behaviorSummary.ruleCount ? <span className="app-pill">{behaviorSummary.ruleCount} conditions</span> : null}
                                                         {behaviorSummary.flowCount ? <span className="app-pill">{behaviorSummary.flowCount} flows</span> : null}
                                                       </div>
                                                     ) : null;
@@ -15328,11 +15965,11 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                   <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Flow map</p>
                                   <h4 className="mt-2 text-lg font-semibold text-slate-950">Document logic and runtime graph</h4>
                                   <p className="mt-2 text-sm leading-6 text-slate-600">
-                                    Use this as the high-level map for behavior flows, then jump into the focused behavior editor only when you need to change a specific rule or interaction.
+                                    Use this as the high-level map for behavior flows, then jump into the focused behavior editor only when you need to change a specific listener or interaction.
                                   </p>
                                   <div className="mt-4 flex flex-wrap gap-2">
                                     <span className="app-pill">{logicMapData.steps.length} steps</span>
-                                    <span className="app-pill">{logicMapData.totalConditionals} state rules</span>
+                                    <span className="app-pill">{logicMapData.totalConditionals} conditional listener flows</span>
                                     <span className="app-pill">{logicMapData.totalListeners} behavior flows</span>
                                   </div>
                                 </div>
@@ -15435,7 +16072,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                       <div className="mt-2 flex flex-wrap gap-2">
                                         <span className="app-pill">{step.sectionCount} sections</span>
                                         <span className="app-pill">{step.fieldCount} fields</span>
-                                        <span className="app-pill">{step.conditionalRules.length} rules</span>
+                                        <span className="app-pill">{step.conditionalBehavior.length} conditions</span>
                                         <span className="app-pill">{step.runtimeListeners.length} listeners</span>
                                       </div>
                                     </div>
@@ -15452,15 +16089,15 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                     <div className="rounded-[1rem] border border-soft bg-slate-50 p-4">
                                       <div className="flex items-center justify-between gap-3">
                                         <div>
-                                          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">State rules</p>
+                                          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">State conditions</p>
                                           <p className="mt-2 text-sm text-slate-700">
                                             Visibility and requirement logic authored on fields in this step.
                                           </p>
                                         </div>
                                       </div>
                                       <div className="mt-4 space-y-3">
-                                        {step.conditionalRules.length ? (
-                                          step.conditionalRules.map((rule) => (
+                                        {step.conditionalBehavior.length ? (
+                                          step.conditionalBehavior.map((rule) => (
                                             <div key={rule.id} className="rounded-[0.95rem] border border-soft bg-white p-4">
                                               <div className="flex items-start justify-between gap-3">
                                                 <div className="min-w-0">
@@ -15491,7 +16128,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                                           ))
                                         ) : (
                                           <div className="app-muted-card p-4 text-sm text-slate-500">
-                                            No field state rules in this step yet.
+                                            No field conditional listener flows in this step yet.
                                           </div>
                                         )}
                                       </div>
@@ -15616,7 +16253,7 @@ function authoringSelectionsMatch(left: AuthoringSelection | null, right: Author
                               {behaviorStudioMode === "create"
                                 ? "Create behavior"
                                 : behaviorStudioMode === "manage"
-                                  ? "Rules Manager"
+                                  ? "Behavior Manager"
                                   : behaviorStudioMode === "test"
                                     ? "Runtime lab"
                                     : "Graph view"}

@@ -1,8 +1,8 @@
 import { runtimeCoreEventType } from "@form-builder/schema";
 import type {
   AuthoringDocument,
-  ConditionalRule,
   RuntimeActionDefinition,
+  RuntimeConditionDefinition,
   RuntimeEventEnvelope,
   RuntimeEventPhase,
   RuntimeEventTarget,
@@ -173,40 +173,36 @@ export function createRuntimeEngine(): RuntimeEngine {
     return structuredClone(validation);
   };
 
-  const evaluateRule = (rule: ConditionalRule): boolean => {
-    const value = state.values[rule.whenFieldId];
-    switch (rule.operator) {
-      case "equals":
-        return String(value ?? "") === String(rule.expectedValue ?? "");
-      case "not_equals":
-        return String(value ?? "") !== String(rule.expectedValue ?? "");
-      case "contains":
-        if (Array.isArray(value)) {
-          return value.some((entry) => String(entry) === String(rule.expectedValue ?? ""));
-        }
-        return String(value ?? "").includes(String(rule.expectedValue ?? ""));
-      case "exists":
-        return value !== null && value !== undefined && String(value).trim().length > 0;
-      default:
-        return true;
-    }
-  };
-
-  const ruleIsEnabled = (rule: ConditionalRule): boolean => rule.enabled !== false;
-
   const listenerMatches = (indexedListener: IndexedRuntimeListener, event: RuntimeEventEnvelope): boolean => {
     const listener = indexedListener.listener;
     if (!listener.enabled || listenerEventType(listener) !== event.type) {
       return false;
     }
-    if (!index) {
-      return false;
+    return (listener.conditions ?? []).every((condition) => evaluateCondition(condition, event));
+  };
+
+  const evaluateCondition = (condition: RuntimeConditionDefinition, event: RuntimeEventEnvelope): boolean => {
+    if (condition.enabled === false) {
+      return true;
     }
-    const currentIndex = index;
-    return listener.ruleGuards.every((guard) => {
-      const conditional = currentIndex.conditionalRules.get(guard.ruleId);
-      return conditional ? !ruleIsEnabled(conditional.rule) || evaluateRule(conditional.rule) : true;
-    });
+    const value = condition.source.kind === "field_value"
+      ? state.values[condition.source.fieldId]
+      : readPath(event.payload, condition.source.path);
+    switch (condition.operator) {
+      case "equals":
+        return String(value ?? "") === String(condition.expectedValue ?? "");
+      case "not_equals":
+        return String(value ?? "") !== String(condition.expectedValue ?? "");
+      case "contains":
+        if (Array.isArray(value)) {
+          return value.some((entry) => String(entry) === String(condition.expectedValue ?? ""));
+        }
+        return String(value ?? "").includes(String(condition.expectedValue ?? ""));
+      case "exists":
+        return !isBlank(value);
+      default:
+        return true;
+    }
   };
 
   const executeAction = (action: RuntimeActionDefinition, event: RuntimeEventEnvelope): void => {
@@ -438,8 +434,18 @@ export function createRuntimeEngine(): RuntimeEngine {
       case "select.change":
       case "select.selected":
       case "select.cleared":
+      case "field.input":
       case "input.change":
       case "input.textChange":
+      case "input.before_input":
+      case "input.composition_end":
+      case "signature.change":
+      case "signature.attested":
+      case "signature.cleared":
+      case "repeatableGroup.change":
+      case "repeatableGroup.item_added":
+      case "repeatableGroup.item_removed":
+      case "repeatableGroup.item_moved":
       case "field.change": {
         const fieldId =
           typeof event.payload.fieldId === "string"
@@ -665,6 +671,35 @@ function isStringRecord(value: unknown): value is Record<string, string> {
     return false;
   }
   return Object.values(value).every((entry) => typeof entry === "string");
+}
+
+function isBlank(value: unknown): boolean {
+  if (value === null || value === undefined) {
+    return true;
+  }
+  if (typeof value === "string") {
+    return value.trim().length === 0;
+  }
+  if (Array.isArray(value)) {
+    return value.length === 0;
+  }
+  return false;
+}
+
+function readPath(source: Record<string, unknown>, path: string): unknown {
+  if (!path.trim()) {
+    return undefined;
+  }
+  return path.split(".").reduce<unknown>((current, segment) => {
+    if (isRecord(current)) {
+      return current[segment];
+    }
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      return Number.isInteger(index) ? current[index] : undefined;
+    }
+    return undefined;
+  }, source);
 }
 
 function defaultEventBubbles(type: string): boolean {

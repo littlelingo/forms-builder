@@ -427,7 +427,6 @@ def _field_from_candidate(
         review_status=ReviewStatus.NEEDS_REVIEW,
         options=options,
         validations=validations,
-        conditionals=[],
         renderer_hints=_renderer_hints(candidate.semantic_type),
     )
 
@@ -663,7 +662,6 @@ def _text_input_field(
         review_status=ReviewStatus.NEEDS_REVIEW,
         options=[],
         validations=[],
-        conditionals=[],
         renderer_hints={"uswdsComponent": "text-input", "inferenceMode": "layout_prompt"},
     )
 
@@ -698,7 +696,6 @@ def _statement_field(
         review_status=ReviewStatus.NEEDS_REVIEW,
         options=[],
         validations=[],
-        conditionals=[],
         renderer_hints={"runtimePattern": "statement"},
     )
 

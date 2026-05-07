@@ -10,10 +10,13 @@ The current model leans on the ActionScript 3 event model:
 1. select the component dispatcher
 2. choose the event type it emits or listens for
 3. choose target/bubble or capture behavior
-4. optionally add guards
+4. optionally add listener conditions
 5. choose what actions run next
 
-In the UI, this lives in the builder inspector under `Events`.
+In the UI, this lives in the builder inspector under `Behavior`.
+
+For the complete item-by-item core event catalog, see
+[Runtime Item Event Reference](./runtime-event-reference.md).
 
 ## Mental Model
 
@@ -25,8 +28,8 @@ Use this vocabulary consistently:
   - an object with `type`, `target`, `currentTarget`, `eventPhase`, `bubbles`, and `payload`
 - `Core event type`
   - a built-in event a dispatcher already emits; authors do not define it
-- `Rule guard`
-  - a condition that must be true before the listener runs
+- `Listener condition`
+  - an inline condition that must be true before the listener runs
 - `Listener`
   - attaches to a dispatcher and receives a typed event
 - `Action`
@@ -37,7 +40,7 @@ Plain-language mapping:
 - `Event type` = the event object type to listen for
 - `Dispatcher` = where the listener is attached
 - `Capture` / `Target + bubble` = which AS3 phase receives the event
-- `If these conditions are true` = optional rule guard
+- `If these conditions are true` = optional listener conditions
 - `Do these things` = action chain
 
 ## Where To Author Behavior
@@ -61,7 +64,7 @@ Form-level listeners can receive descendant events when those events bubble.
 
 Select a step, section, group, field, or button component in the preview first.
 
-Then use `Events` for behavior that belongs to that selected node, such as:
+Then use `Behavior` for behavior that belongs to that selected node, such as:
 
 - button click handling
 - field change handling
@@ -76,10 +79,16 @@ selected behavior is refined.
 
 1. Open a project in `Build`
 2. Select the step, section, group, or field in the preview
-3. Open the `Events` tab in the inspector
-4. Add a preset or create an event listener manually
-5. Adjust the event type, phase, optional rule guards, and action chain
-6. Use `Runtime tools` to validate the flow
+3. Open the `Behavior` tab in the inspector
+4. Choose whether the listener reacts to this item, another item, or an advanced dispatcher
+5. Adjust the event source, event type, phase, optional listener conditions, and action chain
+6. Use the simulator/runtime lab to validate the flow
+
+For sibling behavior, start from the item that should react. For example, select
+a radio group, choose `React to another item`, select the checkbox group as the
+event source, then choose `checkboxGroup.change`. The builder attaches the
+listener at the nearest shared dispatcher so the runtime still follows the AS3
+capture/target/bubble model.
 
 ## Starter Presets
 
@@ -104,7 +113,7 @@ Current authoring pattern:
 
 1. add a field
 2. change its field type to `Button`
-3. open `Events`
+3. open `Behavior`
 4. attach `component.click` behavior
 5. add one or more actions
 
@@ -151,22 +160,26 @@ Use multiple actions when one event needs to:
 Action order matters. The runtime executes them in the order shown in the
 listener.
 
-## Rules And Guards
+## Listener Conditions
 
-Rules remain separate from event wiring.
+Standalone behavior rules have been retired from the runtime contract.
+Conditions now live directly on the listener they gate.
 
-Use a rule guard when the same event should only fire actions in certain cases.
+Use listener conditions when the same event should only fire actions in certain
+cases.
 
 Example:
 
 - event: `checkboxGroup.change`
-- guard: selected value equals `Yes`
+- condition: selected value contains `Yes`
 - actions:
   - `show_node`
   - `mark_required`
 
-Current rule support is still lighter than the long-term target, but the model
-is already correct: conditions guard listeners rather than replacing them.
+Conditions can read the current value of a field or a path in the event payload.
+For example, a checkbox group can dispatch `checkboxGroup.change`, a radio group
+can listen for it, and the listener can require that the checkbox payload or
+field value contains a specific option before running its action chain.
 
 ## Payload Authoring
 
@@ -197,9 +210,9 @@ Use it when:
 The builder supports applying JSON back into the action config and resetting the
 editor from the current payload.
 
-## Runtime Tools
+## Simulator And Runtime Lab
 
-Use `Runtime tools` while authoring behavior.
+Use the simulator/runtime lab while authoring behavior.
 
 Current capabilities:
 

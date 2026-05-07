@@ -26,9 +26,11 @@ RuntimeActionKind = Literal[
     "host_action",
 ]
 RuntimeEventPhase = Literal["capture", "target", "bubble"]
+RuntimeListenerWiringMode = Literal["local", "cross_item", "advanced_dispatcher"]
 RuntimeHostBindingDirection = Literal["inbound", "outbound", "bidirectional"]
 RuntimePayloadMode = Literal["key_value", "json"]
 RuntimeValueType = Literal["string", "number", "boolean", "object", "array", "unknown"]
+RuntimeConditionOperator = Literal["equals", "not_equals", "contains", "exists"]
 
 
 class RuntimePayloadField(CamelModel):
@@ -46,10 +48,19 @@ class RuntimePayloadShape(CamelModel):
     notes: list[str] | None = None
 
 
-class RuntimeRuleGuardReference(CamelModel):
-    rule_id: str
+class RuntimeConditionSource(CamelModel):
+    kind: Literal["field_value", "event_payload"]
+    field_id: str | None = None
+    path: str | None = None
+
+
+class RuntimeConditionDefinition(CamelModel):
+    id: str
     label: str | None = None
-    description: str | None = None
+    enabled: bool = True
+    source: RuntimeConditionSource
+    operator: RuntimeConditionOperator
+    expected_value: object | None = None
 
 
 class RuntimeActionTarget(CamelModel):
@@ -88,12 +99,18 @@ class RuntimeListenerDefinition(CamelModel):
     type: str | None = None
     dispatcher_id: str | None = None
     dispatcher_type: RuntimeNodeType | None = None
+    event_source_node_id: str | None = None
+    event_source_node_type: RuntimeNodeType | None = None
+    event_source_label: str | None = None
+    target_node_id: str | None = None
+    target_node_type: RuntimeNodeType | None = None
+    wiring_mode: RuntimeListenerWiringMode = "local"
     use_capture: bool = False
     priority: int = 0
     event_name: str
     source_node_id: str | None = None
     enabled: bool = True
-    rule_guards: list[RuntimeRuleGuardReference] = Field(default_factory=list)
+    conditions: list[RuntimeConditionDefinition] = Field(default_factory=list)
     actions: list[RuntimeActionDefinition] = Field(default_factory=list)
 
 

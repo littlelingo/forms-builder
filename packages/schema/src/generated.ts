@@ -112,7 +112,6 @@ export interface FieldNode {
   reviewStatus: "draft" | "needs_review" | "reviewed" | "accepted";
   options: ChoiceOption[];
   validations: ValidationRule[];
-  conditionals: ConditionalRule[];
   rendererHints: {
     [k: string]: string;
   };
@@ -131,15 +130,6 @@ export interface ValidationRule {
   ruleType: "required" | "regex" | "min" | "max" | "length" | "custom";
   message: string;
   value?: string | number | null;
-  [k: string]: unknown;
-}
-export interface ConditionalRule {
-  ruleId: string;
-  whenFieldId: string;
-  operator: "equals" | "not_equals" | "contains" | "exists";
-  expectedValue?: string;
-  effect: "show" | "hide" | "require" | "disable";
-  enabled?: boolean;
   [k: string]: unknown;
 }
 export interface ExtractionIssue {

@@ -49,7 +49,6 @@ export function createField(semanticType: SemanticType = "text"): AuthoringField
           ]
         : [],
     validations: [],
-    conditionals: [],
     layoutHints: { width: "full", presentation: semanticType === "statement" ? "content" : "input" },
     rendererHints: {},
     sourcePriority: ["reviewer_override"],

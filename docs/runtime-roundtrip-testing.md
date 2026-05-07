@@ -51,7 +51,7 @@ Checks:
 
 Primary validation seams:
 - shared runtime unit tests
-- builder `Runtime tools` modal
+- builder simulator/runtime lab
 
 ### 3. Host submit roundtrip
 
@@ -66,13 +66,13 @@ Checks:
 
 Primary validation seams:
 - shared runtime unit tests
-- builder `Runtime tools` mock success/error controls
+- builder simulator/runtime lab mock success/error controls
 
 ## Current Dev Tooling
 
 The builder preview is the first host shell for the shared runtime.
 
-The `Runtime tools` modal currently supports:
+The simulator/runtime lab currently supports:
 - export runtime session JSON
 - import runtime session JSON
 - inspect current runtime session state
@@ -81,8 +81,8 @@ The `Runtime tools` modal currently supports:
 - simulate `submit_success`
 - simulate `submit_error`
 
-This is intentionally dev-only for now. It exists to validate the engine before
-the runtime is embedded into a richer external shell.
+The advanced trace/session controls remain developer-oriented, but the primary
+surface should read as an author-facing simulator.
 
 ## Current Automated Coverage
 
@@ -105,7 +105,7 @@ npm run test:runtime
 Use this sequence in the builder:
 
 1. Open a project in `Build`
-2. Open `Runtime tools`
+2. Open the simulator/runtime lab
 3. Confirm session snapshot and event trace are visible
 4. Interact with preview controls
 5. Confirm step navigation appears in the trace

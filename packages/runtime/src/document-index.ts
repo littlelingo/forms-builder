@@ -4,7 +4,6 @@ import type {
   AuthoringGroup,
   AuthoringSection,
   AuthoringStep,
-  ConditionalRule,
   RuntimeListenerDefinition,
   RuntimeNodeBehavior,
   RuntimeNodeType,
@@ -25,11 +24,6 @@ export interface IndexedRuntimeNode {
   runtime?: RuntimeNodeBehavior | null;
 }
 
-export interface IndexedConditionalRule {
-  nodeId: string;
-  rule: ConditionalRule;
-}
-
 export interface IndexedRuntimeListener {
   listener: RuntimeListenerDefinition;
   dispatcherId: string;
@@ -42,13 +36,11 @@ export interface RuntimeDocumentIndex {
   stepOrder: string[];
   nodes: Map<string, IndexedRuntimeNode>;
   listeners: IndexedRuntimeListener[];
-  conditionalRules: Map<string, IndexedConditionalRule>;
 }
 
 export function createRuntimeDocumentIndex(document: AuthoringDocument): RuntimeDocumentIndex {
   const nodes = new Map<string, IndexedRuntimeNode>();
   const listeners: IndexedRuntimeListener[] = [];
-  const conditionalRules = new Map<string, IndexedConditionalRule>();
   const stepOrder: string[] = [];
   let listenerOrder = 0;
 
@@ -104,7 +96,7 @@ export function createRuntimeDocumentIndex(document: AuthoringDocument): Runtime
       pushListeners(section.runtime, section.id, "section");
 
       for (const field of section.fields) {
-        listenerOrder = indexField(nodes, listeners, conditionalRules, listenerOrder, step, section, undefined, field);
+        listenerOrder = indexField(nodes, listeners, listenerOrder, step, section, undefined, field);
       }
 
       for (const group of section.groups) {
@@ -123,7 +115,7 @@ export function createRuntimeDocumentIndex(document: AuthoringDocument): Runtime
         pushListeners(group.runtime, group.id, "group");
 
         for (const field of group.fields) {
-          listenerOrder = indexField(nodes, listeners, conditionalRules, listenerOrder, step, section, group, field);
+          listenerOrder = indexField(nodes, listeners, listenerOrder, step, section, group, field);
         }
       }
     }
@@ -142,14 +134,12 @@ export function createRuntimeDocumentIndex(document: AuthoringDocument): Runtime
     stepOrder,
     nodes,
     listeners,
-    conditionalRules,
   };
 }
 
 function indexField(
   nodes: Map<string, IndexedRuntimeNode>,
   listeners: IndexedRuntimeListener[],
-  conditionalRules: Map<string, IndexedConditionalRule>,
   listenerOrder: number,
   step: AuthoringStep,
   section: AuthoringSection,
@@ -197,10 +187,6 @@ function indexField(
     listenerOrder += 1;
   }
 
-  for (const rule of field.conditionals) {
-    conditionalRules.set(rule.ruleId, { nodeId: field.id, rule });
-  }
-
   return listenerOrder;
 }
 
@@ -229,7 +215,7 @@ function createImplicitButtonListener(
     eventName: "component.click",
     sourceNodeId: fieldId,
     enabled: true,
-    ruleGuards: [],
+    conditions: [],
     actions: [
       {
         id: `implicit_button_action_${fieldId}`,

@@ -123,27 +123,6 @@
         }
       }
     },
-    "conditionalRule": {
-      "type": "object",
-      "required": ["ruleId", "whenFieldId", "operator", "effect"],
-      "properties": {
-        "ruleId": { "type": "string" },
-        "whenFieldId": { "type": "string" },
-        "operator": {
-          "type": "string",
-          "enum": ["equals", "not_equals", "contains", "exists"]
-        },
-        "expectedValue": { "type": "string" },
-        "effect": {
-          "type": "string",
-          "enum": ["show", "hide", "require", "disable"]
-        },
-        "enabled": {
-          "type": "boolean",
-          "default": true
-        }
-      }
-    },
     "fieldNode": {
       "type": "object",
       "required": [
@@ -164,7 +143,6 @@
         "reviewStatus",
         "options",
         "validations",
-        "conditionals",
         "rendererHints"
       ],
       "properties": {
@@ -225,10 +203,6 @@
         "validations": {
           "type": "array",
           "items": { "$ref": "#/$defs/validationRule" }
-        },
-        "conditionals": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/conditionalRule" }
         },
         "rendererHints": {
           "type": "object",

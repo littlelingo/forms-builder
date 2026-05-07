@@ -105,9 +105,9 @@ Use when the form should reveal more UI only after a triggering answer.
 Authoring recipe:
 
 1. select the source field
-2. open `Events`
+2. open `Behavior`
 3. attach `field.change`
-4. add a rule guard for the expected value
+4. add a listener condition for the expected value
 5. add action `show_node`
 6. optionally add `mark_required`
 
@@ -148,7 +148,7 @@ Use this after authoring behavior.
 
 Builder recipe:
 
-1. open `Runtime tools`
+1. open the simulator/runtime lab
 2. inspect session state
 3. trigger the behavior in preview
 4. inspect the event trace

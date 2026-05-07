@@ -22,7 +22,7 @@ builder preview becoming the first host shell.
    - Loads authoring JSON.
    - Manages session state.
    - Dispatches events.
-   - Evaluates rule guards.
+   - Evaluates listener conditions.
    - Executes actions.
    - Emits runtime events to the host shell.
 3. `apps/web`
@@ -46,7 +46,7 @@ The runtime owns:
 - visibility/enabled/required state
 - event dispatch
 - listener execution
-- rule-guard evaluation
+- listener-condition evaluation
 - built-in action execution
 - validation
 - submit payload generation

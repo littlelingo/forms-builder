@@ -108,15 +108,6 @@ class ValidationRule(CamelModel):
     value: str | float | int | None = None
 
 
-class ConditionalRule(CamelModel):
-    rule_id: str
-    when_field_id: str
-    operator: Literal["equals", "not_equals", "contains", "exists"]
-    expected_value: str | None = None
-    effect: Literal["show", "hide", "require", "disable"]
-    enabled: bool = True
-
-
 class FieldNode(CamelModel):
     id: str
     stable_key: str
@@ -136,7 +127,6 @@ class FieldNode(CamelModel):
     review_status: ReviewStatus = ReviewStatus.NEEDS_REVIEW
     options: list[ChoiceOption] = Field(default_factory=list)
     validations: list[ValidationRule] = Field(default_factory=list)
-    conditionals: list[ConditionalRule] = Field(default_factory=list)
     renderer_hints: dict[str, str] = Field(default_factory=dict)
 
 

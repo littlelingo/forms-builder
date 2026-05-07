@@ -1,6 +1,5 @@
 import type {
   ChoiceOption,
-  ConditionalRule,
   ExtractionIssue,
   FieldNode,
   FormDefinition,
@@ -26,7 +25,6 @@ export interface AuthoringField {
   confidence?: number | null;
   options: ChoiceOption[];
   validations: ValidationRule[];
-  conditionals: ConditionalRule[];
   layoutHints: Record<string, string>;
   rendererHints: Record<string, string>;
   sourcePriority: string[];

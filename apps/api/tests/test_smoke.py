@@ -37,7 +37,7 @@ def _behavior_lifecycle_document_payload():
                     "priority": 0,
                     "eventName": "form.submit",
                     "enabled": True,
-                    "ruleGuards": [],
+                    "conditions": [],
                     "actions": [
                         {
                             "id": "action-form-submit",
@@ -58,7 +58,7 @@ def _behavior_lifecycle_document_payload():
                     "priority": 0,
                     "eventName": "form.validation_failed",
                     "enabled": True,
-                    "ruleGuards": [],
+                    "conditions": [],
                     "actions": [
                         {
                             "id": "action-delete-me",
@@ -103,7 +103,6 @@ def _behavior_lifecycle_document_payload():
                                 "confidence": 1,
                                 "options": [],
                                 "validations": [],
-                                "conditionals": [],
                                 "layoutHints": {},
                                 "rendererHints": {},
                                 "sourcePriority": [],
@@ -136,7 +135,15 @@ def _behavior_lifecycle_document_payload():
                                             "eventName": "field.change",
                                             "sourceNodeId": "field-controller",
                                             "enabled": True,
-                                            "ruleGuards": [],
+                                            "conditions": [
+                                                {
+                                                    "id": "condition-controller-yes",
+                                                    "enabled": True,
+                                                    "source": {"kind": "field_value", "fieldId": "field-controller"},
+                                                    "operator": "equals",
+                                                    "expectedValue": "yes",
+                                                }
+                                            ],
                                             "actions": [
                                                 {
                                                     "id": "action-field-change",
@@ -148,7 +155,14 @@ def _behavior_lifecycle_document_payload():
                                                         "payload": {"fieldId": "field-controller"},
                                                     },
                                                     "continueOnError": False,
-                                                }
+                                                },
+                                                {
+                                                    "id": "action-show-target",
+                                                    "kind": "show_node",
+                                                    "target": {"nodeId": "field-target", "nodeType": "field"},
+                                                    "config": {"nodeId": "field-target"},
+                                                    "continueOnError": False,
+                                                },
                                             ],
                                         },
                                         {
@@ -162,7 +176,7 @@ def _behavior_lifecycle_document_payload():
                                             "eventName": "field.blur",
                                             "sourceNodeId": "field-controller",
                                             "enabled": True,
-                                            "ruleGuards": [],
+                                            "conditions": [],
                                             "actions": [
                                                 {
                                                     "id": "action-flow-delete-me",
@@ -185,23 +199,6 @@ def _behavior_lifecycle_document_payload():
                                 "confidence": 1,
                                 "options": [],
                                 "validations": [],
-                                "conditionals": [
-                                    {
-                                        "ruleId": "rule-show-target",
-                                        "whenFieldId": "field-controller",
-                                        "operator": "equals",
-                                        "expectedValue": "yes",
-                                        "effect": "show",
-                                        "enabled": True,
-                                    },
-                                    {
-                                        "ruleId": "rule-delete-me",
-                                        "whenFieldId": "field-controller",
-                                        "operator": "exists",
-                                        "effect": "disable",
-                                        "enabled": True,
-                                    },
-                                ],
                                 "layoutHints": {},
                                 "rendererHints": {},
                                 "sourcePriority": [],
@@ -441,7 +438,7 @@ def test_runtime_authoring_survives_project_save_and_disk_reload(monkeypatch, tm
                     "priority": 0,
                     "eventName": "form.load",
                     "enabled": True,
-                    "ruleGuards": [],
+                    "conditions": [],
                     "actions": [
                         {
                             "id": "action-form-load",
@@ -539,7 +536,6 @@ def test_runtime_authoring_survives_project_save_and_disk_reload(monkeypatch, tm
                                 "confidence": 1,
                                 "options": [],
                                 "validations": [],
-                                "conditionals": [],
                                 "layoutHints": {"width": "full", "presentation": "input"},
                                 "rendererHints": {},
                                 "sourcePriority": [],
@@ -567,12 +563,18 @@ def test_runtime_authoring_survives_project_save_and_disk_reload(monkeypatch, tm
                                             "type": "field.change",
                                             "dispatcherId": "field-1",
                                             "dispatcherType": "field",
+                                            "eventSourceNodeId": "field-1",
+                                            "eventSourceNodeType": "field",
+                                            "eventSourceLabel": "Controller",
+                                            "targetNodeId": "field-1",
+                                            "targetNodeType": "field",
+                                            "wiringMode": "local",
                                             "useCapture": False,
                                             "priority": 0,
                                             "eventName": "field.change",
                                             "sourceNodeId": "field-1",
                                             "enabled": True,
-                                            "ruleGuards": [],
+                                            "conditions": [],
                                             "actions": [
                                                 {
                                                     "id": "action-field-change",
@@ -634,6 +636,8 @@ def test_runtime_authoring_survives_project_save_and_disk_reload(monkeypatch, tm
     assert detail.document.steps[0].runtime is not None
     assert detail.document.steps[0].runtime.event_sources[0].type == "step.enter"
     assert detail.document.steps[0].sections[0].fields[0].runtime is not None
+    assert detail.document.steps[0].sections[0].fields[0].runtime.listeners[0].event_source_label == "Controller"
+    assert detail.document.steps[0].sections[0].fields[0].runtime.listeners[0].wiring_mode == "local"
     assert (
         detail.document.steps[0].sections[0].fields[0].runtime.listeners[0].actions[0].config["value"]
         == "persisted after save"
@@ -664,23 +668,16 @@ def test_behavior_lifecycle_edits_survive_project_save_and_disk_reload(monkeypat
 
     fields = saved_document["steps"][0]["sections"][0]["fields"]
     controller_field = fields[0]
-    target_field = fields[1]
-
-    target_field["conditionals"][0]["enabled"] = False
-    duplicated_rule = deepcopy(target_field["conditionals"][0])
-    duplicated_rule["ruleId"] = "rule-show-target-copy"
-    duplicated_rule["effect"] = "require"
-    duplicated_rule["enabled"] = True
-    target_field["conditionals"].insert(1, duplicated_rule)
-    target_field["conditionals"] = [
-        rule for rule in target_field["conditionals"] if rule["ruleId"] != "rule-delete-me"
-    ]
 
     field_flows = controller_field["runtime"]["listeners"]
     field_flows[0]["enabled"] = False
+    field_flows[0]["conditions"][0]["enabled"] = False
     duplicated_event_flow = deepcopy(field_flows[0])
     duplicated_event_flow["id"] = "flow-field-change-copy"
     duplicated_event_flow["enabled"] = True
+    duplicated_event_flow["conditions"][0]["id"] = "condition-controller-copy"
+    duplicated_event_flow["conditions"][0]["enabled"] = True
+    duplicated_event_flow["conditions"][0]["expectedValue"] = "copy"
     duplicated_event_flow["actions"][0]["id"] = "action-field-change-copy"
     duplicated_event_flow["actions"][0]["config"]["eventType"] = "field.controller.changed.copy"
     field_flows.insert(1, duplicated_event_flow)
@@ -694,13 +691,6 @@ def test_behavior_lifecycle_edits_survive_project_save_and_disk_reload(monkeypat
     assert saved["project"]["revisionCount"] == 2
 
     persisted_document = json.loads((tmp_path / "projects" / project_id / "document.json").read_text())
-    persisted_target_field = persisted_document["steps"][0]["sections"][0]["fields"][1]
-    persisted_rules_by_id = {rule["ruleId"]: rule for rule in persisted_target_field["conditionals"]}
-    assert set(persisted_rules_by_id) == {"rule-show-target", "rule-show-target-copy"}
-    assert persisted_rules_by_id["rule-show-target"]["enabled"] is False
-    assert persisted_rules_by_id["rule-show-target-copy"]["enabled"] is True
-    assert persisted_rules_by_id["rule-show-target-copy"]["effect"] == "require"
-
     persisted_form_listeners_by_id = {
         listener["id"]: listener for listener in persisted_document["runtime"]["formListeners"]
     }
@@ -717,21 +707,17 @@ def test_behavior_lifecycle_edits_survive_project_save_and_disk_reload(monkeypat
     }
     assert set(persisted_field_flows_by_id) == {"flow-field-change", "flow-field-change-copy"}
     assert persisted_field_flows_by_id["flow-field-change"]["enabled"] is False
+    assert persisted_field_flows_by_id["flow-field-change"]["conditions"][0]["enabled"] is False
     assert (
         persisted_field_flows_by_id["flow-field-change-copy"]["actions"][0]["config"]["eventType"]
         == "field.controller.changed.copy"
     )
+    assert persisted_field_flows_by_id["flow-field-change-copy"]["conditions"][0]["expectedValue"] == "copy"
 
     reloaded = InMemoryRepository(project_storage_dir=tmp_path / "projects")
     detail = reloaded.get_project(project_id)
 
     assert detail is not None
-    reloaded_target_field = detail.document.steps[0].sections[0].fields[1]
-    reloaded_rules_by_id = {rule.rule_id: rule for rule in reloaded_target_field.conditionals}
-    assert set(reloaded_rules_by_id) == {"rule-show-target", "rule-show-target-copy"}
-    assert reloaded_rules_by_id["rule-show-target"].enabled is False
-    assert reloaded_rules_by_id["rule-show-target-copy"].enabled is True
-
     assert detail.document.runtime is not None
     reloaded_form_listeners_by_id = {
         listener.id: listener for listener in detail.document.runtime.form_listeners
@@ -747,4 +733,6 @@ def test_behavior_lifecycle_edits_survive_project_save_and_disk_reload(monkeypat
     }
     assert set(reloaded_field_flows_by_id) == {"flow-field-change", "flow-field-change-copy"}
     assert reloaded_field_flows_by_id["flow-field-change"].enabled is False
+    assert reloaded_field_flows_by_id["flow-field-change"].conditions[0].enabled is False
     assert reloaded_field_flows_by_id["flow-field-change-copy"].enabled is True
+    assert reloaded_field_flows_by_id["flow-field-change-copy"].conditions[0].expected_value == "copy"

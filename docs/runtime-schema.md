@@ -10,6 +10,7 @@ be able to declare:
 - custom event type metadata
 - event listeners
 - action chains
+- inline listener conditions
 - host bindings
 - runtime session-state shape
 
@@ -47,22 +48,40 @@ Events carry a standard envelope:
 Core event types are code-defined and do not need author definitions. Examples:
 
 - universal: `component.show`, `component.hide`, `state.change`
-- form: `form.load`, `form.submit`, `form.validation_failed`
-- step/structure: `step.enter`, `section.enter`, `group.enter`
-- controls: `component.click`, `button.click`, `field.change`
-- checkbox: `checkboxGroup.change`, `checkbox.change`, `checkbox.checked`
-- radio/select/input: `radio.change`, `select.change`, `input.change`
+- form: `form.load`, `form.submit`, `form.validation_failed`, `form.reset`
+- step/structure: `step.enter`, `section.enter`, `group.enter`, `group.change`
+- controls: `component.click`, `button.click`, `field.input`, `field.change`
+- checkbox: `checkboxGroup.change`, `checkbox.change`, `checkbox.checked`, `checkbox.unchecked`
+- radio/select/input: `radio.change`, `select.change`, `input.change`, `input.textChange`
+- signature/repeatable: `signature.attested`, `repeatableGroup.item_added`
+
+See [Runtime Item Event Reference](./runtime-event-reference.md) for the full
+item-type matrix.
 
 Custom event type definitions are metadata only. Runtime behavior dispatches an
 event instance with `dispatch_event`.
 
-### Rule Guard
+### Listener Condition
 
-A rule guard references a declarative condition that must be true before a
-listener executes.
+A listener condition is a declarative check that must be true before a listener
+executes.
 
-Rules stay separate from events and actions. They act as guards, not as event
-definitions or action lists.
+Conditions are stored directly on the listener they gate. There is no
+standalone behavior-rule object in the runtime schema.
+
+Supported condition sources:
+
+- `field_value`
+  - reads the current runtime value of a field by `fieldId`
+- `event_payload`
+  - reads a dot-path from the received event payload
+
+Supported operators:
+
+- `equals`
+- `not_equals`
+- `contains`
+- `exists`
 
 ### Listener
 
@@ -72,7 +91,7 @@ A listener says:
 - which event type it listens for
 - whether it uses capture phase
 - what priority it has within the phase
-- and these rule guards pass
+- and these listener conditions pass
 - execute these actions in order
 
 Listeners support multiple ordered actions. Dispatch walks capture from form to
@@ -125,6 +144,18 @@ Each node can declare:
 - `listeners`
 
 These are stored in `runtime` on the node.
+
+Listeners may also carry authoring metadata for smart cross-item wiring:
+
+- `eventSourceNodeId` / `eventSourceNodeType`
+- `eventSourceLabel`
+- `targetNodeId` / `targetNodeType`
+- `wiringMode`
+
+The runtime still executes from `dispatcherId`, `type`, `useCapture`, and
+`priority`. The extra fields let Behavior Studio explain that, for example, a
+radio group is reacting to a checkbox group event through a shared section
+dispatcher.
 
 ## Form-Level Behavior
 

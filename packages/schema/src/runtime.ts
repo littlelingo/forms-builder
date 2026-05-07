@@ -1,5 +1,6 @@
 export type RuntimeNodeType = "form" | "step" | "section" | "group" | "field" | "component";
 export type RuntimeEventPhase = "capture" | "target" | "bubble";
+export type RuntimeListenerWiringMode = "local" | "cross_item" | "advanced_dispatcher";
 
 export type RuntimeActionKind =
   | "go_to_next_step"
@@ -19,18 +20,44 @@ export type RuntimeActionKind =
   | "host_action";
 
 export type RuntimeEventName =
+  | "component.mount"
+  | "component.unmount"
+  | "component.show"
+  | "component.hide"
+  | "component.enable"
+  | "component.disable"
+  | "state.change"
   | "form.load"
   | "form.submit"
   | "form.submit_success"
   | "form.submit_error"
   | "form.validation_failed"
+  | "form.reset"
+  | "form.formdata"
   | "step.enter"
   | "step.leave"
+  | "step.completed"
+  | "step.validation_failed"
+  | "section.enter"
+  | "section.leave"
+  | "section.change"
+  | "group.enter"
+  | "group.leave"
+  | "group.change"
   | "field.change"
+  | "field.input"
   | "field.focus"
   | "field.blur"
+  | "field.invalid"
+  | "field.key_down"
+  | "field.key_up"
   | "component.click"
   | "button.click"
+  | "component.double_click"
+  | "component.pointer_down"
+  | "component.pointer_up"
+  | "component.key_down"
+  | "component.key_up"
   | "checkbox.change"
   | "checkbox.checked"
   | "checkbox.unchecked"
@@ -41,8 +68,21 @@ export type RuntimeEventName =
   | "select.change"
   | "select.selected"
   | "select.cleared"
+  | "select.opened"
+  | "select.closed"
   | "input.change"
   | "input.textChange"
+  | "input.before_input"
+  | "input.composition_start"
+  | "input.composition_update"
+  | "input.composition_end"
+  | "signature.change"
+  | "signature.attested"
+  | "signature.cleared"
+  | "repeatableGroup.change"
+  | "repeatableGroup.item_added"
+  | "repeatableGroup.item_removed"
+  | "repeatableGroup.item_moved"
   | "host.context_updated";
 
 export type RuntimeHostBindingDirection = "inbound" | "outbound" | "bidirectional";
@@ -64,10 +104,25 @@ export interface RuntimePayloadShape {
   notes?: string[] | null;
 }
 
-export interface RuntimeRuleGuardReference {
-  ruleId: string;
+export type RuntimeConditionOperator = "equals" | "not_equals" | "contains" | "exists";
+
+export type RuntimeConditionSource =
+  | {
+      kind: "field_value";
+      fieldId: string;
+    }
+  | {
+      kind: "event_payload";
+      path: string;
+    };
+
+export interface RuntimeConditionDefinition {
+  id: string;
   label?: string | null;
-  description?: string | null;
+  enabled: boolean;
+  source: RuntimeConditionSource;
+  operator: RuntimeConditionOperator;
+  expectedValue?: unknown;
 }
 
 export interface RuntimeActionTarget {
@@ -108,6 +163,12 @@ export interface RuntimeListenerDefinition {
   type?: string;
   dispatcherId?: string | null;
   dispatcherType?: RuntimeNodeType | null;
+  eventSourceNodeId?: string | null;
+  eventSourceNodeType?: RuntimeNodeType | null;
+  eventSourceLabel?: string | null;
+  targetNodeId?: string | null;
+  targetNodeType?: RuntimeNodeType | null;
+  wiringMode?: RuntimeListenerWiringMode;
   useCapture?: boolean;
   priority?: number;
   /** @deprecated use type */
@@ -115,7 +176,7 @@ export interface RuntimeListenerDefinition {
   /** @deprecated use dispatcherId */
   sourceNodeId?: string | null;
   enabled: boolean;
-  ruleGuards: RuntimeRuleGuardReference[];
+  conditions: RuntimeConditionDefinition[];
   actions: RuntimeActionDefinition[];
 }
 
@@ -232,6 +293,23 @@ export interface RuntimeCoreEventTypeDefinition {
   description?: string;
 }
 
+const interactiveFieldSemanticTypes = [
+  "text",
+  "textarea",
+  "select",
+  "radio",
+  "checkbox",
+  "date",
+  "number",
+  "phone",
+  "email",
+  "signature_attestation",
+  "repeatable_group",
+];
+
+const textInputSemanticTypes = ["text", "textarea"];
+const valueInputSemanticTypes = ["text", "textarea", "date", "number", "phone", "email"];
+
 export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
   { type: "component.mount", label: "Component mounted", dispatcherTypes: ["form", "step", "section", "group", "field", "component"], bubbles: false },
   { type: "component.unmount", label: "Component unmounted", dispatcherTypes: ["form", "step", "section", "group", "field", "component"], bubbles: false },
@@ -245,17 +323,32 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
   { type: "form.submit_success", label: "Submit succeeded", dispatcherTypes: ["form"], bubbles: false },
   { type: "form.submit_error", label: "Submit failed", dispatcherTypes: ["form"], bubbles: false },
   { type: "form.validation_failed", label: "Validation failed", dispatcherTypes: ["form"], bubbles: false },
+  { type: "form.reset", label: "Form reset", dispatcherTypes: ["form"], bubbles: false },
+  { type: "form.formdata", label: "Form data prepared", dispatcherTypes: ["form"], bubbles: false },
   { type: "step.enter", label: "Step entered", dispatcherTypes: ["step"], bubbles: true },
   { type: "step.leave", label: "Step left", dispatcherTypes: ["step"], bubbles: true },
+  { type: "step.completed", label: "Step completed", dispatcherTypes: ["step"], bubbles: true },
+  { type: "step.validation_failed", label: "Step validation failed", dispatcherTypes: ["step"], bubbles: true },
   { type: "section.enter", label: "Section entered", dispatcherTypes: ["section"], bubbles: true },
   { type: "section.leave", label: "Section left", dispatcherTypes: ["section"], bubbles: true },
+  { type: "section.change", label: "Section changed", dispatcherTypes: ["section"], bubbles: true },
   { type: "group.enter", label: "Group entered", dispatcherTypes: ["group"], bubbles: true },
   { type: "group.leave", label: "Group left", dispatcherTypes: ["group"], bubbles: true },
+  { type: "group.change", label: "Group changed", dispatcherTypes: ["group"], bubbles: true },
   { type: "component.click", label: "Component clicked", dispatcherTypes: ["component"], bubbles: true },
   { type: "button.click", label: "Button clicked", dispatcherTypes: ["component"], bubbles: true },
-  { type: "field.change", label: "Field changed", dispatcherTypes: ["field"], bubbles: true },
-  { type: "field.focus", label: "Field focused", dispatcherTypes: ["field"], bubbles: true },
-  { type: "field.blur", label: "Field blurred", dispatcherTypes: ["field"], bubbles: true },
+  { type: "component.double_click", label: "Component double-clicked", dispatcherTypes: ["component"], bubbles: true },
+  { type: "component.pointer_down", label: "Component pointer pressed", dispatcherTypes: ["component"], bubbles: true },
+  { type: "component.pointer_up", label: "Component pointer released", dispatcherTypes: ["component"], bubbles: true },
+  { type: "component.key_down", label: "Component key pressed", dispatcherTypes: ["component"], bubbles: true },
+  { type: "component.key_up", label: "Component key released", dispatcherTypes: ["component"], bubbles: true },
+  { type: "field.input", label: "Field input received", dispatcherTypes: ["field"], semanticTypes: interactiveFieldSemanticTypes, bubbles: true },
+  { type: "field.change", label: "Field changed", dispatcherTypes: ["field"], semanticTypes: interactiveFieldSemanticTypes, bubbles: true },
+  { type: "field.focus", label: "Field focused", dispatcherTypes: ["field"], semanticTypes: interactiveFieldSemanticTypes, bubbles: true },
+  { type: "field.blur", label: "Field blurred", dispatcherTypes: ["field"], semanticTypes: interactiveFieldSemanticTypes, bubbles: true },
+  { type: "field.invalid", label: "Field invalid", dispatcherTypes: ["field"], semanticTypes: interactiveFieldSemanticTypes, bubbles: true },
+  { type: "field.key_down", label: "Field key pressed", dispatcherTypes: ["field"], semanticTypes: interactiveFieldSemanticTypes, bubbles: true },
+  { type: "field.key_up", label: "Field key released", dispatcherTypes: ["field"], semanticTypes: interactiveFieldSemanticTypes, bubbles: true },
   { type: "checkboxGroup.change", label: "Checkbox group changed", dispatcherTypes: ["field"], semanticTypes: ["checkbox"], bubbles: true },
   { type: "checkbox.change", label: "Checkbox changed", dispatcherTypes: ["field"], semanticTypes: ["checkbox"], bubbles: true },
   { type: "checkbox.checked", label: "Checkbox checked", dispatcherTypes: ["field"], semanticTypes: ["checkbox"], bubbles: true },
@@ -266,8 +359,21 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
   { type: "select.change", label: "Select changed", dispatcherTypes: ["field"], semanticTypes: ["select"], bubbles: true },
   { type: "select.selected", label: "Select option selected", dispatcherTypes: ["field"], semanticTypes: ["select"], bubbles: true },
   { type: "select.cleared", label: "Select cleared", dispatcherTypes: ["field"], semanticTypes: ["select"], bubbles: true },
-  { type: "input.change", label: "Input changed", dispatcherTypes: ["field"], semanticTypes: ["text", "textarea", "date", "number", "phone", "email"], bubbles: true },
-  { type: "input.textChange", label: "Input text changed", dispatcherTypes: ["field"], semanticTypes: ["text", "textarea"], bubbles: true },
+  { type: "select.opened", label: "Select opened", dispatcherTypes: ["field"], semanticTypes: ["select"], bubbles: true },
+  { type: "select.closed", label: "Select closed", dispatcherTypes: ["field"], semanticTypes: ["select"], bubbles: true },
+  { type: "input.change", label: "Input changed", dispatcherTypes: ["field"], semanticTypes: valueInputSemanticTypes, bubbles: true },
+  { type: "input.textChange", label: "Input text changed", dispatcherTypes: ["field"], semanticTypes: textInputSemanticTypes, bubbles: true },
+  { type: "input.before_input", label: "Input before value changes", dispatcherTypes: ["field"], semanticTypes: textInputSemanticTypes, bubbles: true },
+  { type: "input.composition_start", label: "Input composition started", dispatcherTypes: ["field"], semanticTypes: textInputSemanticTypes, bubbles: true },
+  { type: "input.composition_update", label: "Input composition updated", dispatcherTypes: ["field"], semanticTypes: textInputSemanticTypes, bubbles: true },
+  { type: "input.composition_end", label: "Input composition ended", dispatcherTypes: ["field"], semanticTypes: textInputSemanticTypes, bubbles: true },
+  { type: "signature.change", label: "Signature changed", dispatcherTypes: ["field"], semanticTypes: ["signature_attestation"], bubbles: true },
+  { type: "signature.attested", label: "Signature attested", dispatcherTypes: ["field"], semanticTypes: ["signature_attestation"], bubbles: true },
+  { type: "signature.cleared", label: "Signature cleared", dispatcherTypes: ["field"], semanticTypes: ["signature_attestation"], bubbles: true },
+  { type: "repeatableGroup.change", label: "Repeatable group changed", dispatcherTypes: ["field"], semanticTypes: ["repeatable_group"], bubbles: true },
+  { type: "repeatableGroup.item_added", label: "Repeatable group item added", dispatcherTypes: ["field"], semanticTypes: ["repeatable_group"], bubbles: true },
+  { type: "repeatableGroup.item_removed", label: "Repeatable group item removed", dispatcherTypes: ["field"], semanticTypes: ["repeatable_group"], bubbles: true },
+  { type: "repeatableGroup.item_moved", label: "Repeatable group item moved", dispatcherTypes: ["field"], semanticTypes: ["repeatable_group"], bubbles: true },
   { type: "host.context_updated", label: "Host context updated", dispatcherTypes: ["form"], bubbles: false },
 ];
 

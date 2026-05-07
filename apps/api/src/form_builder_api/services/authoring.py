@@ -161,7 +161,6 @@ def _build_field(field) -> AuthoringField:
         confidence=field.confidence,
         options=list(field.options),
         validations=list(field.validations),
-        conditionals=list(field.conditionals),
         layout_hints=_field_layout_hints(field),
         renderer_hints=dict(field.renderer_hints),
         source_priority=[priority.value for priority in field.source_priority],

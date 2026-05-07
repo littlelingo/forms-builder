@@ -9,7 +9,6 @@ from pydantic import Field
 from .base import CamelModel
 from .canonical import (
     ChoiceOption,
-    ConditionalRule,
     DocumentClass,
     ExtractionIssue,
     FormDefinition,
@@ -35,7 +34,6 @@ class AuthoringField(CamelModel):
     confidence: float | None = Field(default=None, ge=0, le=1)
     options: list[ChoiceOption] = Field(default_factory=list)
     validations: list[ValidationRule] = Field(default_factory=list)
-    conditionals: list[ConditionalRule] = Field(default_factory=list)
     layout_hints: dict[str, str] = Field(default_factory=dict)
     renderer_hints: dict[str, str] = Field(default_factory=dict)
     source_priority: list[str] = Field(default_factory=list)

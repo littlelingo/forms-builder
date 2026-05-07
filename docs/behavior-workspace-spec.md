@@ -3,10 +3,13 @@
 ## Purpose
 
 This spec resets behavior authoring around one unified system instead of the
-current split between `Logic`, `Events`, `Map`, and `Runtime tools`.
+old split between `Logic`, `Events`, `Map`, and runtime tooling.
 
 The goal is to make advanced behavior feel powerful and coherent without making
 common form logic feel like engineering work.
+
+The core item events exposed in Behavior Studio are documented in
+[Runtime Item Event Reference](./runtime-event-reference.md).
 
 ## Product Decisions
 
@@ -15,7 +18,7 @@ common form logic feel like engineering work.
   - `Behavior`
   - `Map`
 - Replace the separate `Logic` and `Events` tabs with one shared behavior model.
-- Make Behavior Studio and Rules Manager the primary authoring path.
+- Make Behavior Studio and Behavior Manager the primary authoring path.
 - Use the graph as secondary visualization, tracing, and debugging.
 - Use the same graph language for:
   - editing behavior
@@ -53,9 +56,9 @@ Use for authored dynamic behavior.
 
 This is the main editing surface for:
 
-- state rules
 - events
 - listeners
+- listener conditions
 - actions
 - runtime-oriented orchestration
 
@@ -124,8 +127,8 @@ When a node is selected:
 
 1. open `Behavior`
 2. show a concise summary of existing behavior
-3. use Behavior Studio for guided rule/listener/event creation
-4. manage existing objects through Rules Manager
+3. use Behavior Studio for guided listener and dispatch-chain creation
+4. manage existing objects through Behavior Manager
 5. use the graph for overview, tracing, and focused handoff
 
 Quick-start examples:
@@ -136,16 +139,17 @@ Quick-start examples:
 - `On button click, submit`
 - `On submit, request host action`
 
-These should create first-class rule/listener/event objects. The graph should
-visualize those objects after creation rather than acting as the creation
-surface.
+These should create first-class listeners and dispatch chains. Conditional
+logic is stored inline on listeners rather than as standalone rule objects. The
+graph should visualize those objects after creation rather than acting as the
+creation surface.
 
 ### Starter palette before graph
 
 The default `Behavior` entry state should be guided rather than empty-canvas
 first.
 
-- Open with explicit Studio and Rules Manager entry points.
+- Open with explicit Studio and Behavior Manager entry points.
 - After the user creates or selects an object, visualize the resulting graph.
 - Move into graph inspection only when the user needs overview, tracing, or
   debugging context.
@@ -153,11 +157,12 @@ first.
 This keeps simple form logic approachable while preserving one shared graph
 language for visualization and debugging.
 
-## Rules Manager Ownership
+## Behavior Manager Ownership
 
-Rules, event listeners, and dispatch chains are first-class objects.
+Event listeners and dispatch chains are first-class objects. Listener
+conditions are edited inside their owning listener.
 
-Rules Manager owns:
+Behavior Manager owns:
 
 - object search and filtering
 - enable/disable
@@ -166,7 +171,7 @@ Rules Manager owns:
 - lifecycle details
 - field-centric views such as `Impacts this field` and `Started from this field`
 
-Graph nodes should hand off to Studio or Rules Manager. The graph should not
+Graph nodes should hand off to Studio or Behavior Manager. The graph should not
 become a second lifecycle editor.
 
 ## Graph Ownership
@@ -178,7 +183,7 @@ The graph is for:
 - debugging
 - understanding chains and cross-step relationships
 - opening a focused object in Studio
-- opening lifecycle details in Rules Manager
+- opening lifecycle details in Behavior Manager
 
 The graph should avoid:
 
@@ -189,13 +194,13 @@ The graph should avoid:
 
 When a user clicks a graph node, the system should either open the focused
 Studio editor or expose a short handoff card that clearly sends editing to
-Studio and lifecycle management to Rules Manager.
+Studio and lifecycle management to Behavior Manager.
 
 ## Selection Behavior
 
 Selection must remain stable while authoring behavior.
 
-- Adding a rule or listener should not bounce selection away from the active
+- Adding a listener or dispatch chain should not bounce selection away from the active
   field or node.
 - The currently selected authored node should stay pinned in the behavior
   surface while behavior is being edited.
@@ -216,7 +221,7 @@ Show compact visual indicators on:
 
 Indicator categories:
 
-- has state rules
+- has conditional listener flows
 - has interaction flows
 - has runtime/host behavior
 
@@ -296,9 +301,9 @@ controls.
 Keep prominent:
 
 - `Behavior Studio` for guided creation and focused wiring
-- `Rules Manager` for search, filters, lifecycle, and field-centric impact
+- `Behavior Manager` for search, filters, lifecycle, and field-centric impact
   views
-- `Runtime lab` for testing the selected rule, listener, or event chain
+- `Runtime lab` for testing the selected listener or event chain
 - lightweight provenance in the inspector
 
 Keep, but tuck behind secondary affordances:
@@ -319,7 +324,7 @@ Remove or de-emphasize:
 
 Recommended next UI cleanup:
 
-1. make `Rules Manager` the default Studio landing when behavior already exists
+1. make `Behavior Manager` the default Studio landing when behavior already exists
 2. keep `Graph view` as an explicit secondary tab, but hide document-level graph
    controls until the user opens the document graph workspace
 3. collapse advanced simulator debug into one disclosure by default
@@ -330,7 +335,7 @@ Recommended next UI cleanup:
 
 The first pruning pass implements the ownership split above:
 
-- `Behavior Studio` now lands on the full Rules Manager index when authored
+- `Behavior Studio` now lands on the full Behavior Manager index when authored
   behavior already exists.
 - `Graph view` keeps document-wide graph controls hidden until the user enters
   `Document graph workspace`.
@@ -350,8 +355,8 @@ workspace. It should act like a bounded workbench.
 Implemented direction:
 
 - Behavior actions are now available directly on the selected section, group,
-  or field card through a compact selected-context toolbar: add rule, add
-  listener, add event, and test.
+  or field card through a compact selected-context toolbar: add event listener,
+  dispatch event, and test.
 - The right rail stays inspection-oriented and no longer repeats full-width
   creation controls.
 - Studio is viewport-bound with a fixed shell, body-scroll lock, internal
@@ -359,8 +364,9 @@ Implemented direction:
   restoration to the opener.
 - Create/Test/Manage now use smaller mode-sized shells that anchor to the
   selected behavior toolbar when viewport space allows. Placement is based on
-  the toolbar container, not the individual icon, so add-rule, listener, event,
-  and test actions open in the same predictable position for a selected object.
+  the toolbar container, not the individual icon, so event-listener, dispatch
+  event, and test actions open in the same predictable position for a selected
+  object.
 - The anchored shell is now stable across `Create`, scoped `Manage`, and scoped
   `Test`; switching those modes should not resize, re-anchor, or expose the
   broader graph/simulator stack.
@@ -370,7 +376,7 @@ Implemented direction:
   latest runtime effect. Raw traces, host-loop tools, and session JSON live
   behind `Open runtime lab`.
 - Studio mode is explicit:
-  - `Create` for one focused rule/event-listener/dispatch-chain flow
+  - `Create` for one focused event-listener/dispatch-chain flow
   - `Manage` for selected-object behavior, with full manager as secondary
   - `Test` for selected-object simulator checks, with runtime lab as secondary
   - `Graph` for secondary graph/debug work in a centered workspace shell
@@ -408,7 +414,7 @@ Implemented direction:
 - The right rail no longer shows a generic `Behavior launchpad` for selected
   section, group, field, or selected step scopes.
 - Selected element scopes use the inline behavior toolbar on the selected card
-  as the primary entry point for add-rule, add-listener, add-event, and test.
+  as the primary entry point for add event listener, dispatch event, and test.
 - The selected current-step header now exposes its own compact `Step behavior`
   toolbar for step listeners, dispatch chains, and tests.
 - The right rail stays passive for selected steps and element scopes: current
@@ -423,16 +429,19 @@ Recommended next simplification:
 - Keep the rail as status/provenance/inspection only once all active scopes have
   a direct in-preview behavior affordance.
 
-## Rule Listener Event Simplification
+## Event Listener Simplification
 
 The current model is technically capable, but the creation experience still
 exposes too many implementation concepts too early. The preferred model should
 be:
 
-- `Rule` = state behavior: show, require, disable, or grouped state bundles.
+- `Listener condition` = inline conditional gate on a listener.
 - `Dispatch chain` = dispatch a named event with guided payload.
 - `Event listener` = react to an event and run one or more actions.
 - `Custom` = advanced path, still guided, never just a blank empty object.
+- `React to another item` = start from the target item, choose a source item
+  and source event, then let the builder attach the listener to the nearest
+  shared dispatcher.
 
 Implemented first cleanup:
 
@@ -444,12 +453,10 @@ Implemented first cleanup:
 
 Recommended next cleanup:
 
-- Rename `Add listener` to `Add event listener` in the UI. Keep `listener` as
-  the underlying schema term.
+- Keep `Add event listener` as the user-facing command while preserving
+  `listener` as the underlying schema term.
 - Rename `Add event` to `Dispatch event`, because users are dispatching event
   instances from a dispatcher rather than defining core event types.
-- Make `Add rule` open with one recommended default: `Show and require`, plus
-  secondary choices for `Require when`, `Show/hide`, and `Enable/disable`.
 - Split custom creation into a small wizard: trigger -> condition/payload ->
   action -> review, with live summary always visible.
 - Keep graph and full manager out of the first-create path. They should appear
@@ -460,8 +467,8 @@ Recommended next cleanup:
 1. Remove the inspector width toggle and keep the current wider width.
 2. Replace `Logic` + `Events` with a single `Behavior` tab shell.
 3. Add behavior indicators to the hierarchy and preview canvas.
-4. Replace the detached rule editor with inline or docked editing.
-5. Reframe `Runtime tools` into a simulator surface.
+4. Replace detached condition editing with inline or docked listener editing.
+5. Reframe the old runtime tooling surface into a simulator/runtime lab.
 6. Replace the persistent source side rail with:
    - a provenance helper
    - an on-demand full-width compare workspace

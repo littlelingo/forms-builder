@@ -25,6 +25,13 @@
 
 ## What Was Just Completed
 
+- Retired standalone behavior rules from the active runtime contract:
+  - removed authoring `conditionals` / `ConditionalRule` storage from the shared schema, generated TS types, API models, extraction synthesis, and authoring persistence
+  - replaced listener `ruleGuards` with inline `conditions` in [packages/schema/src/runtime.ts](/Users/clint/Workspace/forms-builder/packages/schema/src/runtime.ts), [apps/api/src/form_builder_api/models/runtime.py](/Users/clint/Workspace/forms-builder/apps/api/src/form_builder_api/models/runtime.py), and [packages/runtime/src/engine.ts](/Users/clint/Workspace/forms-builder/packages/runtime/src/engine.ts)
+  - listener conditions now support `field_value` and `event_payload` sources with `equals`, `not_equals`, `contains`, and `exists` operators
+  - Behavior Studio no longer exposes `Add rule` as a primary flow; selected component behavior is now event-listener and dispatch-chain centric, with listener conditions edited inside the listener composer
+  - cross-item listener creation now seeds a sensible default condition from the source field, so a radio group can react to a checkbox group event with the condition visible and editable in the listener composer
+  - docs were updated to describe the AS3-style event/listener/action model plus inline listener conditions instead of standalone rule guards
 - Added shared authoring contracts in:
   - [apps/api/src/form_builder_api/models/authoring.py](/Users/clint/Workspace/forms-builder/apps/api/src/form_builder_api/models/authoring.py)
   - [packages/schema/src/authoring.ts](/Users/clint/Workspace/forms-builder/packages/schema/src/authoring.ts)
@@ -383,12 +390,17 @@
   - live pass on `http://127.0.0.1:5173/` validating the graph cleanup pass on `Page 3 · Submitting Your Application`: graph view now shows manager/studio handoffs instead of direct creation/deletion/growth controls, `Edit chain in studio` returns to the focused composer, and `Open lifecycle details` opens the full Rules Manager index with the selected event flow detail expanded
   - live pass on `http://127.0.0.1:5173/` validating the step-level behavior toolbar on `Page 3 · Submitting Your Application`: the selected current-step header now shows `Step behavior`, the right rail stays status-only for that selected step, and `Add listener` opens the compact `Create listener` Behavior Studio dialog from the preview scope
   - live pass on `http://127.0.0.1:5173/` validating the AS3/component-centric behavior flow on Step 2, Page 4, `TYPE OF BENEFIT(S) APPLYING FOR`: selecting the checkbox group exposes `Add event listener` and `Dispatch event`; listener creation opens checkbox-group-specific recommended starters keyed to `checkboxGroup.change`; the custom listener composer opens with `checkboxGroup.change`, dispatcher, priority, and capture-phase controls; dispatch creation exposes checkbox-specific dispatch-chain presets; a duplicate React key warning in suggestion chips was fixed during the pass
+  - added the full core runtime event reference in [docs/runtime-event-reference.md](/Users/clint/Workspace/forms-builder/docs/runtime-event-reference.md), expanded the exported core event catalog for form, step, section, group, field, checkbox/radio/select/input, signature, repeatable group, and component/button events, and added deterministic catalog/doc alignment coverage so the reference cannot drift from `runtimeCoreEventTypes`
+  - live pass on `http://127.0.0.1:5173/` validating the expanded event picker on Step 2, Page 4, `TYPE OF BENEFIT(S) APPLYING FOR`: checkbox group recommended presets still prioritize `checkboxGroup.change`, and Advanced exact event types now expose expanded core entries such as `field.input`, `field.invalid`, `field.key_down`, `checkbox.checked`, and `checkbox.unchecked`
+  - added smart cross-item listener wiring in [apps/web/src/App.tsx](/Users/clint/Workspace/forms-builder/apps/web/src/App.tsx): `Create listener` now has an `Another item` preset type, ranks nearby source items by current step/section/proximity, exposes component-specific source events such as `checkboxGroup.change`, and creates target-owned listeners wired at the nearest shared dispatcher
+  - extended listener schema/API metadata in [packages/schema/src/runtime.ts](/Users/clint/Workspace/forms-builder/packages/schema/src/runtime.ts) and [apps/api/src/form_builder_api/models/runtime.py](/Users/clint/Workspace/forms-builder/apps/api/src/form_builder_api/models/runtime.py) so listeners can persist event source, target, source labels/types, and wiring mode (`local`, `cross_item`, or `advanced_dispatcher`)
+  - live pass on `http://127.0.0.1:5173/` validating cross-item listener authoring on Step 2, Page 4: selecting the `3. SEX` radio group, opening `Add event listener`, choosing `Another item`, and selecting the nearby `TYPE OF BENEFIT(S) APPLYING FOR` checkbox group exposes `checkboxGroup.change` plus target-aware actions like `Require this radio group`, with the composer summarizing the source, shared dispatcher, and target update path
 - Persistence/contract:
   - `PYTHONPATH=apps/api/src ./.venv/bin/pytest apps/api/tests/test_smoke.py -q`
   - result: `9 passed`
   - `npm run build:schema`
   - `npm run test:runtime`
-  - result: runtime tests `9 passed`
+  - result: runtime tests `13 passed`
   - `npm run typecheck:web`
   - `npm run build:web`
 
@@ -405,6 +417,7 @@
   - the shell has now started that transition with a single `Behavior` tab, a slimmer right-rail behavior launchpad, a dedicated `Behavior studio` overlay for focused rule/listener/event wiring, guided setup paths for `Add rule`, `Add listener`, and `Add event flow`, a shared graph surface, one docked composer, grouped state bundles, multi-action chain templates, and a first-class `Rules Manager` index with object detail plus enable/disable, duplicate, and delete lifecycle controls; the remaining manager gaps are bulk grouping, safer undo/confirmation affordances, and richer field-centric impact views
   - the product direction is now Behavior Studio plus Rules Manager as the primary authoring path, with graph used for focused visualization, tracing, and debugging rather than normal rule/listener creation
   - rule/listener editing now shares one docked composer and one graph that can be seeded, extended in place, and reached from the new studio, and the map now speaks the same graph language and can hand authored nodes directly into that graph; focus mode can now collapse multi-flow selections back to one chain at a time, first-pass `Fit flows` plus lane-density controls are in place, the local viewport now supports drag/pan plus reset, the `Map -> Graph` handoff now carries visible context plus a return path, step/form scope clusters now keep larger authored behavior from collapsing into one repeated stack, the old document navigator has now been folded into the `Document graph overview`, that overview now supports clustered board, spatial mini-map, and a new default `Canvas view` plus cross-lane scope filtering, the new `Document graph workspace` mode now gives that surface its own dedicated authoring state inside `Behavior`, the document graph now supports direct lane expansion plus an `Expanded lane detail` surface with scope-level handoffs, the canvas now supports pinning, denser cluster packing, navigator-driven filtering, grouped swimlanes (`Focused and pinned lanes`, `Behavior lanes`, `Quiet lanes`), and a persistent related-lane strip with direct matching-scope handoffs, and the composer now supports grouped conditional effects plus replaceable multi-action chains, but the next gap is now finishing the studio/inspector split before pushing the global canvas much further
+  - listener authoring now has a first-pass cross-item picker that lets a selected target react to another item's component-specific event without manually knowing dispatcher IDs, but it still needs persisted example fixtures and more polish for dense imported forms
   - graph-first creation pressure has been reduced and lifecycle persistence now has API/disk-reload coverage; the next gap is pruning secondary graph/document/simulator/source affordances so the clearer ownership model is reflected in the visible UI
   - source provenance now opens in an explicit compare workspace, but it still needs richer spatial/visual comparison and stronger focus-management polish before it feels like a complete on-demand compare tool
 - Provenance is retained, but field-level evidence is still lighter-weight in the builder than in the review stage.
@@ -420,8 +433,9 @@
 
 - Harden the AS3 behavior model with save/reload fixtures and UI cleanup:
   - add a small persisted authoring-project fixture that exercises capture, target, bubble, non-bubbling dispatch, checkbox-group events, and host-action payload refs without mutating `data/projects/`
+  - add save/reload coverage for cross-item listeners that verifies source metadata, target metadata, and shared-dispatcher wiring survive project persistence
   - migrate remaining internal/visible labels that still say generic `flow` where the object is specifically a dispatch chain
-  - extend the component-type core event catalog as more field renderers become first-class controls
+  - continue wiring runtime emission for less common core events as their field renderers become first-class controls
   - keep pruning secondary graph/document/simulator/source controls now that selected-object Behavior Studio owns normal creation
 
 ## Product Direction Update
