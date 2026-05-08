@@ -286,6 +286,7 @@ export interface RuntimeCoreEventTypeDefinition {
   semanticTypes?: string[];
   bubbles: boolean;
   description?: string;
+  payloadShape?: RuntimePayloadShape | null;
 }
 
 const interactiveFieldSemanticTypes = [
@@ -304,6 +305,68 @@ const interactiveFieldSemanticTypes = [
 
 const textInputSemanticTypes = ["text", "textarea"];
 const valueInputSemanticTypes = ["text", "textarea", "date", "number", "phone", "email"];
+
+function runtimePayloadField(
+  name: string,
+  label: string,
+  valueType: RuntimeValueType,
+  required = false,
+  description?: string,
+): RuntimePayloadField {
+  return {
+    name,
+    label,
+    valueType,
+    required,
+    description: description ?? null,
+  };
+}
+
+function runtimePayloadShape(
+  fields: RuntimePayloadField[],
+  example: Record<string, unknown> = {},
+  notes: string[] = [],
+): RuntimePayloadShape {
+  return {
+    mode: "key_value",
+    fields,
+    example,
+    notes,
+  };
+}
+
+const nodeIdentityPayloadFields = [
+  runtimePayloadField("nodeId", "Node id", "string", true, "Immutable runtime node id."),
+  runtimePayloadField("nodeKey", "Node behavior key", "string", false, "Readable dispatch key when available."),
+  runtimePayloadField("nodeType", "Node type", "string", true, "Runtime dispatcher type."),
+];
+
+const formIdentityPayloadFields = [
+  runtimePayloadField("formId", "Form id", "string", true, "Runtime form/document id."),
+  runtimePayloadField("formTitle", "Form title", "string", false, "Current form title."),
+  runtimePayloadField("projectId", "Project id", "string", false, "Authoring project id when available."),
+];
+
+const fieldIdentityPayloadFields = [
+  runtimePayloadField("fieldId", "Field id", "string", true, "Runtime field id."),
+  runtimePayloadField("fieldKey", "Field behavior key", "string", false, "Readable field dispatch key when available."),
+];
+
+const keyEventPayloadFields = [
+  runtimePayloadField("key", "Key", "string", false, "Keyboard key value."),
+  runtimePayloadField("code", "Code", "string", false, "Physical key code."),
+  runtimePayloadField("altKey", "Alt pressed", "boolean", false, "Whether Alt was pressed."),
+  runtimePayloadField("ctrlKey", "Control pressed", "boolean", false, "Whether Control was pressed."),
+  runtimePayloadField("metaKey", "Meta pressed", "boolean", false, "Whether Meta/Command was pressed."),
+  runtimePayloadField("shiftKey", "Shift pressed", "boolean", false, "Whether Shift was pressed."),
+];
+
+const pointerEventPayloadFields = [
+  runtimePayloadField("pointerId", "Pointer id", "number", false, "Pointer identifier when available."),
+  runtimePayloadField("pointerType", "Pointer type", "string", false, "Mouse, pen, touch, or host-supplied pointer type."),
+  runtimePayloadField("x", "X position", "number", false, "Viewport x position when available."),
+  runtimePayloadField("y", "Y position", "number", false, "Viewport y position when available."),
+];
 
 export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
   {
@@ -338,36 +401,251 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["form", "step", "section", "group", "field", "component"],
     bubbles: true,
   },
-  { type: "form.load", label: "Form loaded", dispatcherTypes: ["form"], bubbles: false },
-  { type: "form.submit", label: "Form submitted", dispatcherTypes: ["form"], bubbles: false },
-  { type: "form.submit_success", label: "Submit succeeded", dispatcherTypes: ["form"], bubbles: false },
-  { type: "form.submit_error", label: "Submit failed", dispatcherTypes: ["form"], bubbles: false },
-  { type: "form.validation_failed", label: "Validation failed", dispatcherTypes: ["form"], bubbles: false },
-  { type: "form.reset", label: "Form reset", dispatcherTypes: ["form"], bubbles: false },
-  { type: "form.formdata", label: "Form data prepared", dispatcherTypes: ["form"], bubbles: false },
-  { type: "step.enter", label: "Step entered", dispatcherTypes: ["step"], bubbles: true },
-  { type: "step.leave", label: "Step left", dispatcherTypes: ["step"], bubbles: true },
-  { type: "step.completed", label: "Step completed", dispatcherTypes: ["step"], bubbles: true },
-  { type: "step.validation_failed", label: "Step validation failed", dispatcherTypes: ["step"], bubbles: true },
-  { type: "section.enter", label: "Section entered", dispatcherTypes: ["section"], bubbles: true },
-  { type: "section.leave", label: "Section left", dispatcherTypes: ["section"], bubbles: true },
-  { type: "section.change", label: "Section changed", dispatcherTypes: ["section"], bubbles: true },
-  { type: "group.enter", label: "Group entered", dispatcherTypes: ["group"], bubbles: true },
-  { type: "group.leave", label: "Group left", dispatcherTypes: ["group"], bubbles: true },
-  { type: "group.change", label: "Group changed", dispatcherTypes: ["group"], bubbles: true },
-  { type: "component.click", label: "Component clicked", dispatcherTypes: ["component"], bubbles: true },
-  { type: "button.click", label: "Button clicked", dispatcherTypes: ["component"], bubbles: true },
-  { type: "component.double_click", label: "Component double-clicked", dispatcherTypes: ["component"], bubbles: true },
-  { type: "component.pointer_down", label: "Component pointer pressed", dispatcherTypes: ["component"], bubbles: true },
-  { type: "component.pointer_up", label: "Component pointer released", dispatcherTypes: ["component"], bubbles: true },
-  { type: "component.key_down", label: "Component key pressed", dispatcherTypes: ["component"], bubbles: true },
-  { type: "component.key_up", label: "Component key released", dispatcherTypes: ["component"], bubbles: true },
+  {
+    type: "form.load",
+    label: "Form loaded",
+    dispatcherTypes: ["form"],
+    bubbles: false,
+    payloadShape: runtimePayloadShape(formIdentityPayloadFields),
+  },
+  {
+    type: "form.submit",
+    label: "Form submitted",
+    dispatcherTypes: ["form"],
+    bubbles: false,
+    payloadShape: runtimePayloadShape([
+      ...formIdentityPayloadFields,
+      runtimePayloadField("submit", "Submit payload", "object", false, "Prepared submit payload."),
+      runtimePayloadField("validation", "Validation state", "object", false, "Validation summary at submit time."),
+      runtimePayloadField("correlationId", "Correlation id", "string", false, "Runtime correlation id."),
+    ]),
+  },
+  {
+    type: "form.submit_success",
+    label: "Submit succeeded",
+    dispatcherTypes: ["form"],
+    bubbles: false,
+    payloadShape: runtimePayloadShape([
+      ...formIdentityPayloadFields,
+      runtimePayloadField("message", "Message", "string", false, "Host success message."),
+      runtimePayloadField("submissionId", "Submission id", "string", false, "Host submission identifier."),
+    ]),
+  },
+  {
+    type: "form.submit_error",
+    label: "Submit failed",
+    dispatcherTypes: ["form"],
+    bubbles: false,
+    payloadShape: runtimePayloadShape([
+      ...formIdentityPayloadFields,
+      runtimePayloadField("message", "Message", "string", false, "Host error message."),
+      runtimePayloadField("fieldErrors", "Field errors", "object", false, "Field-level host errors."),
+    ]),
+  },
+  {
+    type: "form.validation_failed",
+    label: "Validation failed",
+    dispatcherTypes: ["form"],
+    bubbles: false,
+    payloadShape: runtimePayloadShape([
+      ...formIdentityPayloadFields,
+      runtimePayloadField("errors", "Validation errors", "array", false, "Blocked validation errors."),
+      runtimePayloadField("blockedStepId", "Blocked step id", "string", false, "Step that blocked navigation or submit."),
+    ]),
+  },
+  {
+    type: "form.reset",
+    label: "Form reset",
+    dispatcherTypes: ["form"],
+    bubbles: false,
+    payloadShape: runtimePayloadShape([
+      ...formIdentityPayloadFields,
+      runtimePayloadField("source", "Reset source", "string", false, "Runtime or host reset origin."),
+    ]),
+  },
+  {
+    type: "form.formdata",
+    label: "Form data prepared",
+    dispatcherTypes: ["form"],
+    bubbles: false,
+    payloadShape: runtimePayloadShape([
+      ...formIdentityPayloadFields,
+      runtimePayloadField("formData", "Form data", "object", false, "Prepared form data snapshot."),
+    ]),
+  },
+  {
+    type: "step.enter",
+    label: "Step entered",
+    dispatcherTypes: ["step"],
+    bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...nodeIdentityPayloadFields,
+      runtimePayloadField("stepTitle", "Step title", "string", false, "Current step title."),
+    ]),
+  },
+  {
+    type: "step.leave",
+    label: "Step left",
+    dispatcherTypes: ["step"],
+    bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...nodeIdentityPayloadFields,
+      runtimePayloadField("stepTitle", "Step title", "string", false, "Current step title."),
+    ]),
+  },
+  {
+    type: "step.completed",
+    label: "Step completed",
+    dispatcherTypes: ["step"],
+    bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...nodeIdentityPayloadFields,
+      runtimePayloadField("stepTitle", "Step title", "string", false, "Current step title."),
+    ]),
+  },
+  {
+    type: "step.validation_failed",
+    label: "Step validation failed",
+    dispatcherTypes: ["step"],
+    bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...nodeIdentityPayloadFields,
+      runtimePayloadField("errors", "Validation errors", "array", false, "Step validation errors."),
+    ]),
+  },
+  {
+    type: "section.enter",
+    label: "Section entered",
+    dispatcherTypes: ["section"],
+    bubbles: true,
+    payloadShape: runtimePayloadShape(nodeIdentityPayloadFields),
+  },
+  {
+    type: "section.leave",
+    label: "Section left",
+    dispatcherTypes: ["section"],
+    bubbles: true,
+    payloadShape: runtimePayloadShape(nodeIdentityPayloadFields),
+  },
+  {
+    type: "section.change",
+    label: "Section changed",
+    dispatcherTypes: ["section"],
+    bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...nodeIdentityPayloadFields,
+      runtimePayloadField("changedNodeId", "Changed child id", "string", false, "Child node that changed."),
+    ]),
+  },
+  {
+    type: "group.enter",
+    label: "Group entered",
+    dispatcherTypes: ["group"],
+    bubbles: true,
+    payloadShape: runtimePayloadShape(nodeIdentityPayloadFields),
+  },
+  {
+    type: "group.leave",
+    label: "Group left",
+    dispatcherTypes: ["group"],
+    bubbles: true,
+    payloadShape: runtimePayloadShape(nodeIdentityPayloadFields),
+  },
+  {
+    type: "group.change",
+    label: "Group changed",
+    dispatcherTypes: ["group"],
+    bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...nodeIdentityPayloadFields,
+      runtimePayloadField("changedNodeId", "Changed child id", "string", false, "Child node that changed."),
+    ]),
+  },
+  {
+    type: "component.click",
+    label: "Component clicked",
+    dispatcherTypes: ["component"],
+    bubbles: true,
+    payloadShape: runtimePayloadShape([
+      runtimePayloadField("componentId", "Component id", "string", true, "Runtime component id."),
+      runtimePayloadField("componentKey", "Component behavior key", "string", false, "Readable component dispatch key."),
+      runtimePayloadField("label", "Label", "string", false, "Component label."),
+    ]),
+  },
+  {
+    type: "button.click",
+    label: "Button clicked",
+    dispatcherTypes: ["component"],
+    bubbles: true,
+    payloadShape: runtimePayloadShape([
+      runtimePayloadField("componentId", "Component id", "string", true, "Runtime component id."),
+      runtimePayloadField("componentKey", "Component behavior key", "string", false, "Readable component dispatch key."),
+      runtimePayloadField("label", "Label", "string", false, "Button label."),
+      runtimePayloadField("buttonAction", "Button action", "string", false, "Configured button action."),
+    ]),
+  },
+  {
+    type: "component.double_click",
+    label: "Component double-clicked",
+    dispatcherTypes: ["component"],
+    bubbles: true,
+    payloadShape: runtimePayloadShape([
+      runtimePayloadField("componentId", "Component id", "string", true, "Runtime component id."),
+      runtimePayloadField("label", "Label", "string", false, "Component label."),
+      ...pointerEventPayloadFields,
+    ]),
+  },
+  {
+    type: "component.pointer_down",
+    label: "Component pointer pressed",
+    dispatcherTypes: ["component"],
+    bubbles: true,
+    payloadShape: runtimePayloadShape([
+      runtimePayloadField("componentId", "Component id", "string", true, "Runtime component id."),
+      ...pointerEventPayloadFields,
+    ]),
+  },
+  {
+    type: "component.pointer_up",
+    label: "Component pointer released",
+    dispatcherTypes: ["component"],
+    bubbles: true,
+    payloadShape: runtimePayloadShape([
+      runtimePayloadField("componentId", "Component id", "string", true, "Runtime component id."),
+      ...pointerEventPayloadFields,
+    ]),
+  },
+  {
+    type: "component.key_down",
+    label: "Component key pressed",
+    dispatcherTypes: ["component"],
+    bubbles: true,
+    payloadShape: runtimePayloadShape([
+      runtimePayloadField("componentId", "Component id", "string", true, "Runtime component id."),
+      ...keyEventPayloadFields,
+    ]),
+  },
+  {
+    type: "component.key_up",
+    label: "Component key released",
+    dispatcherTypes: ["component"],
+    bubbles: true,
+    payloadShape: runtimePayloadShape([
+      runtimePayloadField("componentId", "Component id", "string", true, "Runtime component id."),
+      ...keyEventPayloadFields,
+    ]),
+  },
   {
     type: "field.input",
     label: "Field input received",
     dispatcherTypes: ["field"],
     semanticTypes: interactiveFieldSemanticTypes,
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("value", "Value", "unknown", false, "Current field value."),
+      runtimePayloadField("nextValue", "Next value", "unknown", false, "Incoming value from the control."),
+    ]),
   },
   {
     type: "field.change",
@@ -375,6 +653,11 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: interactiveFieldSemanticTypes,
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("value", "Value", "unknown", false, "Previous or current field value."),
+      runtimePayloadField("nextValue", "Next value", "unknown", false, "New field value."),
+    ]),
   },
   {
     type: "field.focus",
@@ -382,6 +665,7 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: interactiveFieldSemanticTypes,
     bubbles: true,
+    payloadShape: runtimePayloadShape(fieldIdentityPayloadFields),
   },
   {
     type: "field.blur",
@@ -389,6 +673,7 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: interactiveFieldSemanticTypes,
     bubbles: true,
+    payloadShape: runtimePayloadShape(fieldIdentityPayloadFields),
   },
   {
     type: "field.invalid",
@@ -396,6 +681,10 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: interactiveFieldSemanticTypes,
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("message", "Validation message", "string", false, "Validation message."),
+    ]),
   },
   {
     type: "field.key_down",
@@ -403,6 +692,7 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: interactiveFieldSemanticTypes,
     bubbles: true,
+    payloadShape: runtimePayloadShape([...fieldIdentityPayloadFields, ...keyEventPayloadFields]),
   },
   {
     type: "field.key_up",
@@ -410,6 +700,7 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: interactiveFieldSemanticTypes,
     bubbles: true,
+    payloadShape: runtimePayloadShape([...fieldIdentityPayloadFields, ...keyEventPayloadFields]),
   },
   {
     type: "checkboxGroup.change",
@@ -417,6 +708,12 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: ["checkbox"],
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("selectedValues", "Selected values", "array", true, "All selected checkbox values."),
+      runtimePayloadField("selectionMode", "Selection mode", "string", false, "Expected to be multi."),
+      runtimePayloadField("changedOption", "Changed option", "string", false, "Option that changed when known."),
+    ]),
   },
   {
     type: "checkbox.change",
@@ -424,6 +721,11 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: ["checkbox"],
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("optionValue", "Option value", "string", true, "Checkbox option value."),
+      runtimePayloadField("checked", "Checked", "boolean", true, "Whether the option is now checked."),
+    ]),
   },
   {
     type: "checkbox.checked",
@@ -431,6 +733,11 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: ["checkbox"],
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("optionValue", "Option value", "string", true, "Checked option value."),
+      runtimePayloadField("checked", "Checked", "boolean", true, "Expected to be true."),
+    ]),
   },
   {
     type: "checkbox.unchecked",
@@ -438,6 +745,11 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: ["checkbox"],
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("optionValue", "Option value", "string", true, "Unchecked option value."),
+      runtimePayloadField("checked", "Checked", "boolean", true, "Expected to be false."),
+    ]),
   },
   {
     type: "radio.change",
@@ -445,6 +757,11 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: ["radio"],
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("selectedValue", "Selected value", "string", true, "Selected radio option value."),
+      runtimePayloadField("changedOption", "Changed option", "string", false, "Option that changed when known."),
+    ]),
   },
   {
     type: "radio.selected",
@@ -452,6 +769,10 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: ["radio"],
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("selectedValue", "Selected value", "string", true, "Selected radio option value."),
+    ]),
   },
   {
     type: "radio.cleared",
@@ -459,6 +780,10 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: ["radio"],
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("previousValue", "Previous value", "string", false, "Previously selected radio value."),
+    ]),
   },
   {
     type: "select.change",
@@ -466,6 +791,11 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: ["select"],
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("selectedValue", "Selected value", "string", true, "Selected option value."),
+      runtimePayloadField("changedOption", "Changed option", "string", false, "Option that changed when known."),
+    ]),
   },
   {
     type: "select.selected",
@@ -473,6 +803,10 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: ["select"],
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("selectedValue", "Selected value", "string", true, "Selected option value."),
+    ]),
   },
   {
     type: "select.cleared",
@@ -480,6 +814,10 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: ["select"],
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("previousValue", "Previous value", "string", false, "Previously selected value."),
+    ]),
   },
   {
     type: "select.opened",
@@ -487,6 +825,10 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: ["select"],
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("optionCount", "Option count", "number", false, "Available option count."),
+    ]),
   },
   {
     type: "select.closed",
@@ -494,6 +836,10 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: ["select"],
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("selectedValue", "Selected value", "string", false, "Final selected value."),
+    ]),
   },
   {
     type: "input.change",
@@ -501,6 +847,11 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: valueInputSemanticTypes,
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("value", "Value", "unknown", false, "Previous or current input value."),
+      runtimePayloadField("nextValue", "Next value", "unknown", false, "New input value."),
+    ]),
   },
   {
     type: "input.textChange",
@@ -508,6 +859,11 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: textInputSemanticTypes,
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("value", "Value", "string", false, "Previous or current text value."),
+      runtimePayloadField("nextValue", "Next value", "string", false, "New text value."),
+    ]),
   },
   {
     type: "input.before_input",
@@ -515,6 +871,11 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: textInputSemanticTypes,
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("inputType", "Input type", "string", false, "Browser beforeinput inputType."),
+      runtimePayloadField("data", "Input data", "string", false, "Incoming text data when available."),
+    ]),
   },
   {
     type: "input.composition_start",
@@ -522,6 +883,10 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: textInputSemanticTypes,
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("data", "Composition data", "string", false, "Composition text when available."),
+    ]),
   },
   {
     type: "input.composition_update",
@@ -529,6 +894,10 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: textInputSemanticTypes,
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("data", "Composition data", "string", false, "Composition text when available."),
+    ]),
   },
   {
     type: "input.composition_end",
@@ -536,6 +905,10 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: textInputSemanticTypes,
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("data", "Composition data", "string", false, "Final composition text when available."),
+    ]),
   },
   {
     type: "signature.change",
@@ -543,6 +916,10 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: ["signature_attestation"],
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("attested", "Attested", "boolean", false, "Current signature attestation state."),
+    ]),
   },
   {
     type: "signature.attested",
@@ -550,6 +927,10 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: ["signature_attestation"],
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("attested", "Attested", "boolean", true, "Expected to be true."),
+    ]),
   },
   {
     type: "signature.cleared",
@@ -557,6 +938,10 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: ["signature_attestation"],
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("attested", "Attested", "boolean", true, "Expected to be false."),
+    ]),
   },
   {
     type: "repeatableGroup.change",
@@ -564,6 +949,10 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: ["repeatable_group"],
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("itemCount", "Item count", "number", false, "Current repeated item count."),
+    ]),
   },
   {
     type: "repeatableGroup.item_added",
@@ -571,6 +960,11 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: ["repeatable_group"],
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("itemId", "Item id", "string", false, "Added item id."),
+      runtimePayloadField("itemIndex", "Item index", "number", false, "Added item index."),
+    ]),
   },
   {
     type: "repeatableGroup.item_removed",
@@ -578,6 +972,11 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: ["repeatable_group"],
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("itemId", "Item id", "string", false, "Removed item id."),
+      runtimePayloadField("itemIndex", "Item index", "number", false, "Removed item index."),
+    ]),
   },
   {
     type: "repeatableGroup.item_moved",
@@ -585,8 +984,22 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     dispatcherTypes: ["field"],
     semanticTypes: ["repeatable_group"],
     bubbles: true,
+    payloadShape: runtimePayloadShape([
+      ...fieldIdentityPayloadFields,
+      runtimePayloadField("itemId", "Item id", "string", false, "Moved item id."),
+      runtimePayloadField("fromIndex", "From index", "number", false, "Previous item index."),
+      runtimePayloadField("toIndex", "To index", "number", false, "New item index."),
+    ]),
   },
-  { type: "host.context_updated", label: "Host context updated", dispatcherTypes: ["form"], bubbles: false },
+  {
+    type: "host.context_updated",
+    label: "Host context updated",
+    dispatcherTypes: ["form"],
+    bubbles: false,
+    payloadShape: runtimePayloadShape([
+      runtimePayloadField("context", "Host context", "object", true, "Host context update payload."),
+    ]),
+  },
 ];
 
 export function runtimeCoreEventType(type: string): RuntimeCoreEventTypeDefinition | null {

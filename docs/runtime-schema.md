@@ -67,6 +67,12 @@ Core event types are code-defined and do not need author definitions. Examples:
 See [Runtime Item Event Reference](./runtime-event-reference.md) for the full
 item-type matrix.
 
+Core event definitions can also carry `payloadShape` metadata. Behavior Studio
+uses that metadata when `Add event` is selected so authors see event-specific
+properties such as checkbox `selectedValues`, button `componentId`, submit
+payload context, keyboard key data, and validation errors before saving the
+event definition on a dispatcher.
+
 Custom event type definitions are metadata only. Runtime behavior dispatches an
 event instance with `dispatch_event`.
 

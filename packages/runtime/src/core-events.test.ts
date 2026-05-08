@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  runtimeCoreEventType,
   runtimeCoreEventsForDispatcher,
   runtimeCoreEventTypes,
 } from "@form-builder/schema";
@@ -127,4 +128,24 @@ test("dispatcher filtering returns type-specific field and component event sets"
   assert.ok(componentEvents.has("component.click"));
   assert.ok(componentEvents.has("button.click"));
   assert.ok(componentEvents.has("component.key_down"));
+});
+
+test("core event catalog exposes event-specific payload shapes for Behavior Studio", () => {
+  const checkboxPayloadFields = new Set(
+    runtimeCoreEventType("checkboxGroup.change")?.payloadShape?.fields.map((field) => field.name),
+  );
+  assert.ok(checkboxPayloadFields.has("selectedValues"));
+  assert.ok(checkboxPayloadFields.has("changedOption"));
+
+  const clickPayloadFields = new Set(
+    runtimeCoreEventType("component.click")?.payloadShape?.fields.map((field) => field.name),
+  );
+  assert.ok(clickPayloadFields.has("componentId"));
+  assert.ok(clickPayloadFields.has("label"));
+
+  const keyPayloadFields = new Set(
+    runtimeCoreEventType("field.key_down")?.payloadShape?.fields.map((field) => field.name),
+  );
+  assert.ok(keyPayloadFields.has("key"));
+  assert.ok(keyPayloadFields.has("shiftKey"));
 });

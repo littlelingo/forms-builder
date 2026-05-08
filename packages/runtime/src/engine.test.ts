@@ -852,6 +852,65 @@ test("event payload listener conditions can inspect checkbox group payloads", ()
   assert.equal(engine.getTrace().filter((entry) => entry.event.type === "checkbox.education_selected").length, 1);
 });
 
+test("set field value actions can resolve event payload references", () => {
+  const document = createDocument();
+  const field = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "field-name");
+  assert.ok(field);
+
+  field.runtime = {
+    eventSources: [
+      {
+        id: "event-checkbox-payload-value",
+        name: "checkboxGroup.change",
+        sourceNodeId: "field-name",
+        sourceNodeType: "field",
+      },
+    ],
+    listeners: [
+      {
+        id: "listener-set-from-payload",
+        label: "Set field from event payload",
+        eventName: "checkboxGroup.change",
+        sourceNodeId: "field-name",
+        enabled: true,
+        conditions: [],
+        actions: [
+          {
+            id: "action-set-from-payload",
+            kind: "set_field_value",
+            target: { nodeId: "field-name", nodeType: "field" },
+            config: {
+              fieldId: "field-name",
+              value: { $runtime: "current.event.payload.changedOption" },
+            },
+            continueOnError: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  engine.dispatch({
+    ...fieldChangeEvent("field-name", ["education"]),
+    type: "checkboxGroup.change",
+    payload: {
+      fieldId: "field-name",
+      selectedValues: ["education"],
+      changedOption: "education",
+    },
+  });
+
+  assert.equal(engine.getState().values["field-name"], "education");
+});
+
 test("AS3-style dispatch runs capture, target, and bubble listeners with event context", () => {
   const document = createDocument();
   const section = document.steps[0]?.sections[0];

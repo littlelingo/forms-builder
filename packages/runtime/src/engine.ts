@@ -52,7 +52,7 @@ const runtimePayloadReferenceKeys = [
   "current.runtime.value",
 ] as const;
 
-type RuntimePayloadReferenceKey = (typeof runtimePayloadReferenceKeys)[number];
+type RuntimePayloadReferenceKey = (typeof runtimePayloadReferenceKeys)[number] | `current.event.payload.${string}`;
 
 interface RuntimeDispatchReportDraft {
   event: RuntimeEventEnvelope | null;
@@ -324,11 +324,12 @@ export function createRuntimeEngine(): RuntimeEngine {
                 ? action.target.nodeId
                 : null;
           if (targetFieldId) {
+            const value = resolveRuntimePayloadValue(action.config.value, event, document, index, state);
             state = {
               ...state,
               values: {
                 ...state.values,
-                [targetFieldId]: structuredClone(action.config.value),
+                [targetFieldId]: structuredClone(value),
               },
             };
           }
@@ -1048,7 +1049,8 @@ function isRuntimePayloadReference(value: unknown): value is { $runtime: Runtime
   return (
     isRecord(value) &&
     typeof value.$runtime === "string" &&
-    runtimePayloadReferenceKeys.includes(value.$runtime as RuntimePayloadReferenceKey)
+    (runtimePayloadReferenceKeys.includes(value.$runtime as (typeof runtimePayloadReferenceKeys)[number]) ||
+      /^current\.event\.payload\.[A-Za-z0-9_.-]+$/.test(value.$runtime))
   );
 }
 
@@ -1148,6 +1150,9 @@ function resolveRuntimePayloadReference(
       return fieldId ? structuredClone(state.values[fieldId] ?? null) : null;
     }
     default:
+      if (referenceKey.startsWith("current.event.payload.")) {
+        return structuredClone(readPath(event.payload, referenceKey.replace("current.event.payload.", "")));
+      }
       return null;
   }
 }

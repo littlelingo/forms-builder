@@ -448,37 +448,33 @@ Recommended next simplification:
 
 ## Behavior Creation Simplification
 
-The current model is technically capable, but the creation experience still
-exposes too many implementation concepts too early. The preferred model should
-be:
+The current Studio entry now splits creation into two explicit AS3-style
+operations:
 
-- `Behavior` = react to an event and run one or more actions.
-- `Condition` = optional inline gate on the behavior.
-- `Dispatch event` = an action that broadcasts a named event with guided
-  payload.
+- `Add event` = define an event the selected dispatcher can send.
+- `Add listener` = listen for an event already defined on another dispatcher.
+- `Condition` = optional inline gate on the listener.
+- `Dispatch event` = an action inside a listener chain, not the primary way to
+  define a component event.
 - `Request host action` = an action that asks the embedding host to do work.
-- `Custom behavior` = advanced path, still guided, never just a blank empty
-  object.
-- `React to another item` = start from the target item, choose a source item
-  and source event, then let the builder attach the underlying listener to the
-  nearest shared dispatcher.
 
-Implemented first cleanup:
+Implemented cleanup:
 
-- The selected toolbar now exposes one primary `Add behavior` command.
-- The guided setup uses `This item`, `Another item`, action categories, and
-  `Advanced` instead of separate listener and dispatch creation commands.
-- `Host` is no longer a preset category. Host work appears only as the
-  `Request host action` action or as Data/Validation starters that include that
-  action.
-- The sticky duplicate cancel footer was removed.
-- Blank creation now reads as `Custom behavior` so the escape hatch feels
-  intentional instead of unfinished.
+- The selected toolbar still exposes one primary `Add behavior` command, but
+  Behavior Studio opens to `Add event` and `Add listener` choices.
+- `Add event` filters event names by dispatcher type and field/component
+  semantic type, then saves `payloadShape` metadata on the selected component
+  with explicit `Cancel` / `Apply event` controls.
+- `Add listener` starts with component type, then event type, then source
+  component. By default it only shows components with authored event
+  definitions; raw core events are behind Advanced.
+- Advanced controls expose AS3-style details progressively: bubbling for
+  events, plus capture phase and listener priority for listeners.
 
 Recommended next cleanup:
 
-- Split custom creation into a small wizard: trigger -> condition/payload ->
-  action -> review, with live summary always visible.
+- Deepen the listener follow-up flow so applying a listener can optionally open
+  a compact first-action chooser before the full composer.
 - Keep graph and full manager out of the first-create path. They should appear
   after an object exists or when explicitly opened.
 

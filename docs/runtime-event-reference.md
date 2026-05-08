@@ -11,6 +11,12 @@ capture/target/bubble phase, a bubbling flag, and listener priority. The naming
 uses builder-friendly dot-separated event types instead of raw AS3 constants or
 browser DOM names.
 
+Behavior Studio uses the same catalog to filter `Add event` choices for the
+selected component type. Events can carry payload-shape metadata so the author
+can save event-specific properties such as `selectedValues`, `selectedValue`,
+`componentId`, keyboard fields, pointer fields, submit context, or validation
+errors on the selected dispatcher.
+
 References:
 
 - ActionScript 3 event flow and listener options: [AIR SDK EventDispatcher](https://airsdk.dev/reference/actionscript/3.0/flash/events/EventDispatcher.html)

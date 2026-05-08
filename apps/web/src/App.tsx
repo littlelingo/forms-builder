@@ -29,12 +29,14 @@ import type {
   RuntimeNodeBehavior,
   RuntimeNodeType,
   RuntimeNodeState,
+  RuntimePayloadField,
   RuntimePayloadMode,
+  RuntimePayloadShape,
   RuntimeSessionState,
   SemanticType,
   SectionNode,
 } from "@form-builder/schema";
-import { runtimeCoreEventTypes, runtimeCoreEventsForDispatcher } from "@form-builder/schema";
+import { runtimeCoreEventType, runtimeCoreEventTypes, runtimeCoreEventsForDispatcher } from "@form-builder/schema";
 import { PanelCard, StatusBadge } from "@form-builder/ui";
 
 import {
@@ -108,6 +110,7 @@ interface RuntimeSourceEventOption {
   type: string;
   label: string;
   bubbles: boolean;
+  description?: string | null;
 }
 
 interface RuntimeEventSourceCandidate {
@@ -120,6 +123,7 @@ interface RuntimeEventSourceCandidate {
   semanticType?: SemanticType | null;
   pathIds: string[];
   events: RuntimeSourceEventOption[];
+  eventDefinitions: RuntimeEventDefinition[];
 }
 
 interface CrossItemActionStarter {
@@ -218,7 +222,8 @@ type RuntimePayloadReferenceKey =
   | "current.event.currentTarget.key"
   | "current.event.currentTarget.type"
   | "current.event.phase"
-  | "current.runtime.value";
+  | "current.runtime.value"
+  | `current.event.payload.${string}`;
 
 interface RuntimePayloadEntry {
   key: string;
@@ -237,6 +242,15 @@ interface RuntimePayloadReferenceOption {
   key: RuntimePayloadReferenceKey;
   label: string;
   description: string;
+}
+
+interface RuntimeListenerActionChoice {
+  id: string;
+  label: string;
+  description: string;
+  kind: RuntimeActionKind;
+  group: "target" | "value" | "event" | "advanced";
+  createAction: () => RuntimeActionDefinition;
 }
 
 interface StructuredRuntimeTraceEvidence {
@@ -285,7 +299,8 @@ type BehaviorGraphDensity = "comfortable" | "dense";
 type BehaviorStudioView = "studio" | "advanced";
 type BehaviorStudioMode = "create" | "manage" | "test" | "graph";
 type BehaviorStudioManagerMode = "all" | "conditions" | "flows" | "index";
-type BehaviorStudioCreationKind = "rule" | "listener";
+type BehaviorStudioCreationPath = "choice" | "event" | "listener";
+type BehaviorListenerSourceType = RuntimeNodeType;
 type BehaviorStudioAnchor = {
   top: number;
   bottom: number;
@@ -529,18 +544,33 @@ function createBlankAuthoringDocument(): AuthoringDocument {
   return document;
 }
 
-function createRuntimeEventSource(name: string, scope: RuntimeEditorScope, nodeId?: string): RuntimeEventDefinition {
+function cloneRuntimePayloadShape(shape: RuntimePayloadShape | null | undefined): RuntimePayloadShape | null {
+  return shape ? (JSON.parse(JSON.stringify(shape)) as RuntimePayloadShape) : null;
+}
+
+function createRuntimeEventSource(
+  name: string,
+  scope: RuntimeEditorScope,
+  nodeId?: string,
+  options: {
+    id?: string | null;
+    bubbles?: boolean | null;
+    payloadShape?: RuntimePayloadShape | null;
+    description?: string | null;
+  } = {},
+): RuntimeEventDefinition {
+  const coreEvent = runtimeCoreEventType(name);
   return {
-    id: crypto.randomUUID(),
+    id: options.id ?? crypto.randomUUID(),
     type: name,
     dispatcherId: nodeId ?? null,
     dispatcherType: scope.scopeKind,
-    bubbles: name.includes(".") ? undefined : true,
+    bubbles: options.bubbles ?? coreEvent?.bubbles ?? (name.includes(".") ? undefined : true),
     name,
     sourceNodeId: nodeId ?? null,
     sourceNodeType: scope.scopeKind,
-    payloadShape: null,
-    description: null,
+    payloadShape: cloneRuntimePayloadShape(options.payloadShape ?? coreEvent?.payloadShape ?? null),
+    description: options.description ?? coreEvent?.description ?? null,
   };
 }
 
@@ -677,6 +707,25 @@ function formatNodeOptionLabel(kindLabel: string, label: string, dispatchKey: st
 
 function formatRuntimeSourceCandidateLabel(candidate: RuntimeEventSourceCandidate): string {
   return formatNodeOptionLabel(candidate.componentLabel, candidate.label, candidate.dispatchKey);
+}
+
+function runtimeNodeTypeLabel(nodeType: RuntimeNodeType): string {
+  switch (nodeType) {
+    case "form":
+      return "Form";
+    case "step":
+      return "Step";
+    case "section":
+      return "Section";
+    case "group":
+      return "Group";
+    case "component":
+      return "Button / component";
+    case "field":
+      return "Field";
+    default:
+      return formatLabel(nodeType);
+  }
 }
 
 function formatRuntimeDiagnosticValue(value: unknown): string {
@@ -820,14 +869,52 @@ const runtimePayloadReferenceOptions: RuntimePayloadReferenceOption[] = [
     label: "Current runtime value",
     description: "Resolve the current source field value from the runtime session.",
   },
+  {
+    key: "current.event.payload.value",
+    label: "Event payload value",
+    description: "Resolve the value property from the event payload.",
+  },
+  {
+    key: "current.event.payload.nextValue",
+    label: "Event payload next value",
+    description: "Resolve the nextValue property from the event payload.",
+  },
+  {
+    key: "current.event.payload.selectedValue",
+    label: "Event payload selected value",
+    description: "Resolve the selectedValue property from the event payload.",
+  },
+  {
+    key: "current.event.payload.selectedValues",
+    label: "Event payload selected values",
+    description: "Resolve the selectedValues array from the event payload.",
+  },
+  {
+    key: "current.event.payload.changedOption",
+    label: "Event payload changed option",
+    description: "Resolve the changedOption property from the event payload.",
+  },
+  {
+    key: "current.event.payload.optionValue",
+    label: "Event payload option value",
+    description: "Resolve the optionValue property from the event payload.",
+  },
+  {
+    key: "current.event.payload.checked",
+    label: "Event payload checked",
+    description: "Resolve the checked property from the event payload.",
+  },
 ];
 
-function isRuntimePayloadReference(value: unknown): value is { $runtime: RuntimePayloadReferenceKey } {
+function isRuntimePayloadReferenceKey(value: string): value is RuntimePayloadReferenceKey {
   return (
-    isRecord(value) &&
-    typeof value.$runtime === "string" &&
-    runtimePayloadReferenceOptions.some((option) => option.key === value.$runtime)
+    runtimePayloadReferenceOptions.some((option) => option.key === value) ||
+    /^current\.event\.payload\.[A-Za-z0-9_.-]+$/.test(value)
   );
+}
+
+function isRuntimePayloadReference(value: unknown): value is { $runtime: RuntimePayloadReferenceKey } {
+  return isRecord(value) && typeof value.$runtime === "string" && isRuntimePayloadReferenceKey(value.$runtime);
 }
 
 const runtimeIdentifierPattern = /^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$/;
@@ -903,7 +990,7 @@ function runtimePayloadEntryValueForType(type: RuntimePayloadFieldType, currentV
     case "null":
       return "";
     case "runtime":
-      return runtimePayloadReferenceOptions.some((option) => option.key === currentValue)
+      return isRuntimePayloadReferenceKey(currentValue)
         ? currentValue
         : (runtimePayloadReferenceOptions[0]?.key ?? "current.field.id");
     default:
@@ -958,7 +1045,7 @@ function runtimePayloadIssues(entries: RuntimePayloadEntry[]): string[] {
   const invalidRuntimeKeys = entries
     .filter((entry) => entry.type === "runtime")
     .flatMap((entry) =>
-      runtimePayloadReferenceOptions.some((option) => option.key === entry.value)
+      isRuntimePayloadReferenceKey(entry.value)
         ? []
         : [entry.key.trim() || "Unnamed runtime field"],
     );
@@ -1039,6 +1126,101 @@ function ensureUniqueEventSource(
     return;
   }
   eventSources.push(createRuntimeEventSource(name, scope, nodeId));
+}
+
+function runtimeEventDefinitionType(eventDefinition: RuntimeEventDefinition | null | undefined): string {
+  return eventDefinition?.type ?? eventDefinition?.name ?? "";
+}
+
+function runtimeEventBubblesForSource(source: RuntimeEventSourceCandidate, eventType: string): boolean {
+  const eventDefinition = source.eventDefinitions.find(
+    (candidate) => runtimeEventDefinitionType(candidate) === eventType,
+  );
+  if (typeof eventDefinition?.bubbles === "boolean") {
+    return eventDefinition.bubbles;
+  }
+  const eventOption = source.events.find((candidate) => candidate.type === eventType);
+  return eventOption?.bubbles ?? runtimeCoreEventType(eventType)?.bubbles ?? true;
+}
+
+function createRuntimePayloadShapeFromFields(fields: RuntimePayloadField[]): RuntimePayloadShape {
+  return {
+    mode: "key_value",
+    fields: fields.map((field) => ({ ...field })),
+    example: {},
+    notes: [],
+  };
+}
+
+function fallbackRuntimePayloadFieldsForEvent(eventType: string): RuntimePayloadField[] {
+  if (eventType.includes("key")) {
+    return [
+      { name: "key", label: "Key", valueType: "string", required: false, description: "Keyboard key value." },
+      { name: "code", label: "Code", valueType: "string", required: false, description: "Physical key code." },
+    ];
+  }
+  if (eventType.includes("pointer") || eventType.includes("click")) {
+    return [
+      {
+        name: "componentId",
+        label: "Component id",
+        valueType: "string",
+        required: true,
+        description: "Runtime component id.",
+      },
+      { name: "label", label: "Label", valueType: "string", required: false, description: "Component label." },
+    ];
+  }
+  if (eventType.includes("change") || eventType.includes("input")) {
+    return [
+      { name: "value", label: "Value", valueType: "unknown", required: false, description: "Current value." },
+      { name: "nextValue", label: "Next value", valueType: "unknown", required: false, description: "New value." },
+    ];
+  }
+  return [
+    {
+      name: "sourceNodeId",
+      label: "Source node id",
+      valueType: "string",
+      required: false,
+      description: "Dispatcher node id.",
+    },
+  ];
+}
+
+function runtimePayloadFieldsForEventType(eventType: string): RuntimePayloadField[] {
+  const coreShape = runtimeCoreEventType(eventType)?.payloadShape;
+  return (coreShape?.fields.length ? coreShape.fields : fallbackRuntimePayloadFieldsForEvent(eventType)).map(
+    (field) => ({ ...field }),
+  );
+}
+
+function upsertRuntimeEventSource(
+  eventSources: RuntimeEventDefinition[],
+  nextEvent: RuntimeEventDefinition,
+): "created" | "updated" {
+  const eventType = runtimeEventDefinitionType(nextEvent);
+  const dispatcherId = nextEvent.dispatcherId ?? nextEvent.sourceNodeId ?? null;
+  const existing = eventSources.find(
+    (source) =>
+      source.id === nextEvent.id ||
+      (runtimeEventDefinitionType(source) === eventType &&
+        (source.dispatcherId ?? source.sourceNodeId ?? null) === dispatcherId),
+  );
+  if (!existing) {
+    eventSources.push(nextEvent);
+    return "created";
+  }
+  existing.type = nextEvent.type;
+  existing.name = nextEvent.name;
+  existing.dispatcherId = nextEvent.dispatcherId;
+  existing.dispatcherType = nextEvent.dispatcherType;
+  existing.sourceNodeId = nextEvent.sourceNodeId;
+  existing.sourceNodeType = nextEvent.sourceNodeType;
+  existing.bubbles = nextEvent.bubbles;
+  existing.payloadShape = cloneRuntimePayloadShape(nextEvent.payloadShape);
+  existing.description = nextEvent.description;
+  return "updated";
 }
 
 function describeRuntimeAction(action: RuntimeActionDefinition): string {
@@ -1902,6 +2084,7 @@ function runtimeSourceEventOptionsForNode(
       type,
       label: core?.label ?? formatLabel(type),
       bubbles: bubbles ?? core?.bubbles ?? true,
+      description: core?.description ?? null,
     });
   };
 
@@ -1925,6 +2108,7 @@ function collectRuntimeEventSourceCandidates(document: AuthoringDocument): Runti
     locationLabel: "Document",
     pathIds: [document.id],
     events: runtimeSourceEventOptionsForNode("form", null, document.runtime?.formEvents),
+    eventDefinitions: document.runtime?.formEvents ?? [],
   });
 
   for (const step of document.steps) {
@@ -1938,6 +2122,7 @@ function collectRuntimeEventSourceCandidates(document: AuthoringDocument): Runti
       locationLabel: stepLocation,
       pathIds: [document.id, step.id],
       events: runtimeSourceEventOptionsForNode("step", null, step.runtime?.eventSources),
+      eventDefinitions: step.runtime?.eventSources ?? [],
     });
 
     for (const section of step.sections) {
@@ -1951,6 +2136,7 @@ function collectRuntimeEventSourceCandidates(document: AuthoringDocument): Runti
         locationLabel: sectionLocation,
         pathIds: [document.id, step.id, section.id],
         events: runtimeSourceEventOptionsForNode("section", null, section.runtime?.eventSources),
+        eventDefinitions: section.runtime?.eventSources ?? [],
       });
 
       for (const field of section.fields) {
@@ -1965,6 +2151,7 @@ function collectRuntimeEventSourceCandidates(document: AuthoringDocument): Runti
           semanticType: field.semanticType,
           pathIds: [document.id, step.id, section.id, field.id],
           events: runtimeSourceEventOptionsForNode(nodeType, field.semanticType, field.runtime?.eventSources, field),
+          eventDefinitions: field.runtime?.eventSources ?? [],
         });
       }
 
@@ -1979,6 +2166,7 @@ function collectRuntimeEventSourceCandidates(document: AuthoringDocument): Runti
           locationLabel: groupLocation,
           pathIds: [document.id, step.id, section.id, group.id],
           events: runtimeSourceEventOptionsForNode("group", null, group.runtime?.eventSources),
+          eventDefinitions: group.runtime?.eventSources ?? [],
         });
 
         for (const field of group.fields) {
@@ -1993,6 +2181,7 @@ function collectRuntimeEventSourceCandidates(document: AuthoringDocument): Runti
             semanticType: field.semanticType,
             pathIds: [document.id, step.id, section.id, group.id, field.id],
             events: runtimeSourceEventOptionsForNode(nodeType, field.semanticType, field.runtime?.eventSources, field),
+            eventDefinitions: field.runtime?.eventSources ?? [],
           });
         }
       }
@@ -2829,7 +3018,22 @@ export default function App() {
   const [behaviorStudioAnchor, setBehaviorStudioAnchor] = useState<BehaviorStudioAnchor | null>(null);
   const [behaviorStudioManagerMode, setBehaviorStudioManagerMode] = useState<BehaviorStudioManagerMode>("all");
   const [behaviorStudioManagerQuery, setBehaviorStudioManagerQuery] = useState("");
-  const [behaviorStudioCreationKind, setBehaviorStudioCreationKind] = useState<BehaviorStudioCreationKind | null>(null);
+  const [isBehaviorStudioCreating, setBehaviorStudioCreating] = useState(false);
+  const [behaviorCreationPath, setBehaviorCreationPath] = useState<BehaviorStudioCreationPath>("choice");
+  const [behaviorEventType, setBehaviorEventType] = useState("");
+  const [behaviorEventBubbles, setBehaviorEventBubbles] = useState(true);
+  const [behaviorEventDescription, setBehaviorEventDescription] = useState("");
+  const [behaviorEventPayloadFields, setBehaviorEventPayloadFields] = useState<RuntimePayloadField[]>([]);
+  const [behaviorEventAdvancedOpen, setBehaviorEventAdvancedOpen] = useState(false);
+  const [editingBehaviorEventId, setEditingBehaviorEventId] = useState<string | null>(null);
+  const [pendingBehaviorEventEditId, setPendingBehaviorEventEditId] = useState<string | null>(null);
+  const [behaviorListenerSourceType, setBehaviorListenerSourceType] =
+    useState<BehaviorListenerSourceType>("field");
+  const [behaviorListenerEventType, setBehaviorListenerEventType] = useState("");
+  const [behaviorListenerSourceId, setBehaviorListenerSourceId] = useState("");
+  const [behaviorListenerUseCapture, setBehaviorListenerUseCapture] = useState(false);
+  const [behaviorListenerPriority, setBehaviorListenerPriority] = useState(0);
+  const [behaviorListenerShowRawEvents, setBehaviorListenerShowRawEvents] = useState(false);
   const [behaviorPresetSearch, setBehaviorPresetSearch] = useState("");
   const [behaviorPresetCategory, setBehaviorPresetCategory] = useState<BehaviorPresetCategory>("recommended");
   const [behaviorIndexStepFilter, setBehaviorIndexStepFilter] = useState("all");
@@ -3673,6 +3877,20 @@ export default function App() {
   }, [activeDocument, runtimeSessionState]);
 
   useEffect(() => {
+    if (!pendingBehaviorEventEditId || !activeRuntimeScope) {
+      return;
+    }
+    const eventDefinition = activeRuntimeScope.eventSources.find(
+      (candidate) => candidate.id === pendingBehaviorEventEditId,
+    );
+    if (!eventDefinition) {
+      return;
+    }
+    beginBehaviorEventCreationPath(eventDefinition);
+    setPendingBehaviorEventEditId(null);
+  }, [activeRuntimeScope, pendingBehaviorEventEditId]);
+
+  useEffect(() => {
     setSelectedRuntimeEvidenceKey(null);
   }, [activeDocument?.id]);
 
@@ -4112,6 +4330,25 @@ export default function App() {
     }
   }
 
+  function runtimeEventOptionsForScope(
+    scope: RuntimeEditorScope,
+    field: AuthoringField | null,
+  ): RuntimeSourceEventOption[] {
+    const coreEvents = runtimeCoreEventsForDispatcher(scope.scopeKind, field?.semanticType);
+    const coreEventsByType = new Map(coreEvents.map((eventType) => [eventType.type, eventType]));
+    return uniqueRuntimeEventTypes([...runtimeTriggerSuggestions(scope, field), ...coreEvents.map((eventType) => eventType.type)])
+      .map((eventType) => {
+        const coreEvent = coreEventsByType.get(eventType);
+        return {
+          type: eventType,
+          label: coreEvent?.label ?? formatLabel(eventType),
+          bubbles: coreEvent?.bubbles ?? true,
+          description: coreEvent?.description ?? null,
+        };
+      })
+      .filter((eventOption) => coreEventsByType.has(eventOption.type));
+  }
+
   function runtimeEventNameSuggestions(
     scope: RuntimeEditorScope | null,
     field: AuthoringField | null,
@@ -4252,6 +4489,221 @@ export default function App() {
       default:
         return {};
     }
+  }
+
+  function eventPayloadReferenceKey(path: string): RuntimePayloadReferenceKey {
+    return `current.event.payload.${sanitizeRuntimeIdentifier(path, "value")}`;
+  }
+
+  function listenerSourcePayloadFields(listener: RuntimeListenerDefinition): RuntimePayloadField[] {
+    const eventType = getRuntimeListenerEventType(listener);
+    const source = listener.eventSourceNodeId ? runtimeEventSourceCandidateById.get(listener.eventSourceNodeId) : null;
+    const authoredShape = source?.eventDefinitions.find(
+      (eventDefinition) => runtimeEventDefinitionType(eventDefinition) === eventType,
+    )?.payloadShape;
+    if (authoredShape?.fields?.length) {
+      return authoredShape.fields.map((field) => ({ ...field }));
+    }
+    return runtimePayloadFieldsForEventType(eventType);
+  }
+
+  function firstListenerPayloadReference(
+    listener: RuntimeListenerDefinition,
+    preferredNames: string[],
+  ): RuntimePayloadReferenceKey | null {
+    const payloadFields = listenerSourcePayloadFields(listener);
+    const preferredField = preferredNames
+      .map((name) => payloadFields.find((field) => field.name === name))
+      .find((field): field is RuntimePayloadField => Boolean(field));
+    const fallbackField = payloadFields.find(
+      (field) => !["fieldId", "fieldKey", "fieldLabel", "componentId", "label"].includes(field.name),
+    );
+    const payloadField = preferredField ?? fallbackField;
+    return payloadField ? eventPayloadReferenceKey(payloadField.name) : null;
+  }
+
+  function listenerTargetCandidate(listener: RuntimeListenerDefinition): RuntimeEventSourceCandidate | null {
+    return (
+      (listener.targetNodeId ? (runtimeEventSourceCandidateById.get(listener.targetNodeId) ?? null) : null) ??
+      activeRuntimeTarget
+    );
+  }
+
+  function createTargetedRuntimeAction(
+    kind: RuntimeActionKind,
+    listener: RuntimeListenerDefinition,
+    config: Record<string, unknown> = {},
+  ): RuntimeActionDefinition {
+    const target = listenerTargetCandidate(listener);
+    const baseConfig = defaultRuntimeActionConfigForScope(kind, { listener });
+    const nextAction = createRuntimeAction(kind, { ...baseConfig, ...config });
+    if (target) {
+      nextAction.target = { nodeId: target.id, nodeType: target.nodeType };
+      if (
+        kind === "show_node" ||
+        kind === "hide_node" ||
+        kind === "enable_node" ||
+        kind === "disable_node" ||
+        kind === "mark_required" ||
+        kind === "mark_optional"
+      ) {
+        nextAction.config.nodeId = target.id;
+      }
+      if ((kind === "set_field_value" || kind === "clear_field_value") && target.nodeType === "field") {
+        nextAction.config.fieldId = target.id;
+      }
+      if (kind === "go_to_step") {
+        nextAction.config.stepId = target.pathIds[1] ?? builderStepOptions[0]?.id ?? "";
+      }
+    }
+    return nextAction;
+  }
+
+  function runtimeActionChoicesForListener(listener: RuntimeListenerDefinition): RuntimeListenerActionChoice[] {
+    const target = listenerTargetCandidate(listener);
+    const targetLabel = target?.label ?? activeRuntimeScope?.label ?? "this component";
+    const targetField =
+      target && activeDocument && target.nodeType === "field" ? findAuthoringFieldById(activeDocument, target.id) : null;
+    const choices: RuntimeListenerActionChoice[] = [];
+    const addChoice = (
+      id: string,
+      label: string,
+      description: string,
+      kind: RuntimeActionKind,
+      group: RuntimeListenerActionChoice["group"],
+      createAction: () => RuntimeActionDefinition,
+    ) => {
+      choices.push({ id, label, description, kind, group, createAction });
+    };
+
+    if (target) {
+      addChoice(
+        "show-target",
+        `Show ${targetLabel}`,
+        "Make the listening component visible when this event is heard.",
+        "show_node",
+        "target",
+        () => createTargetedRuntimeAction("show_node", listener),
+      );
+      addChoice(
+        "hide-target",
+        `Hide ${targetLabel}`,
+        "Make the listening component invisible when this event is heard.",
+        "hide_node",
+        "target",
+        () => createTargetedRuntimeAction("hide_node", listener),
+      );
+      addChoice(
+        "enable-target",
+        `Enable ${targetLabel}`,
+        "Allow the listening component to be used when this event is heard.",
+        "enable_node",
+        "target",
+        () => createTargetedRuntimeAction("enable_node", listener),
+      );
+      addChoice(
+        "disable-target",
+        `Disable ${targetLabel}`,
+        "Prevent edits to the listening component when this event is heard.",
+        "disable_node",
+        "target",
+        () => createTargetedRuntimeAction("disable_node", listener),
+      );
+      addChoice(
+        "require-target",
+        `Require ${targetLabel}`,
+        "Make the listening component required when this event is heard.",
+        "mark_required",
+        "target",
+        () => createTargetedRuntimeAction("mark_required", listener),
+      );
+      addChoice(
+        "optional-target",
+        `Make ${targetLabel} optional`,
+        "Remove the required state from the listening component.",
+        "mark_optional",
+        "target",
+        () => createTargetedRuntimeAction("mark_optional", listener),
+      );
+    }
+
+    if (target?.nodeType === "field") {
+      const preferredReference =
+        targetField?.semanticType === "checkbox"
+          ? firstListenerPayloadReference(listener, ["selectedValues", "value", "nextValue"])
+          : targetField?.semanticType === "radio" || targetField?.semanticType === "select"
+            ? firstListenerPayloadReference(listener, ["selectedValue", "changedOption", "optionValue", "value", "nextValue"])
+            : firstListenerPayloadReference(listener, ["value", "nextValue", "selectedValue", "changedOption"]);
+      if (preferredReference) {
+        addChoice(
+          "set-target-from-payload",
+          `Set ${targetLabel} from event payload`,
+          "Use a payload property from the source event as the listening field value.",
+          "set_field_value",
+          "value",
+          () => createTargetedRuntimeAction("set_field_value", listener, { value: { $runtime: preferredReference } }),
+        );
+      }
+      addChoice(
+        "set-target-static",
+        `Set ${targetLabel} value`,
+        "Set a specific value on the listening field, then edit the value in the action details.",
+        "set_field_value",
+        "value",
+        () => createTargetedRuntimeAction("set_field_value", listener, { value: "" }),
+      );
+      addChoice(
+        "clear-target",
+        `Clear ${targetLabel}`,
+        "Remove the listening field value when this event is heard.",
+        "clear_field_value",
+        "value",
+        () => createTargetedRuntimeAction("clear_field_value", listener),
+      );
+    }
+
+    if (target?.nodeType === "component") {
+      addChoice(
+        "go-next",
+        "Go to next step",
+        "Move the runtime flow forward from this component reaction.",
+        "go_to_next_step",
+        "target",
+        () => createTargetedRuntimeAction("go_to_next_step", listener),
+      );
+      addChoice(
+        "submit-form",
+        "Submit form",
+        "Run form submission from this component reaction.",
+        "submit_form",
+        "target",
+        () => createTargetedRuntimeAction("submit_form", listener),
+      );
+    }
+
+    addChoice(
+      "dispatch-event",
+      "Dispatch follow-up event",
+      "Broadcast another runtime event from this listener action chain.",
+      "dispatch_event",
+      "event",
+      () =>
+        createTargetedRuntimeAction("dispatch_event", listener, {
+          payload: createSourceEventPayload(),
+        }),
+    );
+    addChoice(
+      "request-host",
+      "Request host action",
+      "Ask the embedding host to perform work using runtime payload context.",
+      "host_action",
+      "advanced",
+      () =>
+        createTargetedRuntimeAction("host_action", listener, {
+          payload: createSourceEventPayload(),
+        }),
+    );
+    return choices;
   }
 
   function createCrossItemPayload(
@@ -4884,6 +5336,25 @@ export default function App() {
     setRuntimeSessionState(nextState);
   }
 
+  function selectedRuntimeNodeIdForScope(scopeKind: RuntimeEditorScope["scopeKind"]): string | undefined {
+    if (scopeKind === "form") {
+      return activeDocument?.id;
+    }
+    if (selectedAuthoring?.kind === "step") {
+      return selectedAuthoring.stepId;
+    }
+    if (selectedAuthoring?.kind === "section") {
+      return selectedAuthoring.sectionId;
+    }
+    if (selectedAuthoring?.kind === "group") {
+      return selectedAuthoring.groupId;
+    }
+    if (selectedAuthoring?.kind === "field") {
+      return selectedAuthoring.fieldId;
+    }
+    return undefined;
+  }
+
   function updateRuntimeScope(
     mutate: (
       runtime: RuntimeNodeBehavior | RuntimeDocumentBehavior,
@@ -4943,6 +5414,55 @@ export default function App() {
     }, selectedAuthoring);
   }
 
+  function addRuntimeEventSourceToScope(config: {
+    eventId?: string | null;
+    eventType: string;
+    bubbles: boolean;
+    payloadFields: RuntimePayloadField[];
+    description?: string | null;
+  }) {
+    if (!activeRuntimeScope) {
+      setMessage("Select a form, button, or interactive field before adding an event.");
+      return;
+    }
+    const eventIssue = validateRuntimeIdentifier(config.eventType, "Event type", defaultBehaviorTriggerName());
+    const payloadIssue = config.payloadFields.find((field) =>
+      validateRuntimeIdentifier(field.name, "Payload field", "fieldId"),
+    );
+    if (eventIssue) {
+      setErrorMessage(eventIssue);
+      return;
+    }
+    if (payloadIssue) {
+      setErrorMessage(validateRuntimeIdentifier(payloadIssue.name, "Payload field", "fieldId"));
+      return;
+    }
+
+    let status: "created" | "updated" | null = null;
+    updateRuntimeScope((runtime, scopeKind) => {
+      const nodeId = selectedRuntimeNodeIdForScope(scopeKind);
+      const eventDefinition = createRuntimeEventSource(config.eventType, activeRuntimeScope, nodeId, {
+        id: config.eventId,
+        bubbles: config.bubbles,
+        payloadShape: createRuntimePayloadShapeFromFields(config.payloadFields),
+        description: config.description?.trim() || null,
+      });
+      status = upsertRuntimeEventSource(
+        scopeKind === "form"
+          ? (runtime as RuntimeDocumentBehavior).formEvents
+          : (runtime as RuntimeNodeBehavior).eventSources,
+        eventDefinition,
+      );
+    });
+
+    if (status) {
+      setErrorMessage(null);
+      setMessage(`${formatLabel(config.eventType)} event ${status} for ${activeRuntimeScope.label}.`);
+      finalizeBehaviorStudioCreation();
+      setBehaviorStudioMode("manage");
+    }
+  }
+
   function addRuntimeListener(listener: RuntimeListenerDefinition) {
     updateRuntimeScope((runtime, scopeKind, field) => {
       const eventType = getRuntimeListenerEventType(listener);
@@ -4958,18 +5478,20 @@ export default function App() {
         listener.wiringMode ??= "local";
         listener.type = eventType;
         listener.eventName = eventType;
-        ensureUniqueEventSource(
-          formRuntime.formEvents,
-          eventType,
-          activeRuntimeScope ?? {
-            scopeKind: "form",
-            label: activeDocument?.title ?? "Form",
-            description: "",
-            eventSources: formRuntime.formEvents,
-            listeners: formRuntime.formListeners,
-          },
-          nodeId,
-        );
+        if (listener.wiringMode !== "cross_item") {
+          ensureUniqueEventSource(
+            formRuntime.formEvents,
+            eventType,
+            activeRuntimeScope ?? {
+              scopeKind: "form",
+              label: activeDocument?.title ?? "Form",
+              description: "",
+              eventSources: formRuntime.formEvents,
+              listeners: formRuntime.formListeners,
+            },
+            nodeId,
+          );
+        }
         formRuntime.formListeners.push(listener);
       } else {
         const nodeRuntime = runtime as RuntimeNodeBehavior;
@@ -4992,7 +5514,7 @@ export default function App() {
         listener.wiringMode ??= "local";
         listener.type = eventType;
         listener.eventName = eventType;
-        if (activeRuntimeScope) {
+        if (activeRuntimeScope && listener.wiringMode !== "cross_item") {
           ensureUniqueEventSource(nodeRuntime.eventSources, eventType, activeRuntimeScope, nodeId);
         }
         nodeRuntime.listeners.push(listener);
@@ -5034,6 +5556,103 @@ export default function App() {
         mutate(listener);
       }
     });
+  }
+
+  function mutableRuntimeEventSourcesForSelection(
+    document: AuthoringDocument,
+    selection: AuthoringSelection | null,
+  ): RuntimeEventDefinition[] | null {
+    if (selection === null) {
+      document.runtime ??= createRuntimeDocumentBehavior();
+      return document.runtime.formEvents;
+    }
+
+    const context = getSelectionContext(document, selection);
+    if (selection.kind === "step" && context.step) {
+      context.step.runtime ??= createRuntimeNodeBehavior();
+      return context.step.runtime.eventSources;
+    }
+    if (selection.kind === "section" && context.section) {
+      context.section.runtime ??= createRuntimeNodeBehavior();
+      return context.section.runtime.eventSources;
+    }
+    if (selection.kind === "group" && context.group) {
+      context.group.runtime ??= createRuntimeNodeBehavior();
+      return context.group.runtime.eventSources;
+    }
+    if (selection.kind === "field" && context.field) {
+      context.field.runtime ??= createRuntimeNodeBehavior();
+      return context.field.runtime.eventSources;
+    }
+    return null;
+  }
+
+  function openRuntimeEventEditorForSelection(selection: AuthoringSelection | null, eventId: string) {
+    if (selection !== selectedAuthoring) {
+      setSelectedAuthoring(selection);
+      setPendingBehaviorEventEditId(eventId);
+    } else {
+      const eventDefinition = activeRuntimeScope?.eventSources.find((candidate) => candidate.id === eventId) ?? null;
+      if (eventDefinition) {
+        beginBehaviorEventCreationPath(eventDefinition);
+      }
+    }
+    setBehaviorStudioCreating(true);
+    setBehaviorCreationPath("event");
+    setSelectedBehaviorNode(null);
+    setBehaviorStudioMode("create");
+    setBehaviorStudioView("studio");
+    setBehaviorStudioOpen(true);
+    setInspectorTab("behavior");
+  }
+
+  function nextRuntimeEventCopyType(eventSources: RuntimeEventDefinition[], eventType: string): string {
+    const baseType = sanitizeRuntimeIdentifier(`${eventType}.copy`, "custom.event.copy");
+    let nextType = baseType;
+    let copyIndex = 2;
+    while (eventSources.some((eventSource) => runtimeEventDefinitionType(eventSource) === nextType)) {
+      nextType = sanitizeRuntimeIdentifier(`${baseType}.${copyIndex}`, "custom.event.copy");
+      copyIndex += 1;
+    }
+    return nextType;
+  }
+
+  function duplicateRuntimeEventSourceForSelection(selection: AuthoringSelection | null, eventId: string) {
+    let duplicatedType: string | null = null;
+    updateAuthoringDocument((document) => {
+      const eventSources = mutableRuntimeEventSourcesForSelection(document, selection);
+      const eventDefinition = eventSources?.find((candidate) => candidate.id === eventId);
+      if (!eventSources || !eventDefinition) {
+        return;
+      }
+      duplicatedType = nextRuntimeEventCopyType(eventSources, runtimeEventDefinitionType(eventDefinition));
+      eventSources.push({
+        ...eventDefinition,
+        id: crypto.randomUUID(),
+        type: duplicatedType,
+        name: duplicatedType,
+        payloadShape: cloneRuntimePayloadShape(eventDefinition.payloadShape),
+      });
+    }, selection);
+    if (duplicatedType) {
+      setMessage(`${formatLabel(duplicatedType)} event duplicated.`);
+    }
+  }
+
+  function removeRuntimeEventSourceForSelection(selection: AuthoringSelection | null, eventId: string) {
+    let removedType: string | null = null;
+    updateAuthoringDocument((document) => {
+      const eventSources = mutableRuntimeEventSourcesForSelection(document, selection);
+      const eventIndex = eventSources?.findIndex((candidate) => candidate.id === eventId) ?? -1;
+      if (!eventSources || eventIndex < 0) {
+        return;
+      }
+      const [removed] = eventSources.splice(eventIndex, 1);
+      removedType = runtimeEventDefinitionType(removed);
+    }, selection);
+    if (removedType) {
+      setMessage(`${formatLabel(removedType)} event removed. Existing listeners were left in place.`);
+    }
   }
 
   function mutableRuntimeListenersForSelection(
@@ -5208,6 +5827,25 @@ export default function App() {
       phase: "action",
       actionId: nextActionId,
     });
+  }
+
+  function addChosenRuntimeActionToListener(
+    listenerId: string,
+    createAction: () => RuntimeActionDefinition,
+    label: string,
+  ) {
+    let nextActionId: string | null = null;
+    updateRuntimeListener(listenerId, (listener) => {
+      const nextAction = createAction();
+      nextActionId = nextAction.id;
+      listener.actions.push(nextAction);
+    });
+    if (!nextActionId) {
+      return;
+    }
+    pendingBehaviorFocusRef.current = `listener:${listenerId}`;
+    setSelectedBehaviorNode({ kind: "listener", listenerId, phase: "action", actionId: nextActionId });
+    setMessage(`${label} action added.`);
   }
 
   function updateRuntimeAction(
@@ -6081,9 +6719,9 @@ export default function App() {
             : "create"),
     );
     if (view === "advanced") {
-      setBehaviorStudioCreationKind(null);
+      setBehaviorStudioCreating(false);
       setBehaviorWorkspaceMode("authoring");
-    } else if (!behaviorStudioCreationKind) {
+    } else if (!isBehaviorStudioCreating) {
       setBehaviorStudioManagerMode("all");
     }
     setBehaviorStudioOpen(true);
@@ -6093,7 +6731,10 @@ export default function App() {
   function closeBehaviorStudio() {
     setBehaviorStudioOpen(false);
     setBehaviorFocusTarget(null);
-    setBehaviorStudioCreationKind(null);
+    setBehaviorStudioCreating(false);
+    setBehaviorCreationPath("choice");
+    setEditingBehaviorEventId(null);
+    setPendingBehaviorEventEditId(null);
     setBehaviorStudioAnchor(null);
   }
 
@@ -6120,7 +6761,7 @@ export default function App() {
   }
 
   function openBehaviorBehaviorManager() {
-    setBehaviorStudioCreationKind(null);
+    setBehaviorStudioCreating(false);
     setBehaviorStudioAnchor(null);
     setBehaviorStudioMode("manage");
     setBehaviorStudioManagerMode("index");
@@ -6130,7 +6771,7 @@ export default function App() {
   }
 
   function openBehaviorNodeInStudio(node: BehaviorGraphSelection, ruleIndex?: number | null) {
-    setBehaviorStudioCreationKind(null);
+    setBehaviorStudioCreating(false);
     setBehaviorStudioAnchor(null);
     setBehaviorStudioManagerMode(node.kind === "rule" ? "conditions" : "flows");
     setEditingRuleIndex(node.kind === "rule" ? (ruleIndex ?? null) : null);
@@ -6156,7 +6797,7 @@ export default function App() {
     setEditingRuleIndex(
       options.graphSelection?.kind === "rule" && typeof options.ruleIndex === "number" ? options.ruleIndex : null,
     );
-    setBehaviorStudioCreationKind(null);
+    setBehaviorStudioCreating(false);
     setBehaviorStudioManagerMode("index");
     setBehaviorIndexStepFilter("all");
     setBehaviorIndexScopeFilter("all");
@@ -6461,10 +7102,16 @@ export default function App() {
     );
   }
 
-  function beginBehaviorStudioCreation(kind: BehaviorStudioCreationKind, anchor: BehaviorStudioAnchor | null = null) {
-    setBehaviorStudioCreationKind(kind);
+  function beginBehaviorStudioCreation(anchor: BehaviorStudioAnchor | null = null) {
+    setBehaviorStudioCreating(true);
+    setBehaviorCreationPath("choice");
     setBehaviorPresetSearch("");
     setBehaviorPresetCategory("recommended");
+    setBehaviorEventAdvancedOpen(false);
+    setEditingBehaviorEventId(null);
+    setBehaviorListenerShowRawEvents(false);
+    setBehaviorListenerUseCapture(false);
+    setBehaviorListenerPriority(0);
     setSelectedBehaviorNode(null);
     setEditingRuleIndex(null);
     setBehaviorFocusTarget(null);
@@ -6473,12 +7120,61 @@ export default function App() {
   }
 
   function openBehaviorStudioAddBehavior(anchor: BehaviorStudioAnchor | null = null) {
-    beginBehaviorStudioCreation("listener", anchor);
+    beginBehaviorStudioCreation(anchor);
   }
 
-  function openBehaviorStudioRule() {
-    beginBehaviorStudioCreation("listener");
-    setBehaviorPresetCategory("source");
+  function openBehaviorStudioReactToAnotherItem(anchor: BehaviorStudioAnchor | null = null) {
+    beginBehaviorStudioCreation(anchor);
+    beginBehaviorListenerCreationPath();
+  }
+
+  function beginBehaviorEventCreationPath(eventDefinition?: RuntimeEventDefinition | null) {
+    if (!activeRuntimeScope) {
+      setMessage("Select a form, button, or interactive field before adding an event.");
+      return;
+    }
+    const eventOption = runtimeEventOptionsForScope(activeRuntimeScope, activeBuilderField)[0] ?? null;
+    const eventType = runtimeEventDefinitionType(eventDefinition) || eventOption?.type || defaultBehaviorTriggerName();
+    const existingCore = runtimeCoreEventType(eventType);
+    setBehaviorCreationPath("event");
+    setBehaviorStudioCreating(true);
+    setEditingBehaviorEventId(eventDefinition?.id ?? null);
+    setBehaviorEventType(eventType);
+    setBehaviorEventBubbles(eventDefinition?.bubbles ?? eventOption?.bubbles ?? existingCore?.bubbles ?? true);
+    setBehaviorEventDescription(eventDefinition?.description ?? eventOption?.description ?? existingCore?.description ?? "");
+    setBehaviorEventPayloadFields(
+      eventDefinition?.payloadShape?.fields?.length
+        ? eventDefinition.payloadShape.fields.map((field) => ({ ...field }))
+        : runtimePayloadFieldsForEventType(eventType),
+    );
+    setBehaviorEventAdvancedOpen(Boolean(eventDefinition));
+  }
+
+  function beginBehaviorListenerCreationPath() {
+    const firstType =
+      (["field", "component", "form", "step", "section", "group"] as BehaviorListenerSourceType[]).find((nodeType) =>
+        runtimeEventSourceCandidates.some(
+          (candidate) => candidate.nodeType === nodeType && candidate.eventDefinitions.length > 0,
+        ),
+      ) ?? "field";
+    setBehaviorCreationPath("listener");
+    setBehaviorListenerSourceType(firstType);
+    setBehaviorListenerShowRawEvents(false);
+    setBehaviorListenerUseCapture(false);
+    setBehaviorListenerPriority(0);
+    const firstEvent =
+      runtimeEventSourceCandidates
+        .filter((candidate) => candidate.nodeType === firstType)
+        .flatMap((candidate) => candidate.eventDefinitions.map(runtimeEventDefinitionType))
+        .find(Boolean) ?? "";
+    setBehaviorListenerEventType(firstEvent);
+    const firstSource =
+      runtimeEventSourceCandidates.find(
+        (candidate) =>
+          candidate.nodeType === firstType &&
+          candidate.eventDefinitions.some((eventDefinition) => runtimeEventDefinitionType(eventDefinition) === firstEvent),
+      )?.id ?? "";
+    setBehaviorListenerSourceId(firstSource);
   }
 
   function runtimeActionChainTemplatesForListener(listener: RuntimeListenerDefinition): RuntimeActionChainTemplate[] {
@@ -8012,24 +8708,13 @@ export default function App() {
   }
 
   function finalizeBehaviorStudioCreation() {
-    setBehaviorStudioCreationKind(null);
+    setBehaviorStudioCreating(false);
+    setBehaviorCreationPath("choice");
     setBehaviorPresetSearch("");
     setBehaviorPresetCategory("recommended");
-  }
-
-  function applyBehaviorRuleStarter(
-    starter:
-      | { mode: "single"; effect?: LegacyConditionalRule["effect"] }
-      | { mode: "bundle"; effects: LegacyConditionalRule["effect"][] },
-  ) {
-    void starter;
-    setMessage("State conditions have been retired. Use behavior flows with inline conditions.");
-    finalizeBehaviorStudioCreation();
-  }
-
-  function applyBehaviorRulePreset(presetId: string) {
-    void presetId;
-    setMessage("State conditions have been retired. Use behavior flows with inline conditions.");
+    setBehaviorEventAdvancedOpen(false);
+    setEditingBehaviorEventId(null);
+    setBehaviorListenerShowRawEvents(false);
   }
 
   function createBlankBehaviorStudioListener(triggerName = defaultBehaviorTriggerName()) {
@@ -8080,6 +8765,49 @@ export default function App() {
     setBehaviorStudioManagerMode("flows");
     finalizeBehaviorStudioCreation();
     setMessage(`${activeRuntimeTarget.label} now reacts to ${eventOption.type} from ${source.label}.`);
+  }
+
+  function createAuthoredEventBehaviorListener(source: RuntimeEventSourceCandidate, eventType: string) {
+    if (!activeRuntimeScope || !activeRuntimeTarget) {
+      setMessage("Select the item that should listen before creating a listener.");
+      return;
+    }
+    if (!eventType) {
+      setErrorMessage("Choose an authored event before applying the listener.");
+      return;
+    }
+    const eventBubbles = runtimeEventBubblesForSource(source, eventType);
+    if (!eventBubbles && source.id !== activeRuntimeTarget.id) {
+      setErrorMessage(
+        `${eventType} does not bubble, so it cannot be heard from another item through a shared dispatcher.`,
+      );
+      return;
+    }
+    const dispatcher =
+      source.id === activeRuntimeTarget.id
+        ? source
+        : findNearestSharedDispatcher(source, activeRuntimeTarget, runtimeEventSourceCandidateById);
+    const listener = createRuntimeListener(eventType, [], activeRuntimeTarget.id);
+    listener.label =
+      source.id === activeRuntimeTarget.id
+        ? `${activeRuntimeTarget.label} listens for ${formatLabel(eventType)}`
+        : `${activeRuntimeTarget.label} listens for ${formatLabel(eventType)} from ${source.label}`;
+    listener.dispatcherId = dispatcher.id;
+    listener.dispatcherType = dispatcher.nodeType;
+    listener.eventSourceNodeId = source.id;
+    listener.eventSourceNodeType = source.nodeType;
+    listener.eventSourceLabel = source.label;
+    listener.targetNodeId = activeRuntimeTarget.id;
+    listener.targetNodeType = activeRuntimeTarget.nodeType;
+    listener.wiringMode = source.id === activeRuntimeTarget.id ? "local" : "cross_item";
+    listener.useCapture = behaviorListenerUseCapture;
+    listener.priority = behaviorListenerPriority;
+
+    addRuntimeListener(listener);
+    setBehaviorStudioManagerMode("flows");
+    finalizeBehaviorStudioCreation();
+    setErrorMessage(null);
+    setMessage(`${activeRuntimeTarget.label} now listens for ${eventType} from ${source.label}.`);
   }
 
   function applyBehaviorFlowPreset(presetId: string) {
@@ -8370,6 +9098,7 @@ export default function App() {
     const payloadTemplates = runtimePayloadTemplatesForAction(action, listener);
     const emittedEventSuggestions = runtimeEventNameSuggestions(activeRuntimeScope, activeBuilderField, listener);
     const hostHandlerSuggestions = runtimeHostHandlerSuggestions(activeRuntimeScope, activeBuilderField, listener);
+    const runtimeValueReference = isRuntimePayloadReference(action.config.value) ? action.config.value.$runtime : null;
     const emittedEventIssue =
       action.kind === "dispatch_event"
         ? validateRuntimeIdentifier(
@@ -8501,15 +9230,81 @@ export default function App() {
               </div>
               <div>
                 <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Value</label>
-                <input
-                  value={String(action.config.value ?? "")}
-                  onChange={(event) =>
-                    updateRuntimeAction(listener.id, action.id, (current) => {
-                      current.config.value = event.target.value;
-                    })
-                  }
-                  className="mt-2 w-full rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-                />
+                {runtimeValueReference ? (
+                  <div className="mt-2 space-y-2">
+                    <select
+                      value={runtimeValueReference}
+                      onChange={(event) =>
+                        updateRuntimeAction(listener.id, action.id, (current) => {
+                          current.config.value = { $runtime: event.target.value };
+                        })
+                      }
+                      className="w-full rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
+                    >
+                      {runtimePayloadReferenceOptions.map((option) => (
+                        <option key={`set-value-ref-${option.key}`} value={option.key}>
+                          {option.label}
+                        </option>
+                      ))}
+                      {!runtimePayloadReferenceOptions.some((option) => option.key === runtimeValueReference) ? (
+                        <option value={runtimeValueReference}>{runtimeValueReference}</option>
+                      ) : null}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateRuntimeAction(listener.id, action.id, (current) => {
+                          current.config.value = "";
+                        })
+                      }
+                      className={actionButtonClass("secondary")}
+                    >
+                      Use static value
+                    </button>
+                  </div>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    <input
+                      value={String(action.config.value ?? "")}
+                      onChange={(event) =>
+                        updateRuntimeAction(listener.id, action.id, (current) => {
+                          current.config.value = event.target.value;
+                        })
+                      }
+                      className="w-full rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
+                    />
+                    {firstListenerPayloadReference(listener, [
+                      "selectedValue",
+                      "selectedValues",
+                      "changedOption",
+                      "optionValue",
+                      "value",
+                      "nextValue",
+                    ]) ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const reference = firstListenerPayloadReference(listener, [
+                            "selectedValue",
+                            "selectedValues",
+                            "changedOption",
+                            "optionValue",
+                            "value",
+                            "nextValue",
+                          ]);
+                          if (reference) {
+                            updateRuntimeAction(listener.id, action.id, (current) => {
+                              current.config.value = { $runtime: reference };
+                            });
+                          }
+                        }}
+                        className={actionButtonClass("secondary")}
+                      >
+                        Use event payload
+                      </button>
+                    ) : null}
+                  </div>
+                )}
               </div>
             </div>
           ) : null}
@@ -9131,6 +9926,13 @@ export default function App() {
     const eventType = getRuntimeListenerEventType(listener);
     const triggerIssue = validateRuntimeIdentifier(eventType, "Event type", triggerSuggestions[0] ?? "form.load");
     const chainTemplates = runtimeActionChainTemplatesForListener(listener);
+    const actionChoices = runtimeActionChoicesForListener(listener);
+    const groupedActionChoices = {
+      target: actionChoices.filter((choice) => choice.group === "target"),
+      value: actionChoices.filter((choice) => choice.group === "value"),
+      event: actionChoices.filter((choice) => choice.group === "event"),
+      advanced: actionChoices.filter((choice) => choice.group === "advanced"),
+    };
     const addListenerCondition = () => {
       const defaultFieldId = listener.eventSourceNodeId ?? activeBuilderField?.id ?? builderFieldOptions[0]?.id ?? "";
       if (!defaultFieldId) {
@@ -9155,8 +9957,8 @@ export default function App() {
       <div className="space-y-4 rounded-[1rem] border border-blue-200 bg-blue-50/60 p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Behavior composer</p>
-            <p className="mt-2 font-semibold text-slate-950">Behavior {listenerIndex + 1}</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Listener composer</p>
+            <p className="mt-2 font-semibold text-slate-950">Listener {listenerIndex + 1}</p>
             <p className="mt-2 text-sm text-slate-700">
               Choose the event source, AS3 event phase, optional conditions, and the actions that run in response.
             </p>
@@ -9446,7 +10248,7 @@ export default function App() {
             <div>
               <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Action chain</p>
               <p className="mt-2 text-sm text-slate-700">
-                Select an action node in the graph or add another action to extend the chain.
+                Add one or more actions that run on this listener target when the event is heard.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -9466,6 +10268,54 @@ export default function App() {
               </button>
             </div>
           </div>
+          {!listener.actions.length ? (
+            <div className="rounded-[0.95rem] border border-blue-200 bg-white p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-blue-700">
+                    Add first action
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-slate-700">
+                    This listener is saved. Choose what should happen to the listening component, or add an event/host
+                    action for advanced chains.
+                  </p>
+                </div>
+                <span className="app-pill">{actionChoices.length} action choices</span>
+              </div>
+              <div className="mt-4 grid gap-4">
+                {[
+                  { key: "target", label: "Target component actions", choices: groupedActionChoices.target },
+                  { key: "value", label: "Value actions", choices: groupedActionChoices.value },
+                  { key: "event", label: "Event actions", choices: groupedActionChoices.event },
+                  { key: "advanced", label: "Advanced actions", choices: groupedActionChoices.advanced },
+                ].map((group) =>
+                  group.choices.length ? (
+                    <div key={`listener-action-choice-${group.key}`}>
+                      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        {group.label}
+                      </p>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        {group.choices.map((choice) => (
+                          <button
+                            key={choice.id}
+                            type="button"
+                            onClick={() =>
+                              addChosenRuntimeActionToListener(listener.id, choice.createAction, choice.label)
+                            }
+                            className="rounded-[0.85rem] border border-slate-200 bg-slate-50 px-3 py-3 text-left transition hover:border-blue-300 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                          >
+                            <span className="app-pill">{formatLabel(choice.kind)}</span>
+                            <span className="mt-2 block text-sm font-semibold text-slate-950">{choice.label}</span>
+                            <span className="mt-1 block text-xs leading-5 text-slate-600">{choice.description}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null,
+                )}
+              </div>
+            </div>
+          ) : null}
           {listener.actions.length ? (
             <div className="rounded-[0.95rem] border border-soft bg-white p-4">
               <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-500">Chain path</p>
@@ -9532,7 +10382,7 @@ export default function App() {
             )
           ) : (
             <div className="app-muted-card p-4 text-sm text-slate-500">
-              No actions yet. Add one to define what this interaction flow should do.
+              No actions yet. Add one to define what this listener should do.
             </div>
           )}
         </div>
@@ -9560,7 +10410,7 @@ export default function App() {
     setBehaviorStudioMode("graph");
     setBehaviorStudioView("advanced");
     setBehaviorStudioOpen(true);
-    setBehaviorStudioCreationKind(null);
+    setBehaviorStudioCreating(false);
     setBehaviorWorkspaceMode("authoring");
     setSelectedBehaviorNode(options.graphSelection ?? null);
     setEditingRuleIndex(
@@ -9575,7 +10425,7 @@ export default function App() {
 
   function openGraphInspectorSurface() {
     setBehaviorStudioOpen(false);
-    setBehaviorStudioCreationKind(null);
+    setBehaviorStudioCreating(false);
     setBehaviorStudioAnchor(null);
     setBehaviorStudioView("studio");
     setBehaviorStudioMode("manage");
@@ -9612,7 +10462,7 @@ export default function App() {
       if (selectedListener.wiringMode === "cross_item" && selectedListener.eventSourceLabel) {
         return `${activeRuntimeScope?.label ?? "Current selection"} reacts to ${selectedListener.eventSourceLabel}`;
       }
-      return `Interaction flow on ${activeRuntimeScope?.label ?? "current selection"}`;
+      return `Listener on ${activeRuntimeScope?.label ?? "current selection"}`;
     }
     if (selectedAuthoring === null) {
       return "Form-level simulation target";
@@ -9696,6 +10546,7 @@ export default function App() {
         ? buildLegacyConditionalRuleGroups(legacyFieldConditionals(activeBuilderField))
         : [];
     const scopeListeners = activeRuntimeScope?.listeners ?? [];
+    const scopeEvents = activeRuntimeScope?.eventSources ?? [];
     const currentScopeTitle =
       selectedAuthoring === null
         ? "Form behavior"
@@ -9734,7 +10585,8 @@ export default function App() {
           <h4 className="mt-2 text-lg font-semibold text-slate-950">{currentScopeTitle}</h4>
           <div className="mt-3 flex flex-wrap gap-2">
             {conditionalGroups.length ? <span className="app-pill">{conditionalGroups.length} bundles</span> : null}
-            {scopeListeners.length ? <span className="app-pill">{scopeListeners.length} flows</span> : null}
+            {scopeEvents.length ? <span className="app-pill">{scopeEvents.length} events</span> : null}
+            {scopeListeners.length ? <span className="app-pill">{scopeListeners.length} listeners</span> : null}
             {activeRuntimeScope ? <span className="app-pill">{activeRuntimeScope.label}</span> : null}
             <span className="app-pill">{currentBehaviorSelectionSummary()}</span>
           </div>
@@ -9745,7 +10597,16 @@ export default function App() {
           ) : null}
           <div className="mt-3 grid gap-3">
             <div className="rounded-[0.95rem] border border-soft bg-slate-50 p-3">
-              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Behavior</p>
+              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Events</p>
+              <p className="mt-2 font-semibold text-slate-950">
+                {scopeEvents.length ? `${scopeEvents.length} saved` : "None yet"}
+              </p>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                Events define what this component can dispatch for listeners.
+              </p>
+            </div>
+            <div className="rounded-[0.95rem] border border-soft bg-slate-50 p-3">
+              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Conditions</p>
               <p className="mt-2 font-semibold text-slate-950">
                 {conditionalGroups.length ? `${conditionalGroups.length} available` : "None yet"}
               </p>
@@ -9774,6 +10635,7 @@ export default function App() {
         ? buildLegacyConditionalRuleGroups(legacyFieldConditionals(activeBuilderField))
         : [];
     const scopeListeners = activeRuntimeScope?.listeners ?? [];
+    const scopeEvents = activeRuntimeScope?.eventSources ?? [];
     const currentScopeTitle =
       selectedAuthoring === null
         ? "Form behavior"
@@ -9794,6 +10656,17 @@ export default function App() {
       const actionSummary = listener.actions.map((action) => formatLabel(action.kind)).join(" ");
       const haystack =
         `${listener.eventName} ${actionSummary} ${listener.enabled ? "enabled" : "disabled"}`.toLowerCase();
+      return haystack.includes(managerQuery);
+    });
+    const visibleEvents = scopeEvents.filter((eventDefinition) => {
+      if (!managerQuery) {
+        return true;
+      }
+      const payloadSummary =
+        eventDefinition.payloadShape?.fields.map((field) => `${field.name} ${field.label ?? ""}`).join(" ") ?? "";
+      const haystack = `${runtimeEventDefinitionType(eventDefinition)} ${payloadSummary} ${
+        eventDefinition.description ?? ""
+      }`.toLowerCase();
       return haystack.includes(managerQuery);
     });
     const behaviorIndexFieldId = selectedAuthoring?.kind === "field" ? selectedAuthoring.fieldId : null;
@@ -9820,6 +10693,8 @@ export default function App() {
           ruleIndex: rule.ruleIndex,
           rule,
           listener: null,
+          event: null,
+          eventSource: null,
         })),
       ) ?? [];
     const allFlowObjects = [
@@ -9828,7 +10703,7 @@ export default function App() {
     ].map((listener) => ({
       id: listener.id,
       kind: "flow" as const,
-      objectLabel: "Behavior",
+      objectLabel: "Listener",
       title: `When ${formatLabel(listener.eventName)}`,
       detail: listener.actionsSummary,
       stepId: listener.stepId ?? "form",
@@ -9852,8 +10727,66 @@ export default function App() {
       ruleIndex: null,
       rule: null,
       listener,
+      event: null,
+      eventSource: null,
     }));
-    const behaviorIndexObjects = [...allRuleObjects, ...allFlowObjects];
+    const runtimeSelectionForCandidate = (candidate: RuntimeEventSourceCandidate): AuthoringSelection | null => {
+      if (candidate.nodeType === "form") {
+        return null;
+      }
+      const [, stepId, sectionId, groupOrFieldId, nestedFieldId] = candidate.pathIds;
+      if (candidate.nodeType === "step" && stepId) {
+        return { kind: "step", stepId };
+      }
+      if (candidate.nodeType === "section" && stepId && sectionId) {
+        return { kind: "section", stepId, sectionId };
+      }
+      if (candidate.nodeType === "group" && stepId && sectionId && groupOrFieldId) {
+        return { kind: "group", stepId, sectionId, groupId: groupOrFieldId };
+      }
+      if ((candidate.nodeType === "field" || candidate.nodeType === "component") && stepId && sectionId) {
+        return nestedFieldId
+          ? { kind: "field", stepId, sectionId, groupId: groupOrFieldId, fieldId: nestedFieldId }
+          : { kind: "field", stepId, sectionId, fieldId: groupOrFieldId };
+      }
+      return null;
+    };
+    const allEventObjects = runtimeEventSourceCandidates.flatMap((source) => {
+      const selection = runtimeSelectionForCandidate(source);
+      return source.eventDefinitions.map((eventDefinition) => {
+        const eventType = runtimeEventDefinitionType(eventDefinition);
+        const payloadCount = eventDefinition.payloadShape?.fields.length ?? 0;
+        return {
+          id: eventDefinition.id,
+          kind: "event" as const,
+          objectLabel: "Event",
+          title: `Dispatches ${formatLabel(eventType)}`,
+          detail: `${source.label} can dispatch ${eventType}. ${
+            payloadCount ? `${payloadCount} payload field${payloadCount === 1 ? "" : "s"}.` : "No payload fields."
+          }`,
+          stepId: source.pathIds[1] ?? "form",
+          stepTitle: source.pathIds[1]
+            ? (logicMapData?.steps.find((step) => step.id === source.pathIds[1])?.title ?? source.locationLabel)
+            : "Form runtime",
+          scopeLabel: `${source.componentLabel} · ${source.label}`,
+          triggerType: eventType,
+          effectType: "Dispatchable event",
+          status: "enabled" as const,
+          startedIds: [source.id] as string[],
+          impactsIds: [] as string[],
+          startedLabel: source.label,
+          impactsLabel: "Available to listeners",
+          selection,
+          graphSelection: null,
+          ruleIndex: null,
+          rule: null,
+          listener: null,
+          event: eventDefinition,
+          eventSource: source,
+        };
+      });
+    });
+    const behaviorIndexObjects = [...allEventObjects, ...allRuleObjects, ...allFlowObjects];
     const stepFilterOptions = [
       { value: "all", label: "All steps" },
       { value: "form", label: "Form runtime" },
@@ -9897,17 +10830,26 @@ export default function App() {
       return queryMatch && stepMatch && scopeMatch && triggerMatch && effectMatch && statusMatch && objectViewMatch;
     });
     const openBehaviorIndexObject = (item: (typeof behaviorIndexObjects)[number]) => {
+      if (item.kind === "event") {
+        openRuntimeEventEditorForSelection(item.selection, item.id);
+        return;
+      }
       if (item.selection !== undefined) {
         setSelectedAuthoring(item.selection);
       }
-      openBehaviorNodeInStudio(item.graphSelection, item.ruleIndex);
+      if (item.graphSelection) {
+        openBehaviorNodeInStudio(item.graphSelection, item.ruleIndex);
+      }
     };
     const openBehaviorIndexObjectInSimulator = (item: (typeof behaviorIndexObjects)[number]) => {
+      if (!item.graphSelection) {
+        return;
+      }
       if (item.selection !== undefined) {
         setSelectedAuthoring(item.selection);
       }
       setSelectedBehaviorNode(item.graphSelection);
-      setBehaviorStudioCreationKind(null);
+      setBehaviorStudioCreating(false);
       setBehaviorFocusTarget(null);
       setBehaviorStudioMode("test");
       setBehaviorStudioView("studio");
@@ -9931,6 +10873,10 @@ export default function App() {
       }
       if (item.kind === "flow") {
         duplicateRuntimeListenerForSelection(item.selection, item.id);
+        return;
+      }
+      if (item.kind === "event") {
+        duplicateRuntimeEventSourceForSelection(item.selection, item.id);
       }
     };
     const removeBehaviorIndexObject = (item: (typeof behaviorIndexObjects)[number]) => {
@@ -9940,6 +10886,10 @@ export default function App() {
       }
       if (item.kind === "flow") {
         removeRuntimeListenerForSelection(item.selection, item.id);
+        return;
+      }
+      if (item.kind === "event") {
+        removeRuntimeEventSourceForSelection(item.selection, item.id);
       }
     };
     const showIndex = behaviorStudioManagerMode === "index";
@@ -9947,19 +10897,22 @@ export default function App() {
     const showFlows = behaviorStudioManagerMode !== "conditions" && !showIndex;
 
     if (!showIndex) {
-      const scopedObjectCount = visibleListeners.length;
+      const scopedObjectCount = visibleEvents.length + visibleListeners.length;
       return (
         <div className="space-y-3">
           <div className="rounded-[0.95rem] border border-soft bg-white p-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[0.66rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                  Attached behavior
+                  Event and listener manager
                 </p>
                 <h4 className="mt-1 truncate text-base font-semibold text-slate-950">{currentScopeTitle}</h4>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <span className="app-pill">
-                    {visibleListeners.length} behavior{visibleListeners.length === 1 ? "" : "s"}
+                    {visibleEvents.length} event{visibleEvents.length === 1 ? "" : "s"}
+                  </span>
+                  <span className="app-pill">
+                    {visibleListeners.length} listener{visibleListeners.length === 1 ? "" : "s"}
                   </span>
                   {activeRuntimeScope ? <span className="app-pill">{activeRuntimeScope.label}</span> : null}
                 </div>
@@ -9968,7 +10921,7 @@ export default function App() {
                 type="button"
                 onClick={() => {
                   setBehaviorStudioAnchor(null);
-                  setBehaviorStudioCreationKind(null);
+                  setBehaviorStudioCreating(false);
                   setBehaviorStudioManagerMode("index");
                   setBehaviorStudioMode("manage");
                   setBehaviorStudioView("studio");
@@ -9992,6 +10945,77 @@ export default function App() {
 
           {scopedObjectCount ? (
             <div className="space-y-2">
+              {visibleEvents.length ? (
+                <div className="rounded-[0.9rem] border border-blue-100 bg-blue-50/50 p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-blue-700">
+                        Events this component dispatches
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-slate-600">
+                        Saved dispatcher definitions stay with this source component and can be reused by listeners on
+                        other components.
+                      </p>
+                    </div>
+                    <span className="app-pill">{visibleEvents.length} saved</span>
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {visibleEvents.map((eventDefinition) => {
+                      const eventType = runtimeEventDefinitionType(eventDefinition);
+                      const payloadCount = eventDefinition.payloadShape?.fields.length ?? 0;
+                      return (
+                        <div
+                          key={`compact-event-${eventDefinition.id}`}
+                          className="rounded-[0.85rem] border border-soft bg-white px-3 py-2.5"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap gap-1.5">
+                                <span className="app-pill">Event</span>
+                                <span className="app-pill">{eventDefinition.bubbles === false ? "Target only" : "Bubbles"}</span>
+                                <span className="app-pill">
+                                  {payloadCount} payload field{payloadCount === 1 ? "" : "s"}
+                                </span>
+                              </div>
+                              <p className="mt-2 text-sm font-semibold text-slate-950">
+                                {formatLabel(eventType)}
+                              </p>
+                              <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">
+                                {eventDefinition.description ||
+                                  "This component can dispatch this event for other listeners to consume."}
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 flex-wrap gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => openRuntimeEventEditorForSelection(selectedAuthoring, eventDefinition.id)}
+                                className={actionButtonClass("secondary")}
+                              >
+                                Edit event
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => duplicateRuntimeEventSourceForSelection(selectedAuthoring, eventDefinition.id)}
+                                className={actionButtonClass("secondary")}
+                              >
+                                Duplicate
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeRuntimeEventSourceForSelection(selectedAuthoring, eventDefinition.id)}
+                                className={actionButtonClass("danger")}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
               {visibleRuleGroups.map((group) => {
                 const focusRule = group.members[0];
                 return (
@@ -10016,7 +11040,7 @@ export default function App() {
                         <button
                           type="button"
                           onClick={() => {
-                            setBehaviorStudioCreationKind(null);
+                            setBehaviorStudioCreating(false);
                             setEditingRuleIndex(focusRule.index);
                             setSelectedBehaviorNode({
                               kind: "rule",
@@ -10052,77 +11076,98 @@ export default function App() {
                 );
               })}
 
-              {visibleListeners.map((listener) => {
-                const listenerIndex = scopeListeners.findIndex((candidate) => candidate.id === listener.id);
-                return (
-                  <div
-                    key={`compact-listener-${listener.id}`}
-                    className="rounded-[0.9rem] border border-soft bg-white px-3 py-2.5"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap gap-1.5">
-                          <span className="app-pill">Behavior</span>
-                          <span className="app-pill">{listener.enabled ? "Enabled" : "Disabled"}</span>
-                          <span className="app-pill">{listener.actions.length} actions</span>
-                        </div>
-                        <p className="mt-2 text-sm font-semibold text-slate-950">
-                          When {formatLabel(listener.eventName)}
-                        </p>
-                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">
-                          {listener.actions.length
-                            ? listener.actions.map((action) => formatLabel(action.kind)).join(" -> ")
-                            : "No actions yet"}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 flex-wrap gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setBehaviorStudioCreationKind(null);
-                            setSelectedBehaviorNode({
-                              kind: "listener",
-                              listenerId: listener.id,
-                              phase: listener.actions.length ? "action" : "trigger",
-                              actionId: listener.actions[0]?.id,
-                            });
-                            setBehaviorStudioMode("create");
-                            setBehaviorStudioView("studio");
-                          }}
-                          className={actionButtonClass("secondary")}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedBehaviorNode({
-                              kind: "listener",
-                              listenerId: listener.id,
-                              phase: listener.actions.length ? "action" : "trigger",
-                              actionId: listener.actions[0]?.id,
-                            });
-                            handleTestSelectedChain(listener);
-                            setBehaviorStudioMode("test");
-                            setBehaviorStudioView("studio");
-                          }}
-                          className={actionButtonClass("secondary")}
-                        >
-                          Test
-                        </button>
-                      </div>
+              {visibleListeners.length ? (
+                <div className="rounded-[0.9rem] border border-emerald-100 bg-emerald-50/40 p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                        Listeners on this component
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-slate-600">
+                        Each listener belongs to this reacting component and owns its own action chain.
+                      </p>
                     </div>
-                    {listenerIndex >= 0 ? (
-                      <p className="mt-2 text-[0.68rem] text-slate-500">Flow {listenerIndex + 1} on this selection</p>
-                    ) : null}
+                    <span className="app-pill">{visibleListeners.length} saved</span>
                   </div>
-                );
-              })}
+                  <div className="mt-3 space-y-2">
+                    {visibleListeners.map((listener) => {
+                      const listenerIndex = scopeListeners.findIndex((candidate) => candidate.id === listener.id);
+                      return (
+                        <div
+                          key={`compact-listener-${listener.id}`}
+                          className="rounded-[0.85rem] border border-soft bg-white px-3 py-2.5"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap gap-1.5">
+                                <span className="app-pill">Listener</span>
+                                <span className="app-pill">{listener.enabled ? "Enabled" : "Disabled"}</span>
+                                <span className="app-pill">
+                                  {listener.actions.length} action{listener.actions.length === 1 ? "" : "s"}
+                                </span>
+                              </div>
+                              <p className="mt-2 text-sm font-semibold text-slate-950">
+                                When {formatLabel(listener.eventName)}
+                              </p>
+                              <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">
+                                {listener.actions.length
+                                  ? listener.actions.map((action) => formatLabel(action.kind)).join(" -> ")
+                                  : "No actions yet"}
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 flex-wrap gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setBehaviorStudioCreating(false);
+                                  setSelectedBehaviorNode({
+                                    kind: "listener",
+                                    listenerId: listener.id,
+                                    phase: listener.actions.length ? "action" : "trigger",
+                                    actionId: listener.actions[0]?.id,
+                                  });
+                                  setBehaviorStudioMode("create");
+                                  setBehaviorStudioView("studio");
+                                }}
+                                className={actionButtonClass("secondary")}
+                              >
+                                Edit listener
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedBehaviorNode({
+                                    kind: "listener",
+                                    listenerId: listener.id,
+                                    phase: listener.actions.length ? "action" : "trigger",
+                                    actionId: listener.actions[0]?.id,
+                                  });
+                                  handleTestSelectedChain(listener);
+                                  setBehaviorStudioMode("test");
+                                  setBehaviorStudioView("studio");
+                                }}
+                                className={actionButtonClass("secondary")}
+                              >
+                                Test
+                              </button>
+                            </div>
+                          </div>
+                          {listenerIndex >= 0 ? (
+                            <p className="mt-2 text-[0.68rem] text-slate-500">
+                              Listener {listenerIndex + 1} on this selection
+                            </p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="rounded-[0.95rem] border border-dashed border-slate-300 bg-white px-4 py-5 text-sm leading-6 text-slate-600">
-              No behavior is attached to this selection yet. Add one here, or open the full manager to inspect
-              document-wide behavior.
+              No events or listeners are attached to this selection yet. Add an event here, add a listener, or open the
+              full manager to inspect document-wide behavior.
             </div>
           )}
         </div>
@@ -10208,7 +11253,8 @@ export default function App() {
                 <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Behavior Manager</p>
                 <h5 className="mt-2 text-base font-semibold text-slate-950">Document behavior index</h5>
                 <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Manage behavior objects first. The graph is an overview and trace target, not the primary list.
+                  Manage events, listeners, and action chains first. The graph is an overview and trace target, not the
+                  primary list.
                 </p>
               </div>
               <span className="app-pill">{visibleBehaviorIndexObjects.length} shown</span>
@@ -10308,7 +11354,7 @@ export default function App() {
                 visibleBehaviorIndexObjects.map((item) => {
                   const itemKey = behaviorIndexObjectKey(item);
                   const detailsOpen = expandedBehaviorIndexObjectKey === itemKey;
-                  const canTest = item.kind === "flow" || item.rule !== null;
+                  const canTest = item.graphSelection !== null;
                   return (
                     <div
                       key={`behavior-index-${item.kind}-${item.id}`}
@@ -10372,13 +11418,15 @@ export default function App() {
                             </p>
                           </div>
                           <div className="flex flex-wrap content-start gap-2 lg:max-w-[18rem]">
-                            <button
-                              type="button"
-                              onClick={() => toggleBehaviorIndexObject(item)}
-                              className={actionButtonClass("secondary")}
-                            >
-                              {item.status === "enabled" ? "Disable" : "Enable"}
-                            </button>
+                            {item.kind !== "event" ? (
+                              <button
+                                type="button"
+                                onClick={() => toggleBehaviorIndexObject(item)}
+                                className={actionButtonClass("secondary")}
+                              >
+                                {item.status === "enabled" ? "Disable" : "Enable"}
+                              </button>
+                            ) : null}
                             <button
                               type="button"
                               onClick={() => duplicateBehaviorIndexObject(item)}
@@ -10449,7 +11497,7 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => {
-                              setBehaviorStudioCreationKind(null);
+                              setBehaviorStudioCreating(false);
                               setEditingRuleIndex(focusRule.index);
                               setSelectedBehaviorNode({
                                 kind: "rule",
@@ -10487,9 +11535,9 @@ export default function App() {
           <div className="rounded-[1.15rem] border border-soft bg-white p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Behavior flows</p>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Listeners</p>
                 <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Build flows around triggers and action chains, then reopen them in the studio when they need deeper
+                  Build listeners around events and action chains, then reopen them in the studio when they need deeper
                   wiring.
                 </p>
               </div>
@@ -10511,12 +11559,12 @@ export default function App() {
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="font-semibold text-slate-950">
-                            Flow {listenerIndex + 1}: {formatLabel(listener.eventName)}
+                            Listener {listenerIndex + 1}: {formatLabel(listener.eventName)}
                           </p>
                           <p className="mt-2 text-sm leading-6 text-slate-600">
                             {listener.actions.length
                               ? `${listener.actions.length} action${listener.actions.length === 1 ? "" : "s"} in this chain`
-                              : "No actions yet. Open the studio to finish wiring this behavior."}
+                              : "No actions yet. Open the studio to finish wiring this listener."}
                           </p>
                           <div className="mt-3 flex flex-wrap gap-2">
                             <span className="app-pill">{listener.enabled ? "Enabled" : "Disabled"}</span>
@@ -10530,7 +11578,7 @@ export default function App() {
                         <button
                           type="button"
                           onClick={() => {
-                            setBehaviorStudioCreationKind(null);
+                            setBehaviorStudioCreating(false);
                             setSelectedBehaviorNode({
                               kind: "listener",
                               listenerId: listener.id,
@@ -10541,7 +11589,7 @@ export default function App() {
                           }}
                           className={actionButtonClass("secondary")}
                         >
-                          Edit
+                          Edit listener
                         </button>
                       </div>
                     </div>
@@ -10551,8 +11599,8 @@ export default function App() {
             ) : (
               <div className="app-muted-card mt-4 p-4 text-sm text-slate-500">
                 {scopeListeners.length
-                  ? "No interaction flows match the current search."
-                  : "No behavior yet for this scope. Start in the studio instead of building it inline in the inspector."}
+                  ? "No listeners match the current search."
+                  : "No listeners yet for this scope. Start in the studio instead of building it inline in the inspector."}
               </div>
             )}
           </div>
@@ -10562,279 +11610,608 @@ export default function App() {
   }
 
   function renderBehaviorCreationGuide() {
-    if (!behaviorStudioCreationKind) {
+    if (!isBehaviorStudioCreating) {
       return null;
     }
 
-    const isRuleCreation = false;
-    const presetCards: RuntimePreset[] = runtimePresets;
-    const recommendedPresetIds = new Set(presetCards.slice(0, 5).map((preset) => preset.id));
-    const normalizedPresetSearch = behaviorPresetSearch.trim().toLowerCase();
-    const rawTriggerNames = activeRuntimeScope
-      ? Array.from(
-          new Set([
-            ...runtimeTriggerSuggestions(activeRuntimeScope, activeBuilderField),
-            ...runtimeCoreEventsForDispatcher(activeRuntimeScope.scopeKind, activeBuilderField?.semanticType).map(
-              (eventType) => eventType.type,
-            ),
-            ...(activeRuntimeScope.scopeKind === "field" ? ["host.context_updated"] : []),
-          ]),
-        )
-      : [];
-    const availableCategories = (
-      [
-        "recommended",
-        "source",
-        "visibility",
-        "validation",
-        "data",
-        "navigation",
-        "events",
-        "advanced",
-      ] as BehaviorPresetCategory[]
-    ).filter((category) => {
-      if (category === "source") {
-        return !isRuleCreation;
-      }
-      if (category === "recommended" || category === "advanced") {
-        return true;
-      }
-      return presetCards.some((preset) => preset.category === category);
-    });
-    const activePresetCategory = availableCategories.includes(behaviorPresetCategory)
-      ? behaviorPresetCategory
-      : "recommended";
-    const visiblePresets = presetCards.filter((preset) => {
-      const matchesSearch =
-        !normalizedPresetSearch ||
-        [
-          preset.label,
-          preset.description,
-          preset.actionSummary,
-          preset.componentLabel ?? "",
-          behaviorPresetCategoryLabels[preset.category],
-          preset.triggerName,
-        ]
-          .join(" ")
-          .toLowerCase()
-          .includes(normalizedPresetSearch);
-      if (!matchesSearch) {
-        return false;
-      }
-      if (normalizedPresetSearch) {
-        return true;
-      }
-      if (activePresetCategory === "recommended") {
-        return recommendedPresetIds.has(preset.id);
-      }
-      if (activePresetCategory === "advanced" || activePresetCategory === "source") {
-        return false;
-      }
-      return preset.category === activePresetCategory;
-    });
-    const visibleRawTriggers = rawTriggerNames.filter(
-      (triggerName) =>
-        !normalizedPresetSearch ||
-        triggerName.toLowerCase().includes(normalizedPresetSearch) ||
-        formatLabel(triggerName).toLowerCase().includes(normalizedPresetSearch),
+    const renderHeader = (title: string, summary: string) => (
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[0.66rem] font-semibold uppercase tracking-[0.18em] text-blue-700">Behavior Studio</p>
+          <h5 className="mt-1 text-base font-semibold text-slate-950">{title}</h5>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-700">{summary}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => finalizeBehaviorStudioCreation()}
+          className={actionButtonClass("secondary")}
+        >
+          Cancel
+        </button>
+      </div>
     );
-    const shouldShowAdvancedChoices =
-      activePresetCategory === "advanced" || (normalizedPresetSearch.length > 0 && visiblePresets.length === 0);
-    const shouldShowCrossItemChoices = activePresetCategory === "source" && !isRuleCreation;
-    const title = "Create behavior";
-    const summary =
-      "Choose what event should happen, where it comes from, and what this selection should do in response.";
 
     return (
       <div className="rounded-[0.95rem] border border-blue-200 bg-blue-50/60 p-3">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <p className="text-[0.66rem] font-semibold uppercase tracking-[0.18em] text-blue-700">Guided setup</p>
-            <h5 className="mt-1 text-base font-semibold text-slate-950">{title}</h5>
-            <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-700">{summary}</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setBehaviorStudioCreationKind(null)}
-            className={actionButtonClass("secondary")}
-          >
-            Cancel setup
-          </button>
-        </div>
-
+        {behaviorCreationPath === "event"
+          ? renderHeader(
+              editingBehaviorEventId ? "Edit event" : "Add event",
+              "Define an event this selected component can dispatch, then save its payload properties.",
+            )
+          : behaviorCreationPath === "listener"
+            ? renderHeader(
+                "Add listener",
+                "Choose an authored event from another component and attach a listener to the current selection.",
+              )
+            : renderHeader("Add behavior", "Start by deciding whether this component defines an event or listens for one.")}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <span className="app-pill">{currentBehaviorSelectionSummary()}</span>
           {activeBuilderField ? (
             <span className="app-pill">{behaviorFieldComponentLabel(activeBuilderField)}</span>
           ) : null}
           {activeRuntimeScope ? <span className="app-pill">{activeRuntimeScope.label}</span> : null}
-          <span className="text-xs text-slate-600">
-            Pick the event source and first action now; refine conditions, payloads, and actions after it opens.
-          </span>
         </div>
-
-        {isRuleCreation && !(selectedAuthoring?.kind === "field" && activeBuilderField) ? (
-          <div className="app-muted-card mt-3 p-4 text-sm text-slate-500">
-            Select a field before creating conditional behavior.
-          </div>
-        ) : !isRuleCreation && !activeRuntimeScope ? (
-          <div className="app-muted-card mt-3 p-4 text-sm text-slate-500">
-            Select a form, button, or interactive field before creating a behavior.
-          </div>
+        {behaviorCreationPath === "event" ? (
+          renderBehaviorEventCreationForm()
+        ) : behaviorCreationPath === "listener" ? (
+          renderBehaviorListenerCreationForm()
         ) : (
-          <div className="relative z-10 mt-3 rounded-[0.9rem] border border-blue-100 bg-white/80 p-2.5">
-            <div className="grid gap-2 md:grid-cols-[minmax(11rem,15rem)_minmax(0,1fr)]">
-              <div>
-                <label
-                  htmlFor="behavior-preset-category"
-                  className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500"
-                >
-                  Behavior path
-                </label>
-                <select
-                  id="behavior-preset-category"
-                  value={activePresetCategory}
-                  onChange={(event) => setBehaviorPresetCategory(event.target.value as BehaviorPresetCategory)}
-                  className="mt-1 w-full rounded-[0.8rem] border border-soft bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                >
-                  {availableCategories.map((category) => (
-                    <option key={`behavior-preset-category-${category}`} value={category}>
-                      {behaviorPresetCategoryLabels[category]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label
-                  htmlFor="behavior-preset-search"
-                  className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500"
-                >
-                  Search
-                </label>
-                <input
-                  id="behavior-preset-search"
-                  type="search"
-                  value={behaviorPresetSearch}
-                  onChange={(event) => setBehaviorPresetSearch(event.target.value)}
-                  placeholder={
-                    isRuleCreation
-                      ? "Search behavior starters..."
-                      : shouldShowCrossItemChoices
-                        ? "Search source items or events..."
-                        : "Search actions or event types..."
-                  }
-                  className="mt-1 w-full rounded-[0.8rem] border border-soft bg-white px-3 py-2 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                />
-              </div>
-            </div>
-            <div className="mt-2">
-              {shouldShowCrossItemChoices ? (
-                renderCrossItemEventPicker(normalizedPresetSearch)
-              ) : !shouldShowAdvancedChoices ? (
-                <div className="grid gap-2">
-                  {visiblePresets.map((preset) => (
-                    <button
-                      key={`creation-preset-${preset.id}`}
-                      type="button"
-                      onClick={() => applyBehaviorFlowPreset(preset.id)}
-                      className="rounded-[0.85rem] border border-blue-200 bg-white px-3 py-2.5 text-left transition hover:border-blue-400 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-slate-950">{preset.label}</p>
-                          <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">{preset.description}</p>
-                        </div>
-                        {recommendedPresetIds.has(preset.id) ? (
-                          <span className="app-pill shrink-0">Suggested</span>
-                        ) : null}
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        <span className="app-pill">When {formatLabel(preset.triggerName)}</span>
-                        {preset.componentLabel ? <span className="app-pill">{preset.componentLabel}</span> : null}
-                        <span className="app-pill">Then {preset.actionSummary}</span>
-                        <span className="app-pill">{behaviorPresetCategoryLabels[preset.category]}</span>
-                      </div>
-                    </button>
-                  ))}
-                  {!visiblePresets.length ? (
-                    <div className="app-muted-card p-3 text-sm text-slate-500">
-                      No matching behavior starters. Choose Advanced to pick an exact event type and build the response
-                      manually.
-                    </div>
-                  ) : null}
-                </div>
-              ) : isRuleCreation ? (
-                <div className="grid gap-2">
-                  <div className="rounded-[0.85rem] border border-dashed border-blue-200 bg-blue-50/70 px-3 py-2">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Custom behavior</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-600">
-                      Advanced mode starts from one editable behavior. Choose the source, optional condition, and action
-                      after it opens.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => applyBehaviorRuleStarter({ mode: "single" })}
-                    className="rounded-[0.85rem] border border-blue-200 bg-white px-3 py-2.5 text-left transition hover:border-blue-400 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-                  >
-                    <p className="text-sm font-semibold text-slate-950">Start custom behavior</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-600">
-                      Create one editable behavior without applying a starter.
-                    </p>
-                  </button>
-                </div>
-              ) : (
-                <div className="grid gap-2">
-                  <div className="rounded-[0.85rem] border border-dashed border-blue-200 bg-blue-50/70 px-3 py-2">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Exact event types</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-600">
-                      Advanced mode starts from the raw event type. You can add conditions and actions after the
-                      behavior opens.
-                    </p>
-                  </div>
-                  {visibleRawTriggers.map((triggerName) => (
-                    <button
-                      key={`creation-trigger-${triggerName}`}
-                      type="button"
-                      onClick={() => createBlankBehaviorStudioListener(triggerName)}
-                      className="rounded-[0.85rem] border border-blue-200 bg-white px-3 py-2.5 text-left transition hover:border-blue-400 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-                    >
-                      <p className="text-sm font-semibold text-slate-950">When {formatLabel(triggerName)}</p>
-                      <p className="mt-1 text-xs leading-5 text-slate-600">
-                        Create a custom behavior that reacts to `{triggerName}`.
-                      </p>
-                    </button>
-                  ))}
-                  {!visibleRawTriggers.length ? (
-                    <div className="app-muted-card p-3 text-sm text-slate-500">
-                      No matching event types for this scope.
-                    </div>
-                  ) : null}
-                </div>
-              )}
-            </div>
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-[0.8rem] border border-soft bg-slate-50 px-3 py-2">
-              <p className="text-xs leading-5 text-slate-600">
-                {isRuleCreation
-                  ? "Start from intent first; use Advanced only when you need to wire the condition manually."
-                  : "Start from the selected item or another item first; use Advanced only when you need the exact runtime event type."}
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => beginBehaviorEventCreationPath()}
+              disabled={!activeRuntimeScope}
+              className="rounded-[0.9rem] border border-blue-200 bg-white px-4 py-4 text-left transition hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-55 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+            >
+              <p className="text-sm font-semibold text-slate-950">Add event</p>
+              <p className="mt-1 text-xs leading-5 text-slate-600">
+                Define a dispatchable event and its payload properties for the selected component.
               </p>
-              <button
-                type="button"
-                onClick={() => {
-                  if (isRuleCreation) {
-                    applyBehaviorRuleStarter({ mode: "single" });
-                  } else {
-                    createBlankBehaviorStudioListener();
-                  }
-                }}
-                className={actionButtonClass("secondary")}
-              >
-                Custom behavior
-              </button>
-            </div>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                <span className="app-pill">{activeRuntimeScope?.scopeKind ?? "No scope"}</span>
+                <span className="app-pill">{activeRuntimeScope?.eventSources.length ?? 0} saved events</span>
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={beginBehaviorListenerCreationPath}
+              disabled={!activeRuntimeTarget}
+              className="rounded-[0.9rem] border border-blue-200 bg-white px-4 py-4 text-left transition hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-55 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+            >
+              <p className="text-sm font-semibold text-slate-950">Add listener</p>
+              <p className="mt-1 text-xs leading-5 text-slate-600">
+                Listen for an event already defined on a form, step, section, group, field, or button.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                <span className="app-pill">{activeRuntimeTarget?.componentLabel ?? "No target"}</span>
+                <span className="app-pill">
+                  {runtimeEventSourceCandidates.reduce(
+                    (total, candidate) => total + candidate.eventDefinitions.length,
+                    0,
+                  )}{" "}
+                  authored events
+                </span>
+              </div>
+            </button>
+            {!activeRuntimeScope ? (
+              <div className="app-muted-card md:col-span-2 p-4 text-sm text-slate-500">
+                Select a form, button, or field-capable item before creating event behavior.
+              </div>
+            ) : null}
           </div>
         )}
+      </div>
+    );
+  }
+
+  function renderBehaviorEventCreationForm() {
+    if (!activeRuntimeScope) {
+      return (
+        <div className="app-muted-card mt-3 p-4 text-sm text-slate-500">
+          Select a form, button, or interactive field before adding an event.
+        </div>
+      );
+    }
+
+    const eventOptions = runtimeEventOptionsForScope(activeRuntimeScope, activeBuilderField);
+    const effectiveEventType = behaviorEventType || eventOptions[0]?.type || defaultBehaviorTriggerName();
+    const selectedCoreEvent = runtimeCoreEventType(effectiveEventType);
+    const payloadFields = behaviorEventPayloadFields.length
+      ? behaviorEventPayloadFields
+      : runtimePayloadFieldsForEventType(effectiveEventType);
+    const existingEvents = activeRuntimeScope.eventSources;
+    const updatePayloadField = (index: number, mutate: (field: RuntimePayloadField) => RuntimePayloadField) => {
+      setBehaviorEventPayloadFields((current) =>
+        (current.length ? current : payloadFields).map((field, fieldIndex) =>
+          fieldIndex === index ? mutate({ ...field }) : field,
+        ),
+      );
+    };
+
+    return (
+      <div className="relative z-10 mt-3 rounded-[0.9rem] border border-blue-100 bg-white/85 p-3">
+        <div className="grid gap-3 md:grid-cols-[minmax(12rem,18rem)_minmax(0,1fr)]">
+          <div>
+            <label
+              htmlFor="behavior-event-type"
+              className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500"
+            >
+              Event
+            </label>
+            <select
+              id="behavior-event-type"
+              value={eventOptions.some((option) => option.type === effectiveEventType) ? effectiveEventType : ""}
+              onChange={(event) => {
+                const nextType = event.target.value;
+                const nextCore = runtimeCoreEventType(nextType);
+                setBehaviorEventType(nextType);
+                setBehaviorEventBubbles(nextCore?.bubbles ?? true);
+                setBehaviorEventDescription(nextCore?.description ?? "");
+                setBehaviorEventPayloadFields(runtimePayloadFieldsForEventType(nextType));
+              }}
+              className="mt-1 w-full rounded-[0.8rem] border border-soft bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            >
+              {eventOptions.map((option) => (
+                <option key={`behavior-event-option-${option.type}`} value={option.type}>
+                  {option.label}
+                </option>
+              ))}
+              {!eventOptions.some((option) => option.type === effectiveEventType) ? (
+                <option value="">{effectiveEventType || "Custom event"}</option>
+              ) : null}
+            </select>
+          </div>
+          <div className="rounded-[0.8rem] border border-soft bg-slate-50 px-3 py-2">
+            <p className="text-xs font-semibold text-slate-900">{formatLabel(effectiveEventType)}</p>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              {selectedCoreEvent?.description ??
+                `${runtimeNodeTypeLabel(activeRuntimeScope.scopeKind)} event on ${activeRuntimeScope.label}.`}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <span className="app-pill">Dispatcher {runtimeNodeTypeLabel(activeRuntimeScope.scopeKind)}</span>
+              <span className="app-pill">{behaviorEventBubbles ? "Bubbles" : "Target only"}</span>
+              <span className="app-pill">{payloadFields.length} payload fields</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3 rounded-[0.9rem] border border-soft bg-white p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Payload properties
+              </p>
+              <p className="mt-1 text-xs leading-5 text-slate-600">
+                These properties describe what the dispatcher can send with this event.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                setBehaviorEventPayloadFields((current) => [
+                  ...(current.length ? current : payloadFields),
+                  {
+                    name: `payloadField${payloadFields.length + 1}`,
+                    label: "Payload field",
+                    valueType: "string",
+                    required: false,
+                    description: null,
+                  },
+                ])
+              }
+              className={actionButtonClass("secondary")}
+            >
+              Add property
+            </button>
+          </div>
+
+          <div className="mt-3 grid gap-2">
+            {payloadFields.map((field, index) => (
+              <div
+                key={`behavior-event-payload-${index}-${field.name}`}
+                className="grid gap-2 rounded-[0.8rem] border border-soft bg-slate-50 p-2 md:grid-cols-[minmax(7rem,1fr)_9rem_7rem_auto]"
+              >
+                <div>
+                  <label
+                    htmlFor={`behavior-event-payload-name-${index}`}
+                    className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500"
+                  >
+                    Name
+                  </label>
+                  <input
+                    id={`behavior-event-payload-name-${index}`}
+                    value={field.name}
+                    onChange={(event) =>
+                      updatePayloadField(index, (current) => ({
+                        ...current,
+                        name: event.target.value,
+                        label: current.label || event.target.value,
+                      }))
+                    }
+                    className="mt-1 w-full rounded-[0.7rem] border border-soft bg-white px-3 py-2 text-sm text-slate-900"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor={`behavior-event-payload-type-${index}`}
+                    className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500"
+                  >
+                    Type
+                  </label>
+                  <select
+                    id={`behavior-event-payload-type-${index}`}
+                    value={field.valueType}
+                    onChange={(event) =>
+                      updatePayloadField(index, (current) => ({
+                        ...current,
+                        valueType: event.target.value as RuntimePayloadField["valueType"],
+                      }))
+                    }
+                    className="mt-1 w-full rounded-[0.7rem] border border-soft bg-white px-3 py-2 text-sm text-slate-900"
+                  >
+                    {["string", "number", "boolean", "object", "array", "unknown"].map((valueType) => (
+                      <option key={`payload-type-${valueType}`} value={valueType}>
+                        {valueType}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <label className="mt-6 flex items-center gap-2 rounded-[0.7rem] border border-soft bg-white px-3 py-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={field.required}
+                    onChange={(event) =>
+                      updatePayloadField(index, (current) => ({ ...current, required: event.target.checked }))
+                    }
+                  />
+                  Required
+                </label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setBehaviorEventPayloadFields((current) =>
+                      (current.length ? current : payloadFields).filter((_, fieldIndex) => fieldIndex !== index),
+                    )
+                  }
+                  className={actionButtonClass("secondary")}
+                >
+                  Remove
+                </button>
+                <div className="md:col-span-4">
+                  <label
+                    htmlFor={`behavior-event-payload-description-${index}`}
+                    className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500"
+                  >
+                    Description
+                  </label>
+                  <input
+                    id={`behavior-event-payload-description-${index}`}
+                    value={field.description ?? ""}
+                    onChange={(event) =>
+                      updatePayloadField(index, (current) => ({ ...current, description: event.target.value }))
+                    }
+                    className="mt-1 w-full rounded-[0.7rem] border border-soft bg-white px-3 py-2 text-sm text-slate-900"
+                  />
+                </div>
+              </div>
+            ))}
+            {!payloadFields.length ? (
+              <div className="app-muted-card p-3 text-sm text-slate-500">
+                No payload properties. Add one only when listeners or host integrations need event data.
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <details
+          className="mt-3 rounded-[0.85rem] border border-soft bg-slate-50 px-3 py-2"
+          open={behaviorEventAdvancedOpen}
+          onToggle={(event) => setBehaviorEventAdvancedOpen(event.currentTarget.open)}
+        >
+          <summary className="cursor-pointer text-sm font-semibold text-slate-900">Advanced event options</summary>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <div>
+              <label
+                htmlFor="behavior-event-custom-type"
+                className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500"
+              >
+                Event type
+              </label>
+              <input
+                id="behavior-event-custom-type"
+                value={effectiveEventType}
+                onChange={(event) => {
+                  setBehaviorEventType(event.target.value);
+                  setBehaviorEventPayloadFields(runtimePayloadFieldsForEventType(event.target.value));
+                }}
+                className="mt-1 w-full rounded-[0.75rem] border border-soft bg-white px-3 py-2 text-sm text-slate-900"
+              />
+            </div>
+            <label className="mt-6 flex items-center gap-2 rounded-[0.75rem] border border-soft bg-white px-3 py-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={behaviorEventBubbles}
+                onChange={(event) => setBehaviorEventBubbles(event.target.checked)}
+              />
+              Event bubbles through parent dispatchers
+            </label>
+            <div className="md:col-span-2">
+              <label
+                htmlFor="behavior-event-description"
+                className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500"
+              >
+                Description
+              </label>
+              <textarea
+                id="behavior-event-description"
+                value={behaviorEventDescription}
+                onChange={(event) => setBehaviorEventDescription(event.target.value)}
+                rows={2}
+                className="mt-1 w-full rounded-[0.75rem] border border-soft bg-white px-3 py-2 text-sm text-slate-900"
+              />
+            </div>
+          </div>
+        </details>
+
+        {existingEvents.length ? (
+          <div className="mt-3 rounded-[0.85rem] border border-soft bg-slate-50 px-3 py-2">
+            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-500">Saved events</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {existingEvents.map((eventDefinition) => (
+                <span key={eventDefinition.id} className="app-pill">
+                  {runtimeEventDefinitionType(eventDefinition)}
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="mt-3 flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={() => setBehaviorCreationPath("choice")} className={actionButtonClass("secondary")}>
+            Back
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              addRuntimeEventSourceToScope({
+                eventId: editingBehaviorEventId,
+                eventType: effectiveEventType,
+                bubbles: behaviorEventBubbles,
+                payloadFields,
+                description: behaviorEventDescription,
+              })
+            }
+            className={actionButtonClass("primary")}
+          >
+            {editingBehaviorEventId ? "Save event" : "Apply event"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderBehaviorListenerCreationForm() {
+    if (!activeRuntimeTarget) {
+      return (
+        <div className="app-muted-card mt-3 p-4 text-sm text-slate-500">
+          Select the component that should listen before adding a listener.
+        </div>
+      );
+    }
+
+    const sourceTypeOrder: BehaviorListenerSourceType[] = ["form", "step", "section", "group", "field", "component"];
+    const effectiveSourceType = behaviorListenerSourceType;
+    const sourceCandidates = runtimeEventSourceCandidates.filter((candidate) => candidate.nodeType === effectiveSourceType);
+    const authoredEventTypes = uniqueRuntimeEventTypes(
+      sourceCandidates.flatMap((candidate) => candidate.eventDefinitions.map(runtimeEventDefinitionType)),
+    );
+    const rawEventTypes = behaviorListenerShowRawEvents
+      ? uniqueRuntimeEventTypes(sourceCandidates.flatMap((candidate) => candidate.events.map((eventOption) => eventOption.type)))
+      : [];
+    const eventTypes = uniqueRuntimeEventTypes([...authoredEventTypes, ...rawEventTypes]);
+    const effectiveEventType =
+      behaviorListenerEventType && eventTypes.includes(behaviorListenerEventType)
+        ? behaviorListenerEventType
+        : eventTypes[0] ?? "";
+    const sourceHasEvent = (candidate: RuntimeEventSourceCandidate) =>
+      candidate.eventDefinitions.some((eventDefinition) => runtimeEventDefinitionType(eventDefinition) === effectiveEventType) ||
+      (behaviorListenerShowRawEvents && candidate.events.some((eventOption) => eventOption.type === effectiveEventType));
+    const matchingSources = sourceCandidates.filter(sourceHasEvent);
+    const effectiveSourceId =
+      behaviorListenerSourceId && matchingSources.some((candidate) => candidate.id === behaviorListenerSourceId)
+        ? behaviorListenerSourceId
+        : matchingSources[0]?.id ?? "";
+    const selectedSource = matchingSources.find((candidate) => candidate.id === effectiveSourceId) ?? null;
+    const selectedSourceBubbles = selectedSource ? runtimeEventBubblesForSource(selectedSource, effectiveEventType) : true;
+    const selectedDispatcher = selectedSource
+      ? selectedSource.id === activeRuntimeTarget.id
+        ? selectedSource
+        : findNearestSharedDispatcher(selectedSource, activeRuntimeTarget, runtimeEventSourceCandidateById)
+      : null;
+    const blocksCrossItemListener = Boolean(
+      selectedSource && selectedSource.id !== activeRuntimeTarget.id && !selectedSourceBubbles,
+    );
+
+    return (
+      <div className="relative z-10 mt-3 rounded-[0.9rem] border border-blue-100 bg-white/85 p-3">
+        <div className="grid gap-3 md:grid-cols-3">
+          <div>
+            <label
+              htmlFor="behavior-listener-source-type"
+              className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500"
+            >
+              Component type
+            </label>
+            <select
+              id="behavior-listener-source-type"
+              value={effectiveSourceType}
+              onChange={(event) => {
+                const nextType = event.target.value as BehaviorListenerSourceType;
+                const nextCandidates = runtimeEventSourceCandidates.filter((candidate) => candidate.nodeType === nextType);
+                const nextEvents = uniqueRuntimeEventTypes(
+                  nextCandidates.flatMap((candidate) => candidate.eventDefinitions.map(runtimeEventDefinitionType)),
+                );
+                setBehaviorListenerSourceType(nextType);
+                setBehaviorListenerEventType(nextEvents[0] ?? "");
+                setBehaviorListenerSourceId(
+                  nextCandidates.find((candidate) =>
+                    candidate.eventDefinitions.some(
+                      (eventDefinition) => runtimeEventDefinitionType(eventDefinition) === (nextEvents[0] ?? ""),
+                    ),
+                  )?.id ?? "",
+                );
+              }}
+              className="mt-1 w-full rounded-[0.8rem] border border-soft bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            >
+              {sourceTypeOrder.map((nodeType) => (
+                <option key={`listener-source-type-${nodeType}`} value={nodeType}>
+                  {runtimeNodeTypeLabel(nodeType)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label
+              htmlFor="behavior-listener-event-type"
+              className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500"
+            >
+              Event
+            </label>
+            <select
+              id="behavior-listener-event-type"
+              value={effectiveEventType}
+              onChange={(event) => {
+                const nextEventType = event.target.value;
+                const nextSource = sourceCandidates.find((candidate) =>
+                  candidate.eventDefinitions.some(
+                    (eventDefinition) => runtimeEventDefinitionType(eventDefinition) === nextEventType,
+                  ),
+                );
+                setBehaviorListenerEventType(nextEventType);
+                setBehaviorListenerSourceId(nextSource?.id ?? "");
+              }}
+              disabled={!eventTypes.length}
+              className="mt-1 w-full rounded-[0.8rem] border border-soft bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none transition disabled:opacity-55 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            >
+              {eventTypes.map((eventType) => (
+                <option key={`listener-event-type-${eventType}`} value={eventType}>
+                  {formatLabel(eventType)}
+                </option>
+              ))}
+              {!eventTypes.length ? <option value="">No authored events</option> : null}
+            </select>
+          </div>
+          <div>
+            <label
+              htmlFor="behavior-listener-source"
+              className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500"
+            >
+              Source component
+            </label>
+            <select
+              id="behavior-listener-source"
+              value={effectiveSourceId}
+              onChange={(event) => setBehaviorListenerSourceId(event.target.value)}
+              disabled={!matchingSources.length}
+              className="mt-1 w-full rounded-[0.8rem] border border-soft bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none transition disabled:opacity-55 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            >
+              {matchingSources.map((source) => (
+                <option key={`listener-source-${source.id}`} value={source.id}>
+                  {formatRuntimeSourceCandidateLabel(source)}
+                </option>
+              ))}
+              {!matchingSources.length ? <option value="">No components define this event</option> : null}
+            </select>
+          </div>
+        </div>
+
+        <div className="mt-3 rounded-[0.85rem] border border-soft bg-slate-50 px-3 py-2">
+          <p className="text-sm font-semibold text-slate-900">
+            {selectedSource
+              ? `${activeRuntimeTarget.label} listens for ${formatLabel(effectiveEventType)} from ${selectedSource.label}`
+              : "No authored event source selected"}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-slate-600">
+            Authored events only are shown by default. Use Advanced when you need to register against raw core events.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <span className="app-pill">Target {activeRuntimeTarget.componentLabel}</span>
+            {selectedDispatcher ? <span className="app-pill">Listen at {selectedDispatcher.componentLabel}</span> : null}
+            {effectiveEventType ? <span className="app-pill">{effectiveEventType}</span> : null}
+          </div>
+        </div>
+
+        {blocksCrossItemListener ? (
+          <div className="app-muted-card mt-3 p-3 text-sm text-slate-500">
+            This event is defined on {selectedSource?.label}, but it does not bubble. Select the same component as the
+            target or use a bubbling authored event for cross-item listeners.
+          </div>
+        ) : null}
+
+        {!authoredEventTypes.length && !behaviorListenerShowRawEvents ? (
+          <div className="app-muted-card mt-3 p-3 text-sm text-slate-500">
+            No {runtimeNodeTypeLabel(effectiveSourceType).toLowerCase()} sources have saved events yet. Add an event to
+            a source component first, or open Advanced to inspect raw core events.
+          </div>
+        ) : null}
+
+        <details className="mt-3 rounded-[0.85rem] border border-soft bg-slate-50 px-3 py-2">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-900">Advanced listener options</summary>
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            <label className="flex items-center gap-2 rounded-[0.75rem] border border-soft bg-white px-3 py-2 text-sm text-slate-700 md:col-span-3">
+              <input
+                type="checkbox"
+                checked={behaviorListenerShowRawEvents}
+                onChange={(event) => {
+                  setBehaviorListenerShowRawEvents(event.target.checked);
+                  setBehaviorListenerEventType("");
+                  setBehaviorListenerSourceId("");
+                }}
+              />
+              Include raw core events for this component type
+            </label>
+            <label className="flex items-center gap-2 rounded-[0.75rem] border border-soft bg-white px-3 py-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={behaviorListenerUseCapture}
+                onChange={(event) => setBehaviorListenerUseCapture(event.target.checked)}
+              />
+              Capture phase
+            </label>
+            <div>
+              <label
+                htmlFor="behavior-listener-priority"
+                className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500"
+              >
+                Priority
+              </label>
+              <input
+                id="behavior-listener-priority"
+                type="number"
+                value={behaviorListenerPriority}
+                onChange={(event) => setBehaviorListenerPriority(Number(event.target.value) || 0)}
+                className="mt-1 w-full rounded-[0.75rem] border border-soft bg-white px-3 py-2 text-sm text-slate-900"
+              />
+            </div>
+            <div className="rounded-[0.75rem] border border-soft bg-white px-3 py-2 text-xs leading-5 text-slate-600">
+              Listener context can read event target, current target, phase, and payload through runtime references.
+            </div>
+          </div>
+        </details>
+
+        <div className="mt-3 flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={() => setBehaviorCreationPath("choice")} className={actionButtonClass("secondary")}>
+            Back
+          </button>
+          <button
+            type="button"
+            disabled={!selectedSource || !effectiveEventType || blocksCrossItemListener}
+            onClick={() => selectedSource && createAuthoredEventBehaviorListener(selectedSource, effectiveEventType)}
+            className={actionButtonClass("primary")}
+          >
+            Apply listener
+          </button>
+        </div>
       </div>
     );
   }
@@ -11020,7 +12397,7 @@ export default function App() {
 
     return (
       <div className="mx-auto max-w-[52rem] space-y-3">
-        {behaviorStudioCreationKind ? (
+        {isBehaviorStudioCreating ? (
           renderBehaviorCreationGuide()
         ) : (
           <div className="rounded-[1.05rem] border border-soft bg-white p-3.5 shadow-[0_16px_32px_rgba(15,23,42,0.07)] sm:p-4">
@@ -11038,9 +12415,10 @@ export default function App() {
                 <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
                   Create behavior
                 </p>
-                <h5 className="mt-1.5 text-base font-semibold text-slate-950">Choose how this selection reacts</h5>
+                <h5 className="mt-1.5 text-base font-semibold text-slate-950">Choose an event or listener</h5>
                 <p className="mt-2 max-w-2xl text-sm leading-5 text-slate-600">
-                  Start from this item or another item, choose an event, then choose what action should run.
+                  Define an event this component dispatches, or attach a listener to an authored event from another
+                  component.
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button
@@ -11053,11 +12431,11 @@ export default function App() {
                   </button>
                   <button
                     type="button"
-                    onClick={openBehaviorStudioRule}
-                    disabled={selectedAuthoring?.kind !== "field"}
+                    onClick={() => openBehaviorStudioReactToAnotherItem()}
+                    disabled={!activeRuntimeTarget}
                     className={actionButtonClass("secondary")}
                   >
-                    React to another item
+                    Add listener
                   </button>
                   <button
                     type="button"
@@ -11391,7 +12769,7 @@ export default function App() {
             type="button"
             onClick={() => {
               setBehaviorStudioAnchor(null);
-              setBehaviorStudioCreationKind(null);
+              setBehaviorStudioCreating(false);
               setBehaviorFocusTarget(null);
               setBehaviorStudioMode("test");
               setBehaviorStudioView("advanced");
@@ -15310,9 +16688,13 @@ export default function App() {
                   </button>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {selectedAuthoring?.kind === "field" && activeBuilderField ? (
-                    <button type="button" onClick={openBehaviorStudioRule} className={actionButtonClass()}>
-                      React to another item
+                  {activeRuntimeTarget ? (
+                    <button
+                      type="button"
+                      onClick={() => openBehaviorStudioReactToAnotherItem()}
+                      className={actionButtonClass()}
+                    >
+                      Add listener
                     </button>
                   ) : null}
                   {activeRuntimeScope ? (
@@ -18489,7 +19871,7 @@ export default function App() {
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    setBehaviorStudioCreationKind(null);
+                                    setBehaviorStudioCreating(false);
                                     setBehaviorFocusTarget(null);
                                     setBehaviorStudioManagerMode("all");
                                     setBehaviorStudioMode("manage");
@@ -18504,7 +19886,7 @@ export default function App() {
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    setBehaviorStudioCreationKind(null);
+                                    setBehaviorStudioCreating(false);
                                     setBehaviorFocusTarget(null);
                                     setBehaviorStudioMode("test");
                                     setBehaviorStudioView("studio");
