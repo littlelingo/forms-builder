@@ -1,23 +1,13 @@
-import type { ReviewStatus } from "@form-builder/schema";
 import { PanelCard, StatusBadge } from "@form-builder/ui";
 
 import type { ConversionRecord } from "../../lib/types";
+import { badgeToneFromReview } from "../review/utils/review-utils";
 
 function formatLabel(value: string | undefined | null): string {
   if (!value) {
     return "Unknown";
   }
   return value.replaceAll("_", " ");
-}
-
-function badgeToneFromReview(status: ReviewStatus): "neutral" | "warning" | "success" {
-  if (status === "accepted" || status === "reviewed") {
-    return "success";
-  }
-  if (status === "needs_review") {
-    return "warning";
-  }
-  return "neutral";
 }
 
 function actionButtonClass(kind: "primary" | "secondary" | "danger" = "secondary"): string {

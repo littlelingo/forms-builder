@@ -75,9 +75,11 @@ import {
   getSelectionContext,
   refreshChoiceOptions,
 } from "./lib/authoring-utils";
-import type { ConversionRecord, ProcessingStepStatus } from "./lib/types";
+import type { ConversionRecord } from "./lib/types";
 import { HomeStage } from "./features/project/HomeStage";
 import { badgeToneFromProjectStatus } from "./features/project/utils/project-utils";
+import { ReviewStage } from "./features/review/ReviewStage";
+import { badgeToneFromReview, badgeToneFromStatus } from "./features/review/utils/review-utils";
 
 type AppStage = "home" | "review" | "workspace";
 type ReviewPreviewMode = "overlay" | "pdf";
@@ -1569,42 +1571,6 @@ function downloadJsonFile(filename: string, value: unknown) {
   anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
-}
-
-function badgeToneFromReview(status: ReviewStatus): "neutral" | "warning" | "success" {
-  if (status === "accepted" || status === "reviewed") {
-    return "success";
-  }
-  if (status === "needs_review") {
-    return "warning";
-  }
-  return "neutral";
-}
-
-function badgeToneFromStatus(status: ConversionRecord["status"]): "neutral" | "warning" | "error" | "success" {
-  if (status === "failed") {
-    return "error";
-  }
-  if (status === "accepted") {
-    return "success";
-  }
-  if (status === "in_review") {
-    return "warning";
-  }
-  return "neutral";
-}
-
-function badgeToneFromStep(status: ProcessingStepStatus): "neutral" | "warning" | "error" | "success" {
-  if (status === "completed") {
-    return "success";
-  }
-  if (status === "warning") {
-    return "warning";
-  }
-  if (status === "failed") {
-    return "error";
-  }
-  return "neutral";
 }
 
 function flattenSectionFields(page: PageNode): FieldNode[] {
@@ -19625,503 +19591,54 @@ export default function App() {
         ) : null}
 
         {stage === "review" ? (
-          <StageShell
-            eyebrow="Creation Preflight"
-            title={reviewFlowTitle}
-            summary={reviewFlowSummary}
-            actions={
-              <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={handleReturnHomeFromReview} className={actionButtonClass()}>
-                  Back to Home
-                </button>
-                <button
-                  type="button"
-                  onClick={() => inputRef.current?.click()}
-                  disabled={isUploading}
-                  className={actionButtonClass("primary")}
-                >
-                  {isUploading ? "Importing..." : "Replace PDF"}
-                </button>
-              </div>
-            }
-          >
-            <section className="grid gap-5 xl:grid-cols-[1.52fr_0.78fr]">
-              <div className="grid gap-5">
-                <div
-                  onDragEnter={(event) => {
-                    event.preventDefault();
-                    setDragActive(true);
-                  }}
-                  onDragLeave={(event) => {
-                    event.preventDefault();
-                    setDragActive(false);
-                  }}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={onDropImport}
-                >
-                  <PanelCard
-                    title="Source Review"
-                    eyebrow="Creation step 2 of 3"
-                    aside={
-                      <div className="flex flex-wrap items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setReviewPreviewMode("overlay")}
-                          className={subtleButtonClass(reviewPreviewMode === "overlay")}
-                        >
-                          Overlay
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setReviewPreviewMode("pdf")}
-                          className={subtleButtonClass(reviewPreviewMode === "pdf")}
-                        >
-                          PDF
-                        </button>
-                      </div>
-                    }
-                    className="min-h-[40rem]"
-                  >
-                    <div
-                      className={`mb-4 flex flex-wrap items-center gap-2 rounded-[1rem] border px-3 py-2.5 ${dragActive ? "border-blue-300 bg-blue-50" : "border-soft bg-slate-50"}`}
-                    >
-                      <div className="min-w-[11rem]">
-                        <p className="text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-[#103975]/65">
-                          Source file
-                        </p>
-                        <p className="mt-1 text-sm text-slate-600">
-                          Inspect the imported PDF against the extracted mapping before creating the project workspace.
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => inputRef.current?.click()}
-                        className={actionButtonClass("primary")}
-                      >
-                        {isUploading ? "Importing..." : "Replace PDF"}
-                      </button>
-                      <div className="ml-auto rounded-full border border-soft bg-white px-3 py-1.5 text-sm text-slate-600">
-                        {selectedFile
-                          ? `${selectedFile.name} · ${formatBytes(selectedFile.size)}`
-                          : "Drop a replacement PDF here"}
-                      </div>
-                    </div>
-                    {reviewPreviewMode === "pdf" ? (
-                      previewUrl ? (
-                        <object
-                          data={previewUrl}
-                          type="application/pdf"
-                          className="h-[38rem] w-full rounded-[1.2rem] border border-soft bg-white"
-                        >
-                          <div className="app-muted-card p-6 text-sm text-slate-500">
-                            Inline PDF preview is unavailable in this browser.
-                          </div>
-                        </object>
-                      ) : (
-                        <div className="app-muted-card p-6 text-sm text-slate-500">
-                          Import a PDF to inspect the source preview here.
-                        </div>
-                      )
-                    ) : pagePreviewImageUrl && activeReviewPage ? (
-                      <div className="overflow-hidden rounded-[1.5rem] border border-soft bg-slate-950">
-                        <svg
-                          viewBox={`0 0 ${reviewPageDimensions.width} ${reviewPageDimensions.height}`}
-                          className="h-[38rem] w-full"
-                        >
-                          <image
-                            href={pagePreviewImageUrl}
-                            x="0"
-                            y="0"
-                            width={reviewPageDimensions.width}
-                            height={reviewPageDimensions.height}
-                            preserveAspectRatio="xMidYMid meet"
-                          />
-                          {activeReviewFields.flatMap((field, fieldIndex) =>
-                            overlayRects(field).map((bounds, index) => (
-                              <rect
-                                key={`${field.id}-${fieldIndex}-${index}`}
-                                x={bounds.x}
-                                y={bounds.y}
-                                width={bounds.width}
-                                height={bounds.height}
-                                rx="8"
-                                onClick={() => setSelectedFieldId(field.id)}
-                                className={`${overlayTone(field, field.id === activeReviewField?.id)} cursor-pointer stroke-[2]`}
-                              />
-                            )),
-                          )}
-                        </svg>
-                      </div>
-                    ) : (
-                      <div className="app-muted-card p-6 text-sm text-slate-500">Import a PDF to start review.</div>
-                    )}
-
-                    <div className="mt-4 overflow-x-auto">
-                      <div className="flex min-w-max gap-2">
-                        {reviewPageSummaries.map((summary) => (
-                          <button
-                            key={summary.page.id}
-                            type="button"
-                            onClick={() => {
-                              setSelectedPageId(summary.page.id);
-                              setSelectedFieldId(null);
-                            }}
-                            className={`min-w-[11.5rem] rounded-[1rem] border px-3 py-2.5 text-left transition ${
-                              summary.page.id === activeReviewPage?.id
-                                ? "border-blue-300 bg-[#e8f0ff]"
-                                : "border-soft bg-white hover:border-slate-300"
-                            }`}
-                          >
-                            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                              Page {summary.page.orderIndex + 1}
-                            </p>
-                            <p className="mt-1 font-semibold text-slate-950">{primaryPageHeading(summary.page)}</p>
-                            <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">
-                              {secondaryPageHeading(summary.page) ??
-                                summary.evidenceSnippet ??
-                                "No evidence snippet recovered."}
-                            </p>
-                            <div className="mt-2 flex flex-wrap gap-1.5 text-xs text-slate-500">
-                              <span className="app-pill">{summary.fields.length} mapped fields</span>
-                              {summary.flaggedFields ? (
-                                <span className="app-pill">{summary.flaggedFields} flagged</span>
-                              ) : null}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </PanelCard>
-                </div>
-              </div>
-
-              <div className="grid gap-5">
-                <PanelCard
-                  title="Project Creation"
-                  eyebrow="Compact preflight"
-                  aside={
-                    activeConversion ? (
-                      <StatusBadge tone={badgeToneFromReview(activeConversion.reviewStatus)}>
-                        {reviewReadyToPromote ? "Ready to create" : "Needs review decision"}
-                      </StatusBadge>
-                    ) : undefined
-                  }
-                >
-                  <div className="space-y-3">
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      <div className="rounded-[1rem] border border-emerald-200 bg-emerald-50 px-4 py-3">
-                        <p className="text-xs uppercase tracking-[0.18em] text-emerald-700">1. Import</p>
-                        <p className="mt-1 text-sm text-emerald-900">
-                          {activeConversion ? activeConversion.filename : "PDF loaded"}
-                        </p>
-                      </div>
-                      <div className="rounded-[1rem] border border-blue-200 bg-blue-50 px-4 py-3">
-                        <p className="text-xs uppercase tracking-[0.18em] text-blue-700">2. Preflight</p>
-                        <p className="mt-1 text-sm text-blue-900">
-                          {activeReviewFields.length} mapped fields · {reviewIssueCount} issues
-                        </p>
-                      </div>
-                      <div className="rounded-[1rem] border border-slate-200 bg-white px-4 py-3">
-                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">3. Workspace</p>
-                        <p className="mt-1 text-sm text-slate-700">
-                          {matchedProjectForActiveConversion
-                            ? "Reopen the existing project workspace."
-                            : "Create the durable project workspace."}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="rounded-[1.1rem] border border-soft bg-[linear-gradient(135deg,#f8fafc_0%,#ffffff_100%)] p-4">
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div>
-                          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Current source</p>
-                          <p className="mt-2 text-sm font-semibold text-slate-950">
-                            {activeConversion?.filename ?? "No PDF selected"}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-600">
-                            {activeConversion?.documentSignals?.pageCount ?? reviewPageSummaries.length} pages ·{" "}
-                            {Math.round((activeConversion?.confidence ?? 0) * 100)}% confidence
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Project handoff</p>
-                          <p className="mt-2 text-sm font-semibold text-slate-950">
-                            {matchedProjectForActiveConversion
-                              ? "Existing workspace available"
-                              : reviewReadyToPromote
-                                ? "Ready to create project"
-                                : "Hold until reviewed"}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-600">
-                            Source reference stays available after promotion, so this step only needs enough review to
-                            start authoring.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="grid gap-3">
-                      <button
-                        type="button"
-                        onClick={() => void handleReviewUpdate("reviewed")}
-                        disabled={!activeConversion || isSavingReview}
-                        className={actionButtonClass("secondary")}
-                      >
-                        {isSavingReview ? "Saving..." : "Mark reviewed"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleReviewUpdate("accepted")}
-                        disabled={!activeConversion || isSavingReview}
-                        className={actionButtonClass("secondary")}
-                      >
-                        Mark accepted
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handlePromoteConversion()}
-                        disabled={!activeConversion || activeConversion.reviewStatus === "needs_review" || isPromoting}
-                        className={actionButtonClass("primary")}
-                      >
-                        {matchedProjectForActiveConversion
-                          ? "Open project workspace"
-                          : isPromoting
-                            ? "Promoting..."
-                            : "Create project workspace"}
-                      </button>
-                    </div>
-
-                    <div className="app-muted-card p-4 text-sm leading-6 text-slate-600">
-                      Treat this as a preflight, not a permanent audit workspace. Confirm the structure is directionally
-                      usable, then continue shaping the form inside the main builder.
-                    </div>
-                  </div>
-                </PanelCard>
-
-                <PanelCard title="Current Review" eyebrow="Page and selection">
-                  <div className="space-y-3">
-                    {activeReviewPage ? (
-                      <div className="app-muted-card p-3.5">
-                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Selected page</p>
-                        <h3 className="mt-1 text-lg font-semibold text-slate-950">
-                          {primaryPageHeading(activeReviewPage)}
-                        </h3>
-                        <p className="mt-1 text-sm leading-6 text-slate-600">
-                          {secondaryPageHeading(activeReviewPage) ??
-                            activePageSummary?.evidenceSnippet ??
-                            "No evidence summary available."}
-                        </p>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <span className="app-pill">{activeReviewFields.length} mapped</span>
-                          {activePageSummary?.flaggedFields ? (
-                            <span className="app-pill">{activePageSummary.flaggedFields} flagged</span>
-                          ) : null}
-                          {(activePageSummary?.dominantTypes.length ?? 0) > 0 ? (
-                            <span className="app-pill">
-                              {activePageSummary?.dominantTypes
-                                .slice(0, 2)
-                                .map((type) => formatLabel(type))
-                                .join(" · ")}
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {activeReviewField ? (
-                      <div className="rounded-[1rem] border border-blue-200 bg-blue-50/70 p-3.5">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Active selection</p>
-                            <h4 className="mt-1 text-sm font-semibold text-slate-950">{activeReviewField.label}</h4>
-                            <p className="mt-1 text-sm text-slate-600">
-                              {formatLabel(activeReviewField.semanticType)} · confidence {activeReviewFieldConfidence}%
-                            </p>
-                          </div>
-                          <StatusBadge tone={activeReviewField.sourceConflicts.length ? "warning" : "info"}>
-                            {formatLabel(activeReviewField.reviewStatus)}
-                          </StatusBadge>
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                </PanelCard>
-
-                <PanelCard
-                  title="Mapped Structure"
-                  eyebrow="Active page"
-                  aside={
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                      <span className="app-pill">{activeReviewFields.length} mapped</span>
-                    </div>
-                  }
-                >
-                  <div className="space-y-3 rounded-[1rem] border border-soft bg-white p-3.5">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Mapped structure</p>
-                        <p className="mt-2 text-sm text-slate-600">
-                          Use this only to confirm the extracted structure is workable.
-                        </p>
-                      </div>
-                      {activeReviewField ? (
-                        <StatusBadge tone="info">{formatLabel(activeReviewField.semanticType)}</StatusBadge>
-                      ) : null}
-                    </div>
-                    <div className="max-h-[16rem] space-y-2.5 overflow-y-auto pr-1">
-                      {activeReviewPage?.sections.map((section) => (
-                        <div key={section.id} className="rounded-[0.95rem] border border-soft bg-slate-50 p-3">
-                          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Section</p>
-                          <h4 className="mt-1 text-sm font-semibold text-slate-950">{section.title}</h4>
-                          <div className="mt-2 space-y-2">
-                            {orderedReviewSectionFields(section).map((field, fieldIndex) => (
-                              <button
-                                key={`${field.id}-${fieldIndex}`}
-                                type="button"
-                                onClick={() => setSelectedFieldId(field.id)}
-                                className={`block w-full rounded-[0.9rem] border px-3 py-2.5 text-left ${
-                                  field.id === activeReviewField?.id
-                                    ? "border-blue-300 bg-[#e8f0ff]"
-                                    : "border-soft bg-white"
-                                }`}
-                              >
-                                <div className="flex items-start justify-between gap-3">
-                                  <div>
-                                    <p className="font-semibold text-slate-950">{field.label}</p>
-                                    <p className="mt-1 text-sm text-slate-600">
-                                      {formatLabel(field.semanticType)} · confidence{" "}
-                                      {Math.round(field.confidence * 100)}%
-                                    </p>
-                                  </div>
-                                  <StatusBadge tone={field.sourceConflicts.length ? "warning" : "neutral"}>
-                                    {formatLabel(field.reviewStatus)}
-                                  </StatusBadge>
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </PanelCard>
-
-                <PanelCard
-                  title="Import Issues"
-                  eyebrow="Carry forward context"
-                  aside={
-                    <StatusBadge tone={reviewIssueCount > 0 ? "warning" : "success"}>
-                      {reviewIssueCount > 0 ? `${reviewIssueCount} open` : "Clear"}
-                    </StatusBadge>
-                  }
-                >
-                  <div className="space-y-3 rounded-[1rem] border border-soft bg-white p-3.5">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Issues</p>
-                        <p className="mt-2 text-sm text-slate-600">
-                          Keep only the essential warnings visible before you move into the workspace.
-                        </p>
-                      </div>
-                    </div>
-                    <div className="max-h-[10rem] space-y-2.5 overflow-y-auto pr-1">
-                      {(activeConversion?.issues ?? []).map((issue) => (
-                        <div
-                          key={`${issue.code}-${issue.nodeId ?? "global"}`}
-                          className="rounded-[0.95rem] border border-soft bg-slate-50 p-3"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="font-semibold text-slate-950">{issue.message}</p>
-                              {issue.suggestedAction ? (
-                                <p className="mt-2 text-sm leading-6 text-slate-600">{issue.suggestedAction}</p>
-                              ) : null}
-                            </div>
-                            <StatusBadge
-                              tone={
-                                issue.severity === "error" ? "error" : issue.severity === "warning" ? "warning" : "info"
-                              }
-                            >
-                              {issue.severity}
-                            </StatusBadge>
-                          </div>
-                        </div>
-                      ))}
-                      {!activeConversion?.issues.length ? (
-                        <div className="app-muted-card p-4 text-sm text-slate-500">
-                          No surfaced issues on this conversion.
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </PanelCard>
-
-                <PanelCard
-                  title="Other Imports"
-                  eyebrow="Resume queue"
-                  aside={
-                    <button
-                      type="button"
-                      onClick={() => void handleClearConversions()}
-                      disabled={!conversions.length || isClearingHistory}
-                      className={actionButtonClass()}
-                    >
-                      {isClearingHistory ? "Clearing..." : "Clear"}
-                    </button>
-                  }
-                >
-                  <div className="max-h-[14rem] space-y-2.5 overflow-y-auto pr-1">
-                    {conversions.map((conversion) => (
-                      <button
-                        key={conversion.id}
-                        type="button"
-                        onClick={() => handleResumeImport(conversion)}
-                        className={`block w-full rounded-[0.95rem] border px-3 py-2.5 text-left ${
-                          conversion.id === activeConversion?.id
-                            ? "border-blue-300 bg-[#e8f0ff]"
-                            : "border-soft bg-white"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="font-semibold text-slate-950">{conversion.filename}</p>
-                            <p className="mt-1 text-sm text-slate-600">
-                              {conversion.documentSignals?.pageCount ?? 0} pages
-                            </p>
-                          </div>
-                          <StatusBadge tone={badgeToneFromStatus(conversion.status)}>
-                            {formatLabel(conversion.status)}
-                          </StatusBadge>
-                        </div>
-                        <div className="mt-3 flex justify-between gap-2">
-                          <span className="text-xs text-slate-500">
-                            {Math.round(conversion.confidence * 100)}% confidence
-                          </span>
-                          <span
-                            role="button"
-                            tabIndex={0}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void handleDeleteConversion(conversion.id);
-                            }}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                void handleDeleteConversion(conversion.id);
-                              }
-                            }}
-                            className="text-xs font-semibold text-slate-500"
-                          >
-                            Remove
-                          </span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </PanelCard>
-              </div>
-            </section>
-          </StageShell>
+          <ReviewStage
+            reviewFlowTitle={reviewFlowTitle}
+            reviewFlowSummary={reviewFlowSummary}
+            isUploading={isUploading}
+            onReturnHome={handleReturnHomeFromReview}
+            onReplacePdf={() => inputRef.current?.click()}
+            reviewPreviewMode={reviewPreviewMode}
+            onSetReviewPreviewMode={setReviewPreviewMode}
+            dragActive={dragActive}
+            onDragEnter={(event) => {
+              event.preventDefault();
+              setDragActive(true);
+            }}
+            onDragLeave={(event) => {
+              event.preventDefault();
+              setDragActive(false);
+            }}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={onDropImport}
+            selectedFile={selectedFile}
+            previewUrl={previewUrl}
+            pagePreviewImageUrl={pagePreviewImageUrl}
+            activeReviewPage={activeReviewPage}
+            activeReviewField={activeReviewField}
+            activeReviewFields={activeReviewFields}
+            reviewPageDimensions={reviewPageDimensions}
+            reviewPageSummaries={reviewPageSummaries}
+            onSelectPage={(pageId) => {
+              setSelectedPageId(pageId);
+              setSelectedFieldId(null);
+            }}
+            onSelectField={setSelectedFieldId}
+            activeConversion={activeConversion}
+            activePageSummary={activePageSummary}
+            activeReviewFieldConfidence={activeReviewFieldConfidence}
+            reviewReadyToPromote={reviewReadyToPromote}
+            reviewIssueCount={reviewIssueCount}
+            matchedProjectForActiveConversion={matchedProjectForActiveConversion}
+            conversions={conversions}
+            isSavingReview={isSavingReview}
+            isPromoting={isPromoting}
+            isClearingHistory={isClearingHistory}
+            onReviewUpdate={(status) => void handleReviewUpdate(status)}
+            onPromote={() => void handlePromoteConversion()}
+            onClearConversions={() => void handleClearConversions()}
+            onResumeImport={handleResumeImport}
+            onDeleteConversion={(id) => void handleDeleteConversion(id)}
+          />
         ) : null}
 
         {stage === "workspace" ? (
