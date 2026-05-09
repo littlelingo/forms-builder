@@ -207,4 +207,3 @@ That is the highest-leverage move because it changes the app's mental model with
   - reframe `handleUpload`, `handleOpenJson`, `handlePromoteConversion`, and `handleTogglePublishProject` around the new shell
 - [apps/web/src/lib/api.ts](/Users/clint/Workspace/forms-builder/apps/web/src/lib/api.ts)
   - reuse existing project and import APIs; likely no immediate changes required for the first shell pass
-

@@ -20,9 +20,11 @@ This document defines the current roundtrip checks for the shared runtime layer.
 ### 1. Authoring roundtrip
 
 Goal:
+
 - authored runtime behavior survives save and reload unchanged
 
 Checks:
+
 - node-level listeners persist
 - form-level listeners persist
 - action order persists
@@ -30,15 +32,18 @@ Checks:
 - host binding declarations persist
 
 Primary validation seams:
+
 - API persistence tests
 - builder `Open JSON` / save flow
 
 ### 2. Runtime session roundtrip
 
 Goal:
+
 - runtime execution state can be exported, restored, and resumed
 
 Checks:
+
 - current step restores
 - field values restore
 - node flags restore
@@ -50,21 +55,25 @@ Checks:
 - host context snapshot restores
 
 Primary validation seams:
+
 - shared runtime unit tests
 - builder simulator/runtime lab
 
 ### 3. Host submit roundtrip
 
 Goal:
+
 - the runtime and host shell can complete the event-driven submit loop cleanly
 
 Checks:
+
 - runtime emits `form.submit`
 - host receives a structured submit envelope
 - host dispatches back `form.submit_success` or `form.submit_error`
 - runtime updates submit state correctly
 
 Primary validation seams:
+
 - shared runtime unit tests
 - builder simulator/runtime lab mock success/error controls
 
@@ -73,6 +82,7 @@ Primary validation seams:
 The builder preview is the first host shell for the shared runtime.
 
 The simulator/runtime lab currently supports:
+
 - export runtime session JSON
 - import runtime session JSON
 - inspect current runtime session state

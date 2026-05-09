@@ -322,6 +322,36 @@ function runtimePayloadField(
   };
 }
 
+export const runtimeStandardEventPayloadFields: RuntimePayloadField[] = [
+  runtimePayloadField("eventType", "Event type", "string", true, "Runtime event type being dispatched."),
+  runtimePayloadField("sourceNodeId", "Source node id", "string", true, "Dispatcher node id."),
+  runtimePayloadField(
+    "sourceNodeKey",
+    "Source behavior key",
+    "string",
+    false,
+    "Readable dispatcher key when available.",
+  ),
+  runtimePayloadField("sourceNodeType", "Source node type", "string", true, "Dispatcher runtime node type."),
+  runtimePayloadField("targetNodeId", "Target node id", "string", true, "Runtime event target node id."),
+  runtimePayloadField("targetNodeKey", "Target behavior key", "string", false, "Readable target key when available."),
+  runtimePayloadField("targetNodeType", "Target node type", "string", true, "Runtime event target node type."),
+  runtimePayloadField("metadata", "Metadata", "string", false, "Optional JSON text for user-defined event metadata."),
+];
+
+function mergeRuntimePayloadFieldsWithStandardFields(fields: RuntimePayloadField[]): RuntimePayloadField[] {
+  const seen = new Set<string>();
+  return [...runtimeStandardEventPayloadFields, ...fields]
+    .map((field) => ({ ...field }))
+    .filter((field) => {
+      if (seen.has(field.name)) {
+        return false;
+      }
+      seen.add(field.name);
+      return true;
+    });
+}
+
 function runtimePayloadShape(
   fields: RuntimePayloadField[],
   example: Record<string, unknown> = {},
@@ -329,7 +359,7 @@ function runtimePayloadShape(
 ): RuntimePayloadShape {
   return {
     mode: "key_value",
-    fields,
+    fields: mergeRuntimePayloadFieldsWithStandardFields(fields),
     example,
     notes,
   };
@@ -363,7 +393,13 @@ const keyEventPayloadFields = [
 
 const pointerEventPayloadFields = [
   runtimePayloadField("pointerId", "Pointer id", "number", false, "Pointer identifier when available."),
-  runtimePayloadField("pointerType", "Pointer type", "string", false, "Mouse, pen, touch, or host-supplied pointer type."),
+  runtimePayloadField(
+    "pointerType",
+    "Pointer type",
+    "string",
+    false,
+    "Mouse, pen, touch, or host-supplied pointer type.",
+  ),
   runtimePayloadField("x", "X position", "number", false, "Viewport x position when available."),
   runtimePayloadField("y", "Y position", "number", false, "Viewport y position when available."),
 ];
@@ -450,7 +486,13 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     payloadShape: runtimePayloadShape([
       ...formIdentityPayloadFields,
       runtimePayloadField("errors", "Validation errors", "array", false, "Blocked validation errors."),
-      runtimePayloadField("blockedStepId", "Blocked step id", "string", false, "Step that blocked navigation or submit."),
+      runtimePayloadField(
+        "blockedStepId",
+        "Blocked step id",
+        "string",
+        false,
+        "Step that blocked navigation or submit.",
+      ),
     ]),
   },
   {
@@ -568,7 +610,13 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     bubbles: true,
     payloadShape: runtimePayloadShape([
       runtimePayloadField("componentId", "Component id", "string", true, "Runtime component id."),
-      runtimePayloadField("componentKey", "Component behavior key", "string", false, "Readable component dispatch key."),
+      runtimePayloadField(
+        "componentKey",
+        "Component behavior key",
+        "string",
+        false,
+        "Readable component dispatch key.",
+      ),
       runtimePayloadField("label", "Label", "string", false, "Component label."),
     ]),
   },
@@ -579,7 +627,13 @@ export const runtimeCoreEventTypes: RuntimeCoreEventTypeDefinition[] = [
     bubbles: true,
     payloadShape: runtimePayloadShape([
       runtimePayloadField("componentId", "Component id", "string", true, "Runtime component id."),
-      runtimePayloadField("componentKey", "Component behavior key", "string", false, "Readable component dispatch key."),
+      runtimePayloadField(
+        "componentKey",
+        "Component behavior key",
+        "string",
+        false,
+        "Readable component dispatch key.",
+      ),
       runtimePayloadField("label", "Label", "string", false, "Button label."),
       runtimePayloadField("buttonAction", "Button action", "string", false, "Configured button action."),
     ]),

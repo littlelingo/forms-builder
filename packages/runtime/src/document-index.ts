@@ -67,7 +67,9 @@ export function createRuntimeDocumentIndex(document: AuthoringDocument): Runtime
     id: document.id,
     nodeType: "form",
     parentId: null,
-    runtime: document.runtime ? { eventSources: document.runtime.formEvents, listeners: document.runtime.formListeners } : null,
+    runtime: document.runtime
+      ? { eventSources: document.runtime.formEvents, listeners: document.runtime.formListeners }
+      : null,
   });
 
   for (const step of document.steps) {
@@ -199,7 +201,7 @@ function createImplicitButtonListener(
     actionName === "previous_step"
       ? "go_to_previous_step"
       : actionName === "submit"
-          ? "submit_form"
+        ? "submit_form"
         : actionName === "custom_event"
           ? "dispatch_event"
           : "go_to_next_step";

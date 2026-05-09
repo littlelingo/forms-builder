@@ -36,7 +36,12 @@ import type {
   SemanticType,
   SectionNode,
 } from "@form-builder/schema";
-import { runtimeCoreEventType, runtimeCoreEventTypes, runtimeCoreEventsForDispatcher } from "@form-builder/schema";
+import {
+  runtimeCoreEventType,
+  runtimeCoreEventTypes,
+  runtimeCoreEventsForDispatcher,
+  runtimeStandardEventPayloadFields,
+} from "@form-builder/schema";
 import { PanelCard, StatusBadge } from "@form-builder/ui";
 
 import {
@@ -253,6 +258,23 @@ interface RuntimeListenerActionChoice {
   createAction: () => RuntimeActionDefinition;
 }
 
+type RuntimeReactionBooleanValue = "unset" | "true" | "false";
+type RuntimeReactionValueMode = "unset" | "static" | "payload" | "clear";
+type RuntimeReactionNavigationValue =
+  | "unset"
+  | "go_to_next_step"
+  | "go_to_previous_step"
+  | "go_to_step"
+  | "submit_form";
+
+type EventFlowPayloadValues = Record<string, string>;
+
+interface RuntimeReactionTargetOption {
+  candidate: RuntimeEventSourceCandidate;
+  relationshipLabel: string;
+  group: "path" | "all";
+}
+
 interface StructuredRuntimeTraceEvidence {
   entryKey: string;
   heading: string;
@@ -297,7 +319,7 @@ type BehaviorGraphFilter = "all" | "state" | "interaction";
 type BehaviorGraphMode = "focus" | "overview";
 type BehaviorGraphDensity = "comfortable" | "dense";
 type BehaviorStudioView = "studio" | "advanced";
-type BehaviorStudioMode = "create" | "manage" | "test" | "graph";
+type BehaviorStudioMode = "create" | "event" | "listener" | "action" | "manage" | "test" | "graph";
 type BehaviorStudioManagerMode = "all" | "conditions" | "flows" | "index";
 type BehaviorStudioCreationPath = "choice" | "event" | "listener";
 type BehaviorListenerSourceType = RuntimeNodeType;
@@ -720,9 +742,28 @@ function runtimeNodeTypeLabel(nodeType: RuntimeNodeType): string {
     case "group":
       return "Group";
     case "component":
-      return "Button / component";
+      return "Component / button";
     case "field":
       return "Field";
+    default:
+      return formatLabel(nodeType);
+  }
+}
+
+function runtimeEntityTypeLabel(nodeType: RuntimeNodeType): string {
+  switch (nodeType) {
+    case "form":
+      return "Form";
+    case "step":
+      return "Step";
+    case "section":
+      return "Section";
+    case "group":
+      return "Group / container";
+    case "field":
+      return "Field / input";
+    case "component":
+      return "Component / button";
     default:
       return formatLabel(nodeType);
   }
@@ -1045,9 +1086,7 @@ function runtimePayloadIssues(entries: RuntimePayloadEntry[]): string[] {
   const invalidRuntimeKeys = entries
     .filter((entry) => entry.type === "runtime")
     .flatMap((entry) =>
-      isRuntimePayloadReferenceKey(entry.value)
-        ? []
-        : [entry.key.trim() || "Unnamed runtime field"],
+      isRuntimePayloadReferenceKey(entry.value) ? [] : [entry.key.trim() || "Unnamed runtime field"],
     );
 
   if (blankKeys) {
@@ -1143,11 +1182,57 @@ function runtimeEventBubblesForSource(source: RuntimeEventSourceCandidate, event
   return eventOption?.bubbles ?? runtimeCoreEventType(eventType)?.bubbles ?? true;
 }
 
-function createRuntimePayloadShapeFromFields(fields: RuntimePayloadField[]): RuntimePayloadShape {
+const runtimeAutomaticEventPayloadFieldNames = new Set(
+  [
+    ...runtimeStandardEventPayloadFields.map((field) => field.name),
+    "componentId",
+    "componentKey",
+    "componentType",
+    "fieldId",
+    "fieldKey",
+    "fieldLabel",
+    "formId",
+    "formTitle",
+    "label",
+    "nodeId",
+    "nodeKey",
+    "nodeType",
+    "projectId",
+    "sourceLabel",
+    "stepTitle",
+  ].filter((fieldName) => fieldName !== "metadata"),
+);
+
+function isAutomaticRuntimePayloadField(fieldName: string): boolean {
+  return runtimeAutomaticEventPayloadFieldNames.has(fieldName);
+}
+
+function mergeRuntimePayloadFieldsWithStandardFields(fields: RuntimePayloadField[]): RuntimePayloadField[] {
+  const seen = new Set<string>();
+  const fieldByName = new Map(fields.map((field) => [field.name, field]));
+  const standardFields = runtimeStandardEventPayloadFields.map((field) => {
+    const override = field.name === "metadata" ? fieldByName.get(field.name) : null;
+    return override ? { ...field, ...override, name: field.name, valueType: field.valueType } : field;
+  });
+  return [...standardFields, ...fields]
+    .map((field) => ({ ...field }))
+    .filter((field) => {
+      if (seen.has(field.name)) {
+        return false;
+      }
+      seen.add(field.name);
+      return true;
+    });
+}
+
+function createRuntimePayloadShapeFromFields(
+  fields: RuntimePayloadField[],
+  example: Record<string, unknown> = {},
+): RuntimePayloadShape {
   return {
     mode: "key_value",
-    fields: fields.map((field) => ({ ...field })),
-    example: {},
+    fields: mergeRuntimePayloadFieldsWithStandardFields(fields),
+    example,
     notes: [],
   };
 }
@@ -1190,8 +1275,8 @@ function fallbackRuntimePayloadFieldsForEvent(eventType: string): RuntimePayload
 
 function runtimePayloadFieldsForEventType(eventType: string): RuntimePayloadField[] {
   const coreShape = runtimeCoreEventType(eventType)?.payloadShape;
-  return (coreShape?.fields.length ? coreShape.fields : fallbackRuntimePayloadFieldsForEvent(eventType)).map(
-    (field) => ({ ...field }),
+  return mergeRuntimePayloadFieldsWithStandardFields(
+    coreShape?.fields.length ? coreShape.fields : fallbackRuntimePayloadFieldsForEvent(eventType),
   );
 }
 
@@ -1199,14 +1284,7 @@ function upsertRuntimeEventSource(
   eventSources: RuntimeEventDefinition[],
   nextEvent: RuntimeEventDefinition,
 ): "created" | "updated" {
-  const eventType = runtimeEventDefinitionType(nextEvent);
-  const dispatcherId = nextEvent.dispatcherId ?? nextEvent.sourceNodeId ?? null;
-  const existing = eventSources.find(
-    (source) =>
-      source.id === nextEvent.id ||
-      (runtimeEventDefinitionType(source) === eventType &&
-        (source.dispatcherId ?? source.sourceNodeId ?? null) === dispatcherId),
-  );
+  const existing = findRuntimeEventSourceForUpsert(eventSources, nextEvent);
   if (!existing) {
     eventSources.push(nextEvent);
     return "created";
@@ -1221,6 +1299,20 @@ function upsertRuntimeEventSource(
   existing.payloadShape = cloneRuntimePayloadShape(nextEvent.payloadShape);
   existing.description = nextEvent.description;
   return "updated";
+}
+
+function findRuntimeEventSourceForUpsert(
+  eventSources: RuntimeEventDefinition[],
+  nextEvent: RuntimeEventDefinition,
+): RuntimeEventDefinition | undefined {
+  const eventType = runtimeEventDefinitionType(nextEvent);
+  const dispatcherId = nextEvent.dispatcherId ?? nextEvent.sourceNodeId ?? null;
+  return eventSources.find(
+    (source) =>
+      source.id === nextEvent.id ||
+      (runtimeEventDefinitionType(source) === eventType &&
+        (source.dispatcherId ?? source.sourceNodeId ?? null) === dispatcherId),
+  );
 }
 
 function describeRuntimeAction(action: RuntimeActionDefinition): string {
@@ -1257,6 +1349,47 @@ function describeRuntimeAction(action: RuntimeActionDefinition): string {
     default:
       return formatLabel(action.kind);
   }
+}
+
+function runtimeNodeActionTargetId(action: RuntimeActionDefinition): string | null {
+  if (
+    action.kind === "show_node" ||
+    action.kind === "hide_node" ||
+    action.kind === "enable_node" ||
+    action.kind === "disable_node" ||
+    action.kind === "mark_required" ||
+    action.kind === "mark_optional"
+  ) {
+    return (
+      (typeof action.target?.nodeId === "string" && action.target.nodeId) ||
+      (typeof action.config.nodeId === "string" && action.config.nodeId) ||
+      null
+    );
+  }
+  return null;
+}
+
+function runtimeFieldActionTargetId(action: RuntimeActionDefinition): string | null {
+  if (action.kind === "set_field_value" || action.kind === "clear_field_value") {
+    return (
+      (typeof action.config.fieldId === "string" && action.config.fieldId) ||
+      (typeof action.target?.nodeId === "string" && action.target.nodeId) ||
+      null
+    );
+  }
+  return null;
+}
+
+function runtimeNavigationActionTargetId(action: RuntimeActionDefinition): string | null {
+  if (
+    action.kind === "go_to_next_step" ||
+    action.kind === "go_to_previous_step" ||
+    action.kind === "go_to_step" ||
+    action.kind === "submit_form"
+  ) {
+    return (typeof action.target?.nodeId === "string" && action.target.nodeId) || null;
+  }
+  return null;
 }
 
 function getButtonBehaviorSummary(field: AuthoringField): { action: string; eventName: string | null } {
@@ -1819,6 +1952,13 @@ function behaviorFieldComponentLabel(field: AuthoringField | null | undefined): 
   return field ? componentChromeLabel(field) : "Field";
 }
 
+function runtimeNodeTypeForAuthoringField(field: AuthoringField | null | undefined): RuntimeNodeType {
+  if (field?.rendererHints.component === "button" || field?.semanticType === "statement") {
+    return "component";
+  }
+  return "field";
+}
+
 function fieldValueNoun(field: AuthoringField | null | undefined): string {
   switch (field?.semanticType) {
     case "checkbox":
@@ -2140,7 +2280,7 @@ function collectRuntimeEventSourceCandidates(document: AuthoringDocument): Runti
       });
 
       for (const field of section.fields) {
-        const nodeType: RuntimeNodeType = field.rendererHints.component === "button" ? "component" : "field";
+        const nodeType = runtimeNodeTypeForAuthoringField(field);
         pushCandidate({
           id: field.id,
           dispatchKey: field.dispatchKey,
@@ -2170,7 +2310,7 @@ function collectRuntimeEventSourceCandidates(document: AuthoringDocument): Runti
         });
 
         for (const field of group.fields) {
-          const nodeType: RuntimeNodeType = field.rendererHints.component === "button" ? "component" : "field";
+          const nodeType = runtimeNodeTypeForAuthoringField(field);
           pushCandidate({
             id: field.id,
             dispatchKey: field.dispatchKey,
@@ -2189,6 +2329,28 @@ function collectRuntimeEventSourceCandidates(document: AuthoringDocument): Runti
   }
 
   return candidates;
+}
+
+function authoringSelectionForRuntimeCandidate(candidate: RuntimeEventSourceCandidate): AuthoringSelection | null {
+  if (candidate.nodeType === "form") {
+    return null;
+  }
+  const [, stepId, sectionId, groupOrFieldId, nestedFieldId] = candidate.pathIds;
+  if (candidate.nodeType === "step" && stepId) {
+    return { kind: "step", stepId };
+  }
+  if (candidate.nodeType === "section" && stepId && sectionId) {
+    return { kind: "section", stepId, sectionId };
+  }
+  if (candidate.nodeType === "group" && stepId && sectionId && groupOrFieldId) {
+    return { kind: "group", stepId, sectionId, groupId: groupOrFieldId };
+  }
+  if ((candidate.nodeType === "field" || candidate.nodeType === "component") && stepId && sectionId) {
+    return nestedFieldId
+      ? { kind: "field", stepId, sectionId, groupId: groupOrFieldId, fieldId: nestedFieldId }
+      : { kind: "field", stepId, sectionId, fieldId: groupOrFieldId };
+  }
+  return null;
 }
 
 function findNearestSharedDispatcher(
@@ -2997,6 +3159,7 @@ export default function App() {
   const [activeConversionId, setActiveConversionId] = useState<string | null>(null);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [activeProjectDetail, setActiveProjectDetail] = useState<AuthoringProjectDetail | null>(null);
+  const activeProjectDetailRef = useRef<AuthoringProjectDetail | null>(null);
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [selectedAuthoring, setSelectedAuthoring] = useState<AuthoringSelection | null>(null);
@@ -3024,17 +3187,18 @@ export default function App() {
   const [behaviorEventBubbles, setBehaviorEventBubbles] = useState(true);
   const [behaviorEventDescription, setBehaviorEventDescription] = useState("");
   const [behaviorEventPayloadFields, setBehaviorEventPayloadFields] = useState<RuntimePayloadField[]>([]);
+  const [behaviorEventMetadataExample, setBehaviorEventMetadataExample] = useState("{}");
   const [behaviorEventAdvancedOpen, setBehaviorEventAdvancedOpen] = useState(false);
   const [editingBehaviorEventId, setEditingBehaviorEventId] = useState<string | null>(null);
   const [pendingBehaviorEventEditId, setPendingBehaviorEventEditId] = useState<string | null>(null);
-  const [behaviorListenerSourceType, setBehaviorListenerSourceType] =
-    useState<BehaviorListenerSourceType>("field");
+  const [behaviorListenerSourceType, setBehaviorListenerSourceType] = useState<BehaviorListenerSourceType>("field");
   const [behaviorListenerEventType, setBehaviorListenerEventType] = useState("");
   const [behaviorListenerSourceId, setBehaviorListenerSourceId] = useState("");
   const [behaviorListenerUseCapture, setBehaviorListenerUseCapture] = useState(false);
   const [behaviorListenerPriority, setBehaviorListenerPriority] = useState(0);
   const [behaviorListenerShowRawEvents, setBehaviorListenerShowRawEvents] = useState(false);
   const [behaviorPresetSearch, setBehaviorPresetSearch] = useState("");
+  const [reactionTargetSearch, setReactionTargetSearch] = useState("");
   const [behaviorPresetCategory, setBehaviorPresetCategory] = useState<BehaviorPresetCategory>("recommended");
   const [behaviorIndexStepFilter, setBehaviorIndexStepFilter] = useState("all");
   const [behaviorIndexScopeFilter, setBehaviorIndexScopeFilter] = useState("all");
@@ -3074,6 +3238,9 @@ export default function App() {
   const [pendingWorkspaceTransition, setPendingWorkspaceTransition] = useState<WorkspaceTransitionRequest | null>(null);
   const [runtimePayloadEditors, setRuntimePayloadEditors] = useState<Record<string, RuntimePayloadEditorState>>({});
   const [listenerTestValues, setListenerTestValues] = useState<Record<string, unknown>>({});
+  const [eventFlowSourceId, setEventFlowSourceId] = useState("");
+  const [eventFlowEventType, setEventFlowEventType] = useState("");
+  const [eventFlowPayloadValues, setEventFlowPayloadValues] = useState<EventFlowPayloadValues>({});
   const [lastDispatchReport, setLastDispatchReport] = useState<RuntimeDispatchReport | null>(null);
   const [selectedRuntimeEvidenceKey, setSelectedRuntimeEvidenceKey] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -3148,6 +3315,7 @@ export default function App() {
 
   useEffect(() => {
     if (!activeProjectId) {
+      activeProjectDetailRef.current = null;
       setActiveProjectDetail(null);
       setProjectRevisions([]);
       setOpenedRevisionView(null);
@@ -3167,6 +3335,7 @@ export default function App() {
           document: cloneDocument(detail.document),
         };
         ensureDocumentDispatchKeys(nextDetail.document);
+        activeProjectDetailRef.current = nextDetail;
         startTransition(() => {
           setActiveProjectDetail(nextDetail);
           setProjectRevisions(revisions);
@@ -3267,6 +3436,10 @@ export default function App() {
     activeConversion && activeReviewPage
       ? getConversionPagePreviewUrl(activeConversion.id, activeReviewPage.orderIndex + 1)
       : null;
+
+  useEffect(() => {
+    activeProjectDetailRef.current = activeProjectDetail;
+  }, [activeProjectDetail]);
 
   const activeDocument = activeProjectDetail?.document ?? null;
   const sourceContextDraft = activeProjectDetail?.sourceContext.importedDraft ?? null;
@@ -3437,14 +3610,14 @@ export default function App() {
         })),
         ...section.fields.map((field) => ({
           id: field.id,
-          label: `Field · ${field.label}`,
+          label: `${runtimeNodeTypeLabel(runtimeNodeTypeForAuthoringField(field))} · ${field.label}`,
           optionLabel: formatNodeOptionLabel(componentChromeLabel(field), field.label, field.dispatchKey),
           dispatchKey: field.dispatchKey ?? null,
         })),
         ...section.groups.flatMap((group) =>
           group.fields.map((field) => ({
             id: field.id,
-            label: `Field · ${field.label}`,
+            label: `${runtimeNodeTypeLabel(runtimeNodeTypeForAuthoringField(field))} · ${field.label}`,
             optionLabel: formatNodeOptionLabel(componentChromeLabel(field), field.label, field.dispatchKey),
             dispatchKey: field.dispatchKey ?? null,
           })),
@@ -3657,7 +3830,7 @@ export default function App() {
               id: rule.ruleId,
               title: `${field.label} reacts to ${fieldLabelById.get(rule.whenFieldId) ?? "another field"}`,
               detail: `When ${fieldLabelById.get(rule.whenFieldId) ?? "that field"} ${describeRuleOperator(rule)}, ${describeRuleEffect(rule)} ${field.label}.`,
-              scopeLabel: `Field · ${field.label}`,
+              scopeLabel: `${runtimeNodeTypeLabel(runtimeNodeTypeForAuthoringField(field))} · ${field.label}`,
               sourceFieldLabel: fieldLabelById.get(rule.whenFieldId) ?? "another field",
               sourceFieldId: rule.whenFieldId,
               targetFieldLabel: field.label,
@@ -3679,7 +3852,7 @@ export default function App() {
             runtimeListeners.push(
               ...field.runtime.listeners.map((listener) => ({
                 id: listener.id,
-                scopeLabel: `Field · ${field.label}`,
+                scopeLabel: `${runtimeNodeTypeLabel(runtimeNodeTypeForAuthoringField(field))} · ${field.label}`,
                 eventName: listener.eventName,
                 actionsSummary: summarizeListenerActions(listener.actions),
                 actionKinds: listener.actions.map((action) => action.kind),
@@ -3730,7 +3903,7 @@ export default function App() {
                 id: rule.ruleId,
                 title: `${field.label} reacts to ${fieldLabelById.get(rule.whenFieldId) ?? "another field"}`,
                 detail: `When ${fieldLabelById.get(rule.whenFieldId) ?? "that field"} ${describeRuleOperator(rule)}, ${describeRuleEffect(rule)} ${field.label}.`,
-                scopeLabel: `Field · ${field.label}`,
+                scopeLabel: `${runtimeNodeTypeLabel(runtimeNodeTypeForAuthoringField(field))} · ${field.label}`,
                 sourceFieldLabel: fieldLabelById.get(rule.whenFieldId) ?? "another field",
                 sourceFieldId: rule.whenFieldId,
                 targetFieldLabel: field.label,
@@ -3758,7 +3931,7 @@ export default function App() {
               runtimeListeners.push(
                 ...field.runtime.listeners.map((listener) => ({
                   id: listener.id,
-                  scopeLabel: `Field · ${field.label}`,
+                  scopeLabel: `${runtimeNodeTypeLabel(runtimeNodeTypeForAuthoringField(field))} · ${field.label}`,
                   eventName: listener.eventName,
                   actionsSummary: summarizeListenerActions(listener.actions),
                   actionKinds: listener.actions.map((action) => action.kind),
@@ -3816,12 +3989,13 @@ export default function App() {
     }
     if (selectedAuthoring.kind === "field" && activeBuilderField) {
       const runtime = activeBuilderField.runtime ?? createRuntimeNodeBehavior();
+      const scopeKind = runtimeNodeTypeForAuthoringField(activeBuilderField);
       return {
-        scopeKind: activeBuilderField.rendererHints.component === "button" ? "component" : "field",
+        scopeKind,
         label: activeBuilderField.label,
         description:
-          activeBuilderField.rendererHints.component === "button"
-            ? "Buttons are event sources. Use behavior starters to wire click behavior without dropping into raw JSON."
+          scopeKind === "component"
+            ? "Components and buttons are event sources. Use behavior starters to wire click behavior without dropping into raw JSON."
             : "Field events usually start with a value change, then trigger one or more follow-up actions.",
         eventSources: runtime.eventSources,
         listeners: runtime.listeners,
@@ -3889,6 +4063,18 @@ export default function App() {
     beginBehaviorEventCreationPath(eventDefinition);
     setPendingBehaviorEventEditId(null);
   }, [activeRuntimeScope, pendingBehaviorEventEditId]);
+
+  useEffect(() => {
+    if (!activeRuntimeTarget) {
+      if (eventFlowSourceId) {
+        setEventFlowSourceId("");
+      }
+      return;
+    }
+    if (!eventFlowSourceId || !runtimeEventSourceCandidateById.has(eventFlowSourceId)) {
+      setEventFlowSourceId(activeRuntimeTarget.id);
+    }
+  }, [activeRuntimeTarget, eventFlowSourceId, runtimeEventSourceCandidateById]);
 
   useEffect(() => {
     setSelectedRuntimeEvidenceKey(null);
@@ -4336,7 +4522,10 @@ export default function App() {
   ): RuntimeSourceEventOption[] {
     const coreEvents = runtimeCoreEventsForDispatcher(scope.scopeKind, field?.semanticType);
     const coreEventsByType = new Map(coreEvents.map((eventType) => [eventType.type, eventType]));
-    return uniqueRuntimeEventTypes([...runtimeTriggerSuggestions(scope, field), ...coreEvents.map((eventType) => eventType.type)])
+    return uniqueRuntimeEventTypes([
+      ...runtimeTriggerSuggestions(scope, field),
+      ...coreEvents.map((eventType) => eventType.type),
+    ])
       .map((eventType) => {
         const coreEvent = coreEventsByType.get(eventType);
         return {
@@ -4347,6 +4536,15 @@ export default function App() {
         };
       })
       .filter((eventOption) => coreEventsByType.has(eventOption.type));
+  }
+
+  function defaultRuntimeEventOptionForNewDefinition(
+    scope: RuntimeEditorScope,
+    field: AuthoringField | null,
+  ): RuntimeSourceEventOption | null {
+    const eventOptions = runtimeEventOptionsForScope(scope, field);
+    const savedTypes = new Set(scope.eventSources.map(runtimeEventDefinitionType));
+    return eventOptions.find((option) => !savedTypes.has(option.type)) ?? eventOptions[0] ?? null;
   }
 
   function runtimeEventNameSuggestions(
@@ -4559,11 +4757,457 @@ export default function App() {
     return nextAction;
   }
 
+  function createRuntimeReactionAction(
+    kind: RuntimeActionKind,
+    target: RuntimeEventSourceCandidate,
+    config: Record<string, unknown> = {},
+  ): RuntimeActionDefinition {
+    const nextAction = createRuntimeAction(kind, config);
+    nextAction.target = { nodeId: target.id, nodeType: target.nodeType };
+    if (
+      kind === "show_node" ||
+      kind === "hide_node" ||
+      kind === "enable_node" ||
+      kind === "disable_node" ||
+      kind === "mark_required" ||
+      kind === "mark_optional"
+    ) {
+      nextAction.config.nodeId = target.id;
+    }
+    if ((kind === "set_field_value" || kind === "clear_field_value") && target.nodeType === "field") {
+      nextAction.config.fieldId = target.id;
+    }
+    if (kind === "go_to_step") {
+      nextAction.config.stepId =
+        typeof config.stepId === "string" ? config.stepId : (target.pathIds[1] ?? builderStepOptions[0]?.id ?? "");
+    }
+    return nextAction;
+  }
+
+  function runtimeNodeTypeIsContainer(nodeType: RuntimeNodeType): boolean {
+    return nodeType === "form" || nodeType === "step" || nodeType === "section" || nodeType === "group";
+  }
+
+  function runtimeReactionRelationshipLabel(candidate: RuntimeEventSourceCandidate): string {
+    if (activeRuntimeTarget?.id === candidate.id) {
+      return "Current item";
+    }
+    if (activeRuntimeTarget?.pathIds.includes(candidate.id)) {
+      if (candidate.nodeType === "form") {
+        return "Parent form";
+      }
+      if (runtimeNodeTypeIsContainer(candidate.nodeType)) {
+        return `Parent ${runtimeNodeTypeLabel(candidate.nodeType).toLowerCase()}`;
+      }
+      return `Parent ${runtimeNodeTypeLabel(candidate.nodeType).toLowerCase()}`;
+    }
+    return "Other node";
+  }
+
+  function runtimeReactionTargetOptions(
+    listener: RuntimeListenerDefinition,
+    target: RuntimeEventSourceCandidate | null,
+  ): RuntimeReactionTargetOption[] {
+    const pathIds = activeRuntimeTarget?.pathIds ?? target?.pathIds ?? [];
+    const options = new Map<string, RuntimeReactionTargetOption>();
+    pathIds
+      .map((id) => runtimeEventSourceCandidateById.get(id))
+      .filter((candidate): candidate is RuntimeEventSourceCandidate => Boolean(candidate))
+      .forEach((candidate) => {
+        options.set(candidate.id, {
+          candidate,
+          relationshipLabel: runtimeReactionRelationshipLabel(candidate),
+          group: "path",
+        });
+      });
+
+    if (target && !options.has(target.id)) {
+      options.set(target.id, {
+        candidate: target,
+        relationshipLabel: "Selected target",
+        group: "path",
+      });
+    }
+
+    const normalizedSearch = reactionTargetSearch.trim().toLowerCase();
+    runtimeEventSourceCandidates
+      .filter((candidate) => {
+        if (options.has(candidate.id)) {
+          return false;
+        }
+        if (!normalizedSearch) {
+          return true;
+        }
+        return `${candidate.componentLabel} ${candidate.label} ${candidate.locationLabel} ${candidate.dispatchKey ?? ""}`
+          .toLowerCase()
+          .includes(normalizedSearch);
+      })
+      .slice(0, normalizedSearch ? 24 : 10)
+      .forEach((candidate) => {
+        options.set(candidate.id, {
+          candidate,
+          relationshipLabel: "Search result",
+          group: "all",
+        });
+      });
+
+    if (listener.targetNodeId && !options.has(listener.targetNodeId)) {
+      const fallbackTarget = runtimeEventSourceCandidateById.get(listener.targetNodeId);
+      if (fallbackTarget) {
+        options.set(fallbackTarget.id, {
+          candidate: fallbackTarget,
+          relationshipLabel: "Selected target",
+          group: "path",
+        });
+      }
+    }
+
+    return Array.from(options.values());
+  }
+
+  function updateRuntimeReactionTarget(listenerId: string, targetId: string) {
+    const target = runtimeEventSourceCandidateById.get(targetId);
+    if (!target) {
+      return;
+    }
+    updateRuntimeListener(listenerId, (listener) => {
+      listener.targetNodeId = target.id;
+      listener.targetNodeType = target.nodeType;
+    });
+    setMessage(`Listener reaction target set to ${target.label}.`);
+  }
+
+  function booleanReactionActions(
+    listener: RuntimeListenerDefinition,
+    targetId: string,
+    trueKind: RuntimeActionKind,
+    falseKind: RuntimeActionKind,
+  ): RuntimeActionDefinition[] {
+    return listener.actions.filter(
+      (action) =>
+        (action.kind === trueKind || action.kind === falseKind) && runtimeNodeActionTargetId(action) === targetId,
+    );
+  }
+
+  function booleanReactionValue(
+    listener: RuntimeListenerDefinition,
+    targetId: string,
+    trueKind: RuntimeActionKind,
+    falseKind: RuntimeActionKind,
+  ): RuntimeReactionBooleanValue | "conflict" {
+    const matches = booleanReactionActions(listener, targetId, trueKind, falseKind);
+    if (!matches.length) {
+      return "unset";
+    }
+    if (matches.length > 1) {
+      return "conflict";
+    }
+    return matches[0]?.kind === trueKind ? "true" : "false";
+  }
+
+  function setRuntimeBooleanReactionProperty(
+    listenerId: string,
+    target: RuntimeEventSourceCandidate,
+    trueKind: RuntimeActionKind,
+    falseKind: RuntimeActionKind,
+    value: RuntimeReactionBooleanValue,
+    label: string,
+  ) {
+    let nextActionId: string | null = null;
+    let removedActionIds: string[] = [];
+    updateRuntimeListener(listenerId, (listener) => {
+      removedActionIds = booleanReactionActions(listener, target.id, trueKind, falseKind).map((action) => action.id);
+      listener.actions = listener.actions.filter((action) => !removedActionIds.includes(action.id));
+      if (value === "unset") {
+        return;
+      }
+      const nextAction = createRuntimeReactionAction(value === "true" ? trueKind : falseKind, target);
+      nextActionId = nextAction.id;
+      listener.actions.push(nextAction);
+    });
+    if (removedActionIds.length) {
+      setRuntimePayloadEditors((current) => {
+        const next = { ...current };
+        removedActionIds.forEach((actionId) => {
+          delete next[actionId];
+        });
+        return next;
+      });
+    }
+    if (nextActionId) {
+      setSelectedBehaviorNode({ kind: "listener", listenerId, phase: "action", actionId: nextActionId });
+    }
+    setMessage(
+      value === "unset" ? `${label} reaction unset for ${target.label}.` : `${label} reaction set for ${target.label}.`,
+    );
+  }
+
+  function valueReactionActions(listener: RuntimeListenerDefinition, targetId: string): RuntimeActionDefinition[] {
+    return listener.actions.filter(
+      (action) =>
+        (action.kind === "set_field_value" || action.kind === "clear_field_value") &&
+        runtimeFieldActionTargetId(action) === targetId,
+    );
+  }
+
+  function valueReactionMode(
+    listener: RuntimeListenerDefinition,
+    targetId: string,
+  ): RuntimeReactionValueMode | "conflict" {
+    const matches = valueReactionActions(listener, targetId);
+    if (!matches.length) {
+      return "unset";
+    }
+    if (matches.length > 1) {
+      return "conflict";
+    }
+    const action = matches[0];
+    if (action?.kind === "clear_field_value") {
+      return "clear";
+    }
+    return isRuntimePayloadReference(action?.config.value) ? "payload" : "static";
+  }
+
+  function listenerPayloadReferenceOptions(listener: RuntimeListenerDefinition): RuntimePayloadReferenceOption[] {
+    const seen = new Set<RuntimePayloadReferenceKey>();
+    const options = listenerSourcePayloadFields(listener).map<RuntimePayloadReferenceOption>((field) => {
+      const key = eventPayloadReferenceKey(field.name);
+      seen.add(key);
+      return {
+        key,
+        label: field.label ?? formatLabel(field.name),
+        description: field.description ?? `Use ${field.name} from the source event payload.`,
+      };
+    });
+    runtimePayloadReferenceOptions
+      .filter((option) => option.key.startsWith("current.event.payload.") && !seen.has(option.key))
+      .forEach((option) => {
+        seen.add(option.key);
+        options.push(option);
+      });
+    return options;
+  }
+
+  function defaultEventPayloadConditionPath(listener: RuntimeListenerDefinition): string {
+    const payloadFields = listenerSourcePayloadFields(listener);
+    const preferredNames = [
+      "selectedValue",
+      "selectedValues",
+      "value",
+      "nextValue",
+      "checked",
+      "changedOption",
+      "optionValue",
+    ];
+    const preferredField = preferredNames
+      .map((name) => payloadFields.find((field) => field.name === name))
+      .find((field): field is RuntimePayloadField => Boolean(field));
+    const firstNonIdentityField = payloadFields.find(
+      (field) => !["nodeId", "nodeKey", "nodeType", "fieldId", "fieldKey", "fieldLabel"].includes(field.name),
+    );
+    return preferredField?.name ?? firstNonIdentityField?.name ?? payloadFields[0]?.name ?? "value";
+  }
+
+  function defaultPayloadReferenceForValue(listener: RuntimeListenerDefinition): RuntimePayloadReferenceKey | null {
+    return firstListenerPayloadReference(listener, [
+      "selectedValue",
+      "selectedValues",
+      "changedOption",
+      "optionValue",
+      "value",
+      "nextValue",
+    ]);
+  }
+
+  function setRuntimeValueReactionMode(
+    listenerId: string,
+    target: RuntimeEventSourceCandidate,
+    mode: RuntimeReactionValueMode,
+  ) {
+    if (target.nodeType !== "field") {
+      return;
+    }
+    let nextActionId: string | null = null;
+    let removedActionIds: string[] = [];
+    updateRuntimeListener(listenerId, (listener) => {
+      const matches = valueReactionActions(listener, target.id);
+      const existingSet = matches.find((action) => action.kind === "set_field_value");
+      const existingValue =
+        existingSet && !isRuntimePayloadReference(existingSet.config.value) ? existingSet.config.value : "";
+      const existingReference = isRuntimePayloadReference(existingSet?.config.value)
+        ? existingSet.config.value.$runtime
+        : null;
+      removedActionIds = matches.map((action) => action.id);
+      listener.actions = listener.actions.filter((action) => !removedActionIds.includes(action.id));
+      if (mode === "unset") {
+        return;
+      }
+      const nextAction =
+        mode === "clear"
+          ? createRuntimeReactionAction("clear_field_value", target)
+          : createRuntimeReactionAction("set_field_value", target, {
+              value:
+                mode === "payload"
+                  ? {
+                      $runtime:
+                        existingReference ?? defaultPayloadReferenceForValue(listener) ?? "current.event.payload.value",
+                    }
+                  : existingValue,
+            });
+      nextActionId = nextAction.id;
+      listener.actions.push(nextAction);
+    });
+    if (removedActionIds.length) {
+      setRuntimePayloadEditors((current) => {
+        const next = { ...current };
+        removedActionIds.forEach((actionId) => {
+          delete next[actionId];
+        });
+        return next;
+      });
+    }
+    if (nextActionId) {
+      setSelectedBehaviorNode({ kind: "listener", listenerId, phase: "action", actionId: nextActionId });
+    }
+    setMessage(
+      mode === "unset" ? `Value reaction unset for ${target.label}.` : `Value reaction set for ${target.label}.`,
+    );
+  }
+
+  function updateRuntimeValueReactionStatic(listenerId: string, target: RuntimeEventSourceCandidate, value: string) {
+    if (target.nodeType !== "field") {
+      return;
+    }
+    let nextActionId: string | null = null;
+    updateRuntimeListener(listenerId, (listener) => {
+      const matches = valueReactionActions(listener, target.id);
+      if (matches.length !== 1 || matches[0]?.kind !== "set_field_value") {
+        const removedIds = matches.map((action) => action.id);
+        listener.actions = listener.actions.filter((action) => !removedIds.includes(action.id));
+        const nextAction = createRuntimeReactionAction("set_field_value", target, { value });
+        nextActionId = nextAction.id;
+        listener.actions.push(nextAction);
+        return;
+      }
+      matches[0].config.value = value;
+    });
+    if (nextActionId) {
+      setSelectedBehaviorNode({ kind: "listener", listenerId, phase: "action", actionId: nextActionId });
+    }
+  }
+
+  function updateRuntimeValueReactionPayload(
+    listenerId: string,
+    target: RuntimeEventSourceCandidate,
+    reference: RuntimePayloadReferenceKey,
+  ) {
+    if (target.nodeType !== "field") {
+      return;
+    }
+    let nextActionId: string | null = null;
+    updateRuntimeListener(listenerId, (listener) => {
+      const matches = valueReactionActions(listener, target.id);
+      if (matches.length !== 1 || matches[0]?.kind !== "set_field_value") {
+        const removedIds = matches.map((action) => action.id);
+        listener.actions = listener.actions.filter((action) => !removedIds.includes(action.id));
+        const nextAction = createRuntimeReactionAction("set_field_value", target, { value: { $runtime: reference } });
+        nextActionId = nextAction.id;
+        listener.actions.push(nextAction);
+        return;
+      }
+      matches[0].config.value = { $runtime: reference };
+    });
+    if (nextActionId) {
+      setSelectedBehaviorNode({ kind: "listener", listenerId, phase: "action", actionId: nextActionId });
+    }
+  }
+
+  function navigationReactionActions(listener: RuntimeListenerDefinition, targetId: string): RuntimeActionDefinition[] {
+    return listener.actions.filter(
+      (action) =>
+        (action.kind === "go_to_next_step" ||
+          action.kind === "go_to_previous_step" ||
+          action.kind === "go_to_step" ||
+          action.kind === "submit_form") &&
+        runtimeNavigationActionTargetId(action) === targetId,
+    );
+  }
+
+  function navigationReactionValue(
+    listener: RuntimeListenerDefinition,
+    targetId: string,
+  ): RuntimeReactionNavigationValue | "conflict" {
+    const matches = navigationReactionActions(listener, targetId);
+    if (!matches.length) {
+      return "unset";
+    }
+    if (matches.length > 1) {
+      return "conflict";
+    }
+    const kind = matches[0]?.kind;
+    return kind === "go_to_next_step" ||
+      kind === "go_to_previous_step" ||
+      kind === "go_to_step" ||
+      kind === "submit_form"
+      ? kind
+      : "unset";
+  }
+
+  function setRuntimeNavigationReaction(
+    listenerId: string,
+    target: RuntimeEventSourceCandidate,
+    value: RuntimeReactionNavigationValue,
+  ) {
+    let nextActionId: string | null = null;
+    let removedActionIds: string[] = [];
+    updateRuntimeListener(listenerId, (listener) => {
+      removedActionIds = navigationReactionActions(listener, target.id).map((action) => action.id);
+      listener.actions = listener.actions.filter((action) => !removedActionIds.includes(action.id));
+      if (value === "unset") {
+        return;
+      }
+      const nextAction = createRuntimeReactionAction(value, target, {
+        stepId:
+          builderStepOptions.find((option) => option.id !== activeStep?.id)?.id ?? builderStepOptions[0]?.id ?? "",
+      });
+      nextActionId = nextAction.id;
+      listener.actions.push(nextAction);
+    });
+    if (removedActionIds.length) {
+      setRuntimePayloadEditors((current) => {
+        const next = { ...current };
+        removedActionIds.forEach((actionId) => {
+          delete next[actionId];
+        });
+        return next;
+      });
+    }
+    if (nextActionId) {
+      setSelectedBehaviorNode({ kind: "listener", listenerId, phase: "action", actionId: nextActionId });
+    }
+    setMessage(
+      value === "unset"
+        ? `Navigation reaction unset for ${target.label}.`
+        : `Navigation reaction set for ${target.label}.`,
+    );
+  }
+
+  function updateRuntimeNavigationStep(listenerId: string, target: RuntimeEventSourceCandidate, stepId: string) {
+    updateRuntimeListener(listenerId, (listener) => {
+      const matches = navigationReactionActions(listener, target.id).filter((action) => action.kind === "go_to_step");
+      if (matches.length === 1) {
+        matches[0].config.stepId = stepId;
+      }
+    });
+  }
+
   function runtimeActionChoicesForListener(listener: RuntimeListenerDefinition): RuntimeListenerActionChoice[] {
     const target = listenerTargetCandidate(listener);
     const targetLabel = target?.label ?? activeRuntimeScope?.label ?? "this component";
     const targetField =
-      target && activeDocument && target.nodeType === "field" ? findAuthoringFieldById(activeDocument, target.id) : null;
+      target && activeDocument && target.nodeType === "field"
+        ? findAuthoringFieldById(activeDocument, target.id)
+        : null;
     const choices: RuntimeListenerActionChoice[] = [];
     const addChoice = (
       id: string,
@@ -4632,7 +5276,13 @@ export default function App() {
         targetField?.semanticType === "checkbox"
           ? firstListenerPayloadReference(listener, ["selectedValues", "value", "nextValue"])
           : targetField?.semanticType === "radio" || targetField?.semanticType === "select"
-            ? firstListenerPayloadReference(listener, ["selectedValue", "changedOption", "optionValue", "value", "nextValue"])
+            ? firstListenerPayloadReference(listener, [
+                "selectedValue",
+                "changedOption",
+                "optionValue",
+                "value",
+                "nextValue",
+              ])
             : firstListenerPayloadReference(listener, ["value", "nextValue", "selectedValue", "changedOption"]);
       if (preferredReference) {
         addChoice(
@@ -4970,6 +5620,7 @@ export default function App() {
       document: cloneDocument(detail.document),
     };
     ensureDocumentDispatchKeys(nextDetail.document);
+    activeProjectDetailRef.current = nextDetail;
     startTransition(() => {
       setActiveProjectDetail(nextDetail);
       setProjects((current) => {
@@ -4984,26 +5635,27 @@ export default function App() {
     mutate: (document: AuthoringDocument) => void,
     nextSelection?: AuthoringSelection | null,
   ) {
-    if (!activeProjectDetail) {
+    const currentDetail = activeProjectDetailRef.current ?? activeProjectDetail;
+    if (!currentDetail) {
       return;
     }
-    const nextDocument = cloneDocument(activeProjectDetail.document);
+    const nextDocument = cloneDocument(currentDetail.document);
     mutate(nextDocument);
     ensureDocumentDispatchKeys(nextDocument);
+    const nextDetail = {
+      ...currentDetail,
+      document: nextDocument,
+      project: {
+        ...currentDetail.project,
+        name: nextDocument.title,
+      },
+    };
+    activeProjectDetailRef.current = nextDetail;
     setProjectDirty(true);
-    startTransition(() => {
-      setActiveProjectDetail({
-        ...activeProjectDetail,
-        document: nextDocument,
-        project: {
-          ...activeProjectDetail.project,
-          name: nextDocument.title,
-        },
-      });
-      if (nextSelection !== undefined) {
-        setSelectedAuthoring(nextSelection);
-      }
-    });
+    setActiveProjectDetail(nextDetail);
+    if (nextSelection !== undefined) {
+      setSelectedAuthoring(nextSelection);
+    }
   }
 
   function invokeRuntimeAction(action: RuntimeActionDefinition) {
@@ -5409,7 +6061,7 @@ export default function App() {
         : section.fields.find((candidate) => candidate.id === selectedAuthoring.fieldId);
       if (field) {
         field.runtime ??= createRuntimeNodeBehavior();
-        mutate(field.runtime, field.rendererHints.component === "button" ? "component" : "field", field);
+        mutate(field.runtime, runtimeNodeTypeForAuthoringField(field), field);
       }
     }, selectedAuthoring);
   }
@@ -5419,6 +6071,7 @@ export default function App() {
     eventType: string;
     bubbles: boolean;
     payloadFields: RuntimePayloadField[];
+    payloadExample?: Record<string, unknown>;
     description?: string | null;
   }) {
     if (!activeRuntimeScope) {
@@ -5439,12 +6092,13 @@ export default function App() {
     }
 
     let status: "created" | "updated" | null = null;
+    let savedEventId: string | null = config.eventId ?? null;
     updateRuntimeScope((runtime, scopeKind) => {
       const nodeId = selectedRuntimeNodeIdForScope(scopeKind);
       const eventDefinition = createRuntimeEventSource(config.eventType, activeRuntimeScope, nodeId, {
         id: config.eventId,
         bubbles: config.bubbles,
-        payloadShape: createRuntimePayloadShapeFromFields(config.payloadFields),
+        payloadShape: createRuntimePayloadShapeFromFields(config.payloadFields, config.payloadExample ?? {}),
         description: config.description?.trim() || null,
       });
       status = upsertRuntimeEventSource(
@@ -5453,13 +6107,24 @@ export default function App() {
           : (runtime as RuntimeNodeBehavior).eventSources,
         eventDefinition,
       );
+      const eventSources =
+        scopeKind === "form"
+          ? (runtime as RuntimeDocumentBehavior).formEvents
+          : (runtime as RuntimeNodeBehavior).eventSources;
+      savedEventId = findRuntimeEventSourceForUpsert(eventSources, eventDefinition)?.id ?? eventDefinition.id;
     });
 
     if (status) {
       setErrorMessage(null);
       setMessage(`${formatLabel(config.eventType)} event ${status} for ${activeRuntimeScope.label}.`);
-      finalizeBehaviorStudioCreation();
-      setBehaviorStudioMode("manage");
+      if (behaviorStudioMode === "event") {
+        setBehaviorStudioCreating(true);
+        setBehaviorCreationPath("event");
+        setEditingBehaviorEventId(savedEventId);
+      } else {
+        finalizeBehaviorStudioCreation();
+        setBehaviorStudioMode("manage");
+      }
     }
   }
 
@@ -5600,7 +6265,7 @@ export default function App() {
     setBehaviorStudioCreating(true);
     setBehaviorCreationPath("event");
     setSelectedBehaviorNode(null);
-    setBehaviorStudioMode("create");
+    setBehaviorStudioMode("event");
     setBehaviorStudioView("studio");
     setBehaviorStudioOpen(true);
     setInspectorTab("behavior");
@@ -6650,6 +7315,10 @@ export default function App() {
 
   function behaviorStudioUsesWorkspaceShell() {
     return (
+      behaviorStudioMode === "create" ||
+      behaviorStudioMode === "event" ||
+      behaviorStudioMode === "listener" ||
+      behaviorStudioMode === "action" ||
       behaviorStudioMode === "graph" ||
       (behaviorStudioMode === "test" && behaviorStudioView === "advanced" && behaviorStudioAnchor === null) ||
       (behaviorStudioMode === "manage" && behaviorStudioManagerMode === "index" && behaviorStudioAnchor === null)
@@ -6710,14 +7379,7 @@ export default function App() {
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setBehaviorStudioView(view);
     setBehaviorStudioAnchor(anchor);
-    setBehaviorStudioMode(
-      mode ??
-        (view === "advanced"
-          ? "graph"
-          : logicMapData && (logicMapData.totalConditionals > 0 || logicMapData.totalListeners > 0)
-            ? "manage"
-            : "create"),
-    );
+    setBehaviorStudioMode(mode ?? (view === "advanced" ? "graph" : "event"));
     if (view === "advanced") {
       setBehaviorStudioCreating(false);
       setBehaviorWorkspaceMode("authoring");
@@ -6770,13 +7432,43 @@ export default function App() {
     setInspectorTab("behavior");
   }
 
+  function openBehaviorStudioEventSection() {
+    setBehaviorStudioCreating(true);
+    setBehaviorCreationPath("event");
+    setSelectedBehaviorNode(null);
+    setBehaviorStudioMode("event");
+    setBehaviorStudioView("studio");
+  }
+
+  function openBehaviorStudioListenerSection() {
+    setBehaviorStudioCreating(true);
+    setSelectedBehaviorNode(null);
+    beginBehaviorListenerCreationPath();
+    setBehaviorStudioMode("listener");
+    setBehaviorStudioView("studio");
+  }
+
+  function openBehaviorStudioActionSection() {
+    setBehaviorStudioCreating(false);
+    setBehaviorFocusTarget(null);
+    setBehaviorStudioMode("action");
+    setBehaviorStudioView("studio");
+  }
+
+  function openBehaviorStudioTestSection() {
+    setBehaviorStudioCreating(false);
+    setBehaviorFocusTarget(null);
+    setBehaviorStudioMode("test");
+    setBehaviorStudioView("studio");
+  }
+
   function openBehaviorNodeInStudio(node: BehaviorGraphSelection, ruleIndex?: number | null) {
     setBehaviorStudioCreating(false);
     setBehaviorStudioAnchor(null);
     setBehaviorStudioManagerMode(node.kind === "rule" ? "conditions" : "flows");
     setEditingRuleIndex(node.kind === "rule" ? (ruleIndex ?? null) : null);
     setSelectedBehaviorNode(node);
-    setBehaviorStudioMode("create");
+    setBehaviorStudioMode(node.kind === "listener" ? "action" : "manage");
     setBehaviorStudioView("studio");
     setBehaviorStudioOpen(true);
     setInspectorTab("behavior");
@@ -6826,9 +7518,7 @@ export default function App() {
               : (activeDocument?.id ?? "unknown-form");
     const nodeType =
       selectedAuthoring?.kind === "field"
-        ? activeBuilderField?.rendererHints.component === "button"
-          ? "component"
-          : "field"
+        ? runtimeNodeTypeForAuthoringField(activeBuilderField)
         : selectedAuthoring?.kind === "group"
           ? "group"
           : selectedAuthoring?.kind === "section"
@@ -6877,6 +7567,14 @@ export default function App() {
         nodeType: "field",
       },
       payload: {
+        eventType: "field.change",
+        sourceNodeId: rule.whenFieldId,
+        sourceNodeKey: sourceField?.dispatchKey ?? null,
+        sourceNodeType: "field",
+        targetNodeId: rule.whenFieldId,
+        targetNodeKey: sourceField?.dispatchKey ?? null,
+        targetNodeType: "field",
+        metadata: "{}",
         fieldId: rule.whenFieldId,
         nextValue,
         testedRuleId: rule.ruleId,
@@ -6958,10 +7656,15 @@ export default function App() {
     const payload: Record<string, unknown> = {
       listenerId: listener.id,
       testOrigin: "behavior_studio",
+      eventType,
       sourceNodeId: source.id,
       sourceNodeKey: source.dispatchKey ?? null,
       sourceNodeType: source.nodeType,
       sourceLabel: source.label,
+      targetNodeId: target.nodeId,
+      targetNodeKey: target.nodeKey ?? null,
+      targetNodeType: target.nodeType,
+      metadata: "{}",
       nextValue,
       value: nextValue,
     };
@@ -7035,6 +7738,313 @@ export default function App() {
 
   function handleTestSelectedChain(listener: RuntimeListenerDefinition | null) {
     handleRunGuidedListenerTest(listener);
+  }
+
+  function eventFlowOptionsForSource(source: RuntimeEventSourceCandidate): RuntimeSourceEventOption[] {
+    const options = new Map<string, RuntimeSourceEventOption>();
+    source.events.forEach((eventOption) => {
+      options.set(eventOption.type, eventOption);
+    });
+    source.eventDefinitions.forEach((eventDefinition) => {
+      const eventType = runtimeEventDefinitionType(eventDefinition);
+      if (!eventType || options.has(eventType)) {
+        return;
+      }
+      options.set(eventType, {
+        type: eventType,
+        label: formatLabel(eventType),
+        bubbles: eventDefinition.bubbles ?? runtimeCoreEventType(eventType)?.bubbles ?? true,
+        description: eventDefinition.description ?? null,
+      });
+    });
+    return Array.from(options.values());
+  }
+
+  function defaultEventFlowPayloadValue(
+    field: RuntimePayloadField,
+    source: RuntimeEventSourceCandidate,
+    sourceField: AuthoringField | null,
+    eventType: string,
+    target: RuntimeEventSourceCandidate | null,
+  ): string {
+    const firstOptionValue = fieldFirstOptionValue(sourceField);
+    const authoredExampleValue = source.eventDefinitions.find(
+      (eventDefinition) => runtimeEventDefinitionType(eventDefinition) === eventType,
+    )?.payloadShape?.example?.[field.name];
+    if (authoredExampleValue !== undefined) {
+      return typeof authoredExampleValue === "string"
+        ? authoredExampleValue
+        : JSON.stringify(authoredExampleValue, null, 2);
+    }
+    switch (field.name) {
+      case "eventType":
+        return eventType;
+      case "fieldId":
+      case "componentId":
+      case "nodeId":
+      case "sourceNodeId":
+        return source.id;
+      case "targetNodeId":
+        return target?.id ?? source.id;
+      case "fieldKey":
+      case "componentKey":
+      case "nodeKey":
+      case "sourceNodeKey":
+        return source.dispatchKey ?? "";
+      case "targetNodeKey":
+        return target?.dispatchKey ?? "";
+      case "fieldLabel":
+      case "label":
+      case "sourceLabel":
+        return source.label;
+      case "nodeType":
+      case "sourceNodeType":
+      case "componentType":
+        return sourceField?.semanticType ?? source.nodeType;
+      case "targetNodeType":
+        return target?.nodeType ?? source.nodeType;
+      case "metadata":
+        return "{}";
+      case "selectedValue":
+      case "changedOption":
+      case "optionValue":
+      case "value":
+      case "nextValue":
+        return firstOptionValue || (field.valueType === "number" ? "0" : "Test value");
+      case "selectedValues":
+        return JSON.stringify(firstOptionValue ? [firstOptionValue] : []);
+      default:
+        if (field.valueType === "boolean") {
+          return "false";
+        }
+        if (field.valueType === "number") {
+          return "0";
+        }
+        if (field.valueType === "object") {
+          return "{}";
+        }
+        if (field.valueType === "array") {
+          return "[]";
+        }
+        return "";
+    }
+  }
+
+  function eventFlowPayloadRawValue(
+    field: RuntimePayloadField,
+    source: RuntimeEventSourceCandidate,
+    sourceField: AuthoringField | null,
+    eventType: string,
+    target: RuntimeEventSourceCandidate | null,
+  ): string {
+    return (
+      eventFlowPayloadValues[field.name] ?? defaultEventFlowPayloadValue(field, source, sourceField, eventType, target)
+    );
+  }
+
+  function coerceEventFlowPayloadValue(field: RuntimePayloadField, rawValue: string): unknown {
+    if (field.valueType === "boolean") {
+      return rawValue === "true";
+    }
+    if (field.valueType === "number") {
+      const nextValue = Number(rawValue);
+      if (Number.isNaN(nextValue)) {
+        throw new Error(`${field.label ?? field.name} must be a number.`);
+      }
+      return nextValue;
+    }
+    if (field.valueType === "object" || field.valueType === "array") {
+      try {
+        const parsed = JSON.parse(rawValue || (field.valueType === "array" ? "[]" : "{}"));
+        if (field.valueType === "array" && !Array.isArray(parsed)) {
+          throw new Error("Expected an array.");
+        }
+        if (field.valueType === "object" && (!isRecord(parsed) || Array.isArray(parsed))) {
+          throw new Error("Expected an object.");
+        }
+        return parsed;
+      } catch (error) {
+        throw new Error(
+          `${field.label ?? field.name} must be valid JSON${error instanceof Error ? `: ${error.message}` : "."}`,
+        );
+      }
+    }
+    return rawValue;
+  }
+
+  function buildEventFlowPayload(
+    source: RuntimeEventSourceCandidate,
+    eventType: string,
+    payloadFields: RuntimePayloadField[],
+  ): Record<string, unknown> {
+    const sourceField =
+      activeDocument && (source.nodeType === "field" || source.nodeType === "component")
+        ? findAuthoringFieldById(activeDocument, source.id)
+        : null;
+    const target = activeRuntimeTarget ?? source;
+    const payload = Object.fromEntries(
+      payloadFields.map((field) => [
+        field.name,
+        coerceEventFlowPayloadValue(field, eventFlowPayloadRawValue(field, source, sourceField, eventType, target)),
+      ]),
+    );
+    payload.eventType ??= eventType;
+    payload.sourceNodeId ??= source.id;
+    payload.sourceNodeKey ??= source.dispatchKey ?? null;
+    payload.sourceNodeType ??= source.nodeType;
+    payload.sourceLabel ??= source.label;
+    payload.targetNodeId ??= target.id;
+    payload.targetNodeKey ??= target.dispatchKey ?? null;
+    payload.targetNodeType ??= target.nodeType;
+    payload.metadata ??= "{}";
+    if (sourceField) {
+      const firstOptionValue = fieldFirstOptionValue(sourceField);
+      payload.fieldId ??= sourceField.id;
+      payload.fieldKey ??= sourceField.dispatchKey ?? null;
+      payload.componentType ??= sourceField.semanticType;
+      payload.value ??= firstOptionValue || "Test value";
+      payload.nextValue ??= payload.value;
+      if (sourceField.semanticType === "radio" || sourceField.semanticType === "select") {
+        payload.selectedValue ??= firstOptionValue;
+      }
+      if (sourceField.semanticType === "checkbox") {
+        payload.selectedValues ??= firstOptionValue ? [firstOptionValue] : [];
+      }
+      payload.changedOption ??= firstOptionValue || null;
+    }
+    return payload;
+  }
+
+  function buildEventFlowTestEvent(
+    source: RuntimeEventSourceCandidate,
+    eventType: string,
+    payloadFields: RuntimePayloadField[],
+  ): RuntimeEventEnvelope | null {
+    if (!activeDocument || !eventType) {
+      return null;
+    }
+    const eventOption = source.events.find((candidate) => candidate.type === eventType);
+    const target: NonNullable<RuntimeEventEnvelope["target"]> = {
+      runtimeId: "builder-simulator",
+      formId: activeDocument.id,
+      projectId: activeProjectDetail?.project.id ?? null,
+      nodeId: source.id,
+      nodeKey: source.dispatchKey ?? null,
+      nodeType: source.nodeType,
+    };
+    return {
+      type: eventType,
+      version: "1.0",
+      target,
+      source: target,
+      bubbles: eventOption?.bubbles ?? runtimeEventBubblesForSource(source, eventType),
+      payload: buildEventFlowPayload(source, eventType, payloadFields),
+      correlationId: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  function runEventFlowDispatch(
+    source: RuntimeEventSourceCandidate,
+    eventType: string,
+    payloadFields: RuntimePayloadField[],
+  ) {
+    const event = buildEventFlowTestEvent(source, eventType, payloadFields);
+    if (!event) {
+      setMessage("Choose an event source and event type before firing the event.");
+      return;
+    }
+    try {
+      const report = runtimeEngineRef.current.dispatchWithReport(event);
+      runtimeSessionRef.current = report.stateAfter;
+      setRuntimeSessionState(report.stateAfter);
+      setLastDispatchReport(report);
+      setSelectedRuntimeEvidenceKey(null);
+      const matchedCount = report.listeners.filter((listener) => listener.matched).length;
+      setErrorMessage(null);
+      setMessage(
+        `${event.type} fired from ${source.label}; ${matchedCount} of ${report.listeners.length} listener${report.listeners.length === 1 ? "" : "s"} ran.`,
+      );
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Test dispatch failed.");
+    }
+  }
+
+  function saveEventFlowEvent(
+    source: RuntimeEventSourceCandidate,
+    eventType: string,
+    payloadFields: RuntimePayloadField[],
+  ): boolean {
+    const eventIssue = validateRuntimeIdentifier(eventType, "Event type", defaultBehaviorTriggerName());
+    const payloadIssue = payloadFields.find((field) => validateRuntimeIdentifier(field.name, "Payload field", "value"));
+    if (eventIssue) {
+      setErrorMessage(eventIssue);
+      return false;
+    }
+    if (payloadIssue) {
+      setErrorMessage(validateRuntimeIdentifier(payloadIssue.name, "Payload field", "value"));
+      return false;
+    }
+    const selection = authoringSelectionForRuntimeCandidate(source);
+    const scope: RuntimeEditorScope = {
+      scopeKind: source.nodeType === "component" ? "component" : source.nodeType,
+      label: source.label,
+      description: "",
+      eventSources: [],
+      listeners: [],
+    };
+    let status: "created" | "updated" | null = null;
+    updateAuthoringDocument((document) => {
+      const eventSources = mutableRuntimeEventSourcesForSelection(document, selection);
+      if (!eventSources) {
+        return;
+      }
+      status = upsertRuntimeEventSource(
+        eventSources,
+        createRuntimeEventSource(eventType, scope, source.id, {
+          bubbles: runtimeEventBubblesForSource(source, eventType),
+          payloadShape: createRuntimePayloadShapeFromFields(payloadFields),
+          description: runtimeCoreEventType(eventType)?.description ?? null,
+        }),
+      );
+    });
+    if (!status) {
+      setErrorMessage("Could not save the event on the selected source.");
+      return false;
+    }
+    setEventFlowSourceId(source.id);
+    setEventFlowEventType(eventType);
+    setErrorMessage(null);
+    setMessage(`${formatLabel(eventType)} event ${status} for ${source.label}.`);
+    return true;
+  }
+
+  function addEventFlowListenerReaction(
+    source: RuntimeEventSourceCandidate,
+    eventType: string,
+    payloadFields: RuntimePayloadField[],
+  ) {
+    if (!activeRuntimeTarget) {
+      setMessage("Select the item that should react before adding a listener.");
+      return;
+    }
+    if (!source.eventDefinitions.some((eventDefinition) => runtimeEventDefinitionType(eventDefinition) === eventType)) {
+      const saved = saveEventFlowEvent(source, eventType, payloadFields);
+      if (!saved) {
+        return;
+      }
+    }
+    createAuthoredEventBehaviorListener(source, eventType);
+  }
+
+  function addEventFlowPayloadCondition(listener: RuntimeListenerDefinition, payloadFieldName: string) {
+    updateRuntimeListener(listener.id, (current) => {
+      current.conditions.push(
+        createEventPayloadCondition(payloadFieldName, "exists", undefined, `${formatLabel(payloadFieldName)} exists`),
+      );
+    });
+    setSelectedBehaviorNode({ kind: "listener", listenerId: listener.id, phase: "trigger" });
+    setMessage(`${formatLabel(payloadFieldName)} payload check added.`);
   }
 
   function renderGuidedListenerValueControl(listener: RuntimeListenerDefinition, sourceField: AuthoringField | null) {
@@ -7116,11 +8126,20 @@ export default function App() {
     setEditingRuleIndex(null);
     setBehaviorFocusTarget(null);
     setBehaviorStudioManagerMode("all");
-    openBehaviorStudio("studio", "create", anchor);
+    openBehaviorStudio("studio", "event", anchor);
   }
 
   function openBehaviorStudioAddBehavior(anchor: BehaviorStudioAnchor | null = null) {
-    beginBehaviorStudioCreation(anchor);
+    setBehaviorStudioCreating(true);
+    setBehaviorCreationPath("event");
+    setEventFlowSourceId(activeRuntimeTarget?.id ?? "");
+    setEventFlowEventType("");
+    setEventFlowPayloadValues({});
+    setLastDispatchReport(null);
+    setSelectedBehaviorNode(null);
+    setEditingRuleIndex(null);
+    setBehaviorFocusTarget(null);
+    openBehaviorStudio("studio", "event", anchor);
   }
 
   function openBehaviorStudioReactToAnotherItem(anchor: BehaviorStudioAnchor | null = null) {
@@ -7133,7 +8152,11 @@ export default function App() {
       setMessage("Select a form, button, or interactive field before adding an event.");
       return;
     }
-    const eventOption = runtimeEventOptionsForScope(activeRuntimeScope, activeBuilderField)[0] ?? null;
+    const eventOption = eventDefinition
+      ? (runtimeEventOptionsForScope(activeRuntimeScope, activeBuilderField).find(
+          (option) => option.type === runtimeEventDefinitionType(eventDefinition),
+        ) ?? null)
+      : defaultRuntimeEventOptionForNewDefinition(activeRuntimeScope, activeBuilderField);
     const eventType = runtimeEventDefinitionType(eventDefinition) || eventOption?.type || defaultBehaviorTriggerName();
     const existingCore = runtimeCoreEventType(eventType);
     setBehaviorCreationPath("event");
@@ -7141,11 +8164,21 @@ export default function App() {
     setEditingBehaviorEventId(eventDefinition?.id ?? null);
     setBehaviorEventType(eventType);
     setBehaviorEventBubbles(eventDefinition?.bubbles ?? eventOption?.bubbles ?? existingCore?.bubbles ?? true);
-    setBehaviorEventDescription(eventDefinition?.description ?? eventOption?.description ?? existingCore?.description ?? "");
+    setBehaviorEventDescription(
+      eventDefinition?.description ?? eventOption?.description ?? existingCore?.description ?? "",
+    );
     setBehaviorEventPayloadFields(
       eventDefinition?.payloadShape?.fields?.length
-        ? eventDefinition.payloadShape.fields.map((field) => ({ ...field }))
+        ? mergeRuntimePayloadFieldsWithStandardFields(eventDefinition.payloadShape.fields)
         : runtimePayloadFieldsForEventType(eventType),
+    );
+    const metadataExample = eventDefinition?.payloadShape?.example?.metadata;
+    setBehaviorEventMetadataExample(
+      typeof metadataExample === "string"
+        ? metadataExample
+        : metadataExample === undefined
+          ? "{}"
+          : JSON.stringify(metadataExample, null, 2),
     );
     setBehaviorEventAdvancedOpen(Boolean(eventDefinition));
   }
@@ -7172,7 +8205,9 @@ export default function App() {
       runtimeEventSourceCandidates.find(
         (candidate) =>
           candidate.nodeType === firstType &&
-          candidate.eventDefinitions.some((eventDefinition) => runtimeEventDefinitionType(eventDefinition) === firstEvent),
+          candidate.eventDefinitions.some(
+            (eventDefinition) => runtimeEventDefinitionType(eventDefinition) === firstEvent,
+          ),
       )?.id ?? "";
     setBehaviorListenerSourceId(firstSource);
   }
@@ -7308,6 +8343,7 @@ export default function App() {
         });
         setActiveConversionId(record.id);
         setActiveProjectId(null);
+        activeProjectDetailRef.current = null;
         setActiveProjectDetail(null);
         setProjectRevisions([]);
         setOpenedRevisionView(null);
@@ -7476,15 +8512,17 @@ export default function App() {
     }
     const revisionDocument = cloneDocument(revision.document);
     ensureDocumentDispatchKeys(revisionDocument);
+    const nextDetail = {
+      ...activeProjectDetail,
+      document: revisionDocument,
+      project: {
+        ...activeProjectDetail.project,
+        name: revisionDocument.title,
+      },
+    };
+    activeProjectDetailRef.current = nextDetail;
     startTransition(() => {
-      setActiveProjectDetail({
-        ...activeProjectDetail,
-        document: revisionDocument,
-        project: {
-          ...activeProjectDetail.project,
-          name: revisionDocument.title,
-        },
-      });
+      setActiveProjectDetail(nextDetail);
       setSelectedAuthoring(revisionDocument.steps[0] ? { kind: "step", stepId: revisionDocument.steps[0].id } : null);
       setWorkspaceLandingMode(null);
       setOpenedRevisionView({
@@ -7656,6 +8694,7 @@ export default function App() {
     setReviewFlowMode("resume_import");
     setActiveConversionId(conversion.id);
     setActiveProjectId(null);
+    activeProjectDetailRef.current = null;
     setActiveProjectDetail(null);
     setProjectRevisions([]);
     setSelectedPageId(conversion.draft?.pages[0]?.id ?? null);
@@ -8804,10 +9843,12 @@ export default function App() {
     listener.priority = behaviorListenerPriority;
 
     addRuntimeListener(listener);
-    setBehaviorStudioManagerMode("flows");
     finalizeBehaviorStudioCreation();
+    setSelectedBehaviorNode(createListenerGraphSelection(listener));
+    setBehaviorStudioMode("action");
+    setBehaviorStudioView("studio");
     setErrorMessage(null);
-    setMessage(`${activeRuntimeTarget.label} now listens for ${eventType} from ${source.label}.`);
+    setMessage(`${activeRuntimeTarget.label} now listens for ${eventType} from ${source.label}. Add actions next.`);
   }
 
   function applyBehaviorFlowPreset(presetId: string) {
@@ -9906,6 +10947,353 @@ export default function App() {
     );
   }
 
+  function renderBooleanReactionPropertyRow(options: {
+    listener: RuntimeListenerDefinition;
+    target: RuntimeEventSourceCandidate;
+    propertyKey: string;
+    label: string;
+    description: string;
+    trueLabel: string;
+    falseLabel: string;
+    trueKind: RuntimeActionKind;
+    falseKind: RuntimeActionKind;
+  }) {
+    const { listener, target, propertyKey, label, description, trueLabel, falseLabel, trueKind, falseKind } = options;
+    const value = booleanReactionValue(listener, target.id, trueKind, falseKind);
+    const matches = booleanReactionActions(listener, target.id, trueKind, falseKind);
+    const selectId = `${sanitizeRuntimeIdentifier(listener.id, "listener")}-${sanitizeRuntimeIdentifier(
+      target.id,
+      "target",
+    )}-${propertyKey}`;
+    return (
+      <div className="grid gap-2 border-b border-slate-200 px-3 py-2.5 last:border-b-0 sm:grid-cols-[minmax(8rem,13rem)_minmax(0,1fr)] sm:items-center">
+        <div className="min-w-0">
+          <label htmlFor={selectId} title={description} className="text-sm font-medium text-slate-950">
+            {label}
+          </label>
+          {value === "conflict" ? (
+            <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+              {matches.length} actions currently set this property. Choose one value to resolve.
+            </p>
+          ) : null}
+        </div>
+        <select
+          id={selectId}
+          value={value}
+          onChange={(event) =>
+            setRuntimeBooleanReactionProperty(
+              listener.id,
+              target,
+              trueKind,
+              falseKind,
+              event.target.value as RuntimeReactionBooleanValue,
+              label,
+            )
+          }
+          className="w-full rounded-lg border border-soft bg-white px-3 py-2 text-sm font-medium text-slate-900"
+        >
+          {value === "conflict" ? (
+            <option value="conflict" disabled>
+              Conflict
+            </option>
+          ) : null}
+          <option value="unset">No change</option>
+          <option value="true">{trueLabel}</option>
+          <option value="false">{falseLabel}</option>
+        </select>
+      </div>
+    );
+  }
+
+  function renderValueReactionPropertyRow(listener: RuntimeListenerDefinition, target: RuntimeEventSourceCandidate) {
+    if (target.nodeType !== "field") {
+      return null;
+    }
+    const mode = valueReactionMode(listener, target.id);
+    const matches = valueReactionActions(listener, target.id);
+    const setAction = matches.find((action) => action.kind === "set_field_value");
+    const runtimeValueReference = isRuntimePayloadReference(setAction?.config.value)
+      ? setAction.config.value.$runtime
+      : null;
+    const payloadOptions = listenerPayloadReferenceOptions(listener);
+    const valueRowId = `${sanitizeRuntimeIdentifier(listener.id, "listener")}-${sanitizeRuntimeIdentifier(
+      target.id,
+      "target",
+    )}-value`;
+    const valueDetailId = `${valueRowId}-detail`;
+    return (
+      <div className="border-b border-slate-200 px-3 py-2.5 last:border-b-0">
+        <div className="grid gap-2 sm:grid-cols-[minmax(8rem,13rem)_minmax(0,1fr)] sm:items-center">
+          <div className="min-w-0">
+            <label htmlFor={valueRowId} className="text-sm font-semibold text-slate-950">
+              Value
+            </label>
+            <span id={valueDetailId} className="sr-only">
+              Set, clear, or populate this field from the source event payload.
+            </span>
+            {mode === "conflict" ? (
+              <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                {matches.length} actions currently set or clear this value. Choose one mode to resolve.
+              </p>
+            ) : null}
+          </div>
+          <select
+            id={valueRowId}
+            aria-describedby={valueDetailId}
+            value={mode}
+            onChange={(event) =>
+              setRuntimeValueReactionMode(listener.id, target, event.target.value as RuntimeReactionValueMode)
+            }
+            className="w-full rounded-lg border border-soft bg-white px-3 py-2 text-sm font-medium text-slate-900"
+          >
+            {mode === "conflict" ? (
+              <option value="conflict" disabled>
+                Conflict
+              </option>
+            ) : null}
+            <option value="unset">No change</option>
+            <option value="static">Set static value</option>
+            <option value="payload">Use event payload</option>
+            <option value="clear">Clear value</option>
+          </select>
+        </div>
+        {mode === "static" ? (
+          <label className="mt-2 grid gap-2 text-sm text-slate-950 sm:grid-cols-[minmax(8rem,13rem)_minmax(0,1fr)] sm:items-center">
+            <span className="font-medium">Text</span>
+            <input
+              value={String(setAction?.config.value ?? "")}
+              onChange={(event) => updateRuntimeValueReactionStatic(listener.id, target, event.target.value)}
+              className="w-full rounded-lg border border-soft bg-white px-3 py-2 text-sm normal-case tracking-normal text-slate-900"
+            />
+          </label>
+        ) : null}
+        {mode === "payload" ? (
+          <label className="mt-2 grid gap-2 text-sm text-slate-950 sm:grid-cols-[minmax(8rem,13rem)_minmax(0,1fr)] sm:items-center">
+            <span className="font-medium">From event</span>
+            <select
+              value={runtimeValueReference ?? payloadOptions[0]?.key ?? "current.event.payload.value"}
+              onChange={(event) =>
+                updateRuntimeValueReactionPayload(listener.id, target, event.target.value as RuntimePayloadReferenceKey)
+              }
+              className="w-full rounded-lg border border-soft bg-white px-3 py-2 text-sm normal-case tracking-normal text-slate-900"
+            >
+              {payloadOptions.map((option) => (
+                <option key={`reaction-payload-${option.key}`} value={option.key}>
+                  {option.label}
+                </option>
+              ))}
+              {runtimeValueReference && !payloadOptions.some((option) => option.key === runtimeValueReference) ? (
+                <option value={runtimeValueReference}>{runtimeValueReference}</option>
+              ) : null}
+            </select>
+          </label>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderNavigationReactionPropertyRow(
+    listener: RuntimeListenerDefinition,
+    target: RuntimeEventSourceCandidate,
+  ) {
+    if (target.nodeType !== "component") {
+      return null;
+    }
+    const value = navigationReactionValue(listener, target.id);
+    const matches = navigationReactionActions(listener, target.id);
+    const navigationAction = matches.length === 1 ? matches[0] : null;
+    const selectId = `${sanitizeRuntimeIdentifier(listener.id, "listener")}-${sanitizeRuntimeIdentifier(
+      target.id,
+      "target",
+    )}-navigation`;
+    return (
+      <div className="border-b border-slate-200 px-3 py-2.5 last:border-b-0">
+        <div className="grid gap-2 sm:grid-cols-[minmax(8rem,13rem)_minmax(0,1fr)] sm:items-center">
+          <div className="min-w-0">
+            <label htmlFor={selectId} className="text-sm font-semibold text-slate-950">
+              Navigation
+            </label>
+            {value === "conflict" ? (
+              <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                {matches.length} navigation actions target this component. Choose one value to resolve.
+              </p>
+            ) : null}
+          </div>
+          <select
+            id={selectId}
+            value={value}
+            onChange={(event) =>
+              setRuntimeNavigationReaction(listener.id, target, event.target.value as RuntimeReactionNavigationValue)
+            }
+            className="w-full rounded-lg border border-soft bg-white px-3 py-2 text-sm font-medium text-slate-900"
+          >
+            {value === "conflict" ? (
+              <option value="conflict" disabled>
+                Conflict
+              </option>
+            ) : null}
+            <option value="unset">No change</option>
+            <option value="go_to_next_step">Go to next step</option>
+            <option value="go_to_previous_step">Go to previous step</option>
+            <option value="go_to_step">Go to specific step</option>
+            <option value="submit_form">Submit form</option>
+          </select>
+        </div>
+        {value === "go_to_step" ? (
+          <label className="mt-2 grid gap-2 text-sm text-slate-950 sm:grid-cols-[minmax(8rem,13rem)_minmax(0,1fr)] sm:items-center">
+            <span className="font-medium">Step</span>
+            <select
+              value={String(navigationAction?.config.stepId ?? builderStepOptions[0]?.id ?? "")}
+              onChange={(event) => updateRuntimeNavigationStep(listener.id, target, event.target.value)}
+              className="w-full rounded-lg border border-soft bg-white px-3 py-2 text-sm normal-case tracking-normal text-slate-900"
+            >
+              {builderStepOptions.map((option) => (
+                <option key={`reaction-step-${option.id}`} value={option.id}>
+                  {option.optionLabel}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderRuntimeReactionProperties(
+    listener: RuntimeListenerDefinition,
+    target: RuntimeEventSourceCandidate | null,
+  ) {
+    if (!target) {
+      return (
+        <div className="app-muted-card p-4 text-sm text-slate-500">
+          Select a reaction target before setting listener properties.
+        </div>
+      );
+    }
+    const targetOptions = runtimeReactionTargetOptions(listener, target);
+    const pathOptions = targetOptions.filter((option) => option.group === "path");
+    const containerPathOptions = pathOptions.filter((option) => runtimeNodeTypeIsContainer(option.candidate.nodeType));
+    const currentPathOptions = pathOptions.filter((option) => !runtimeNodeTypeIsContainer(option.candidate.nodeType));
+    const allOptions = targetOptions.filter((option) => option.group === "all");
+    const targetTypeLabel = runtimeNodeTypeLabel(target.nodeType);
+    return (
+      <div className="rounded-[0.95rem] border border-soft bg-white p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Property inspector</p>
+            <p className="mt-2 text-sm leading-6 text-slate-700">
+              Apply listener reactions to the current item, a parent/container, or another matching node.
+            </p>
+          </div>
+          <span className="app-pill">{listener.actions.length} saved actions</span>
+        </div>
+
+        <div className="mt-4 grid gap-3 rounded-[0.8rem] border border-slate-200 bg-slate-50 p-3 md:grid-cols-[minmax(0,1fr)_minmax(12rem,16rem)]">
+          <label className="text-xs uppercase tracking-[0.16em] text-slate-500">
+            Apply changes to
+            <select
+              value={target.id}
+              onChange={(event) => updateRuntimeReactionTarget(listener.id, event.target.value)}
+              className="mt-1 w-full rounded-xl border border-soft bg-white px-3 py-2 text-sm normal-case tracking-normal text-slate-900"
+            >
+              {currentPathOptions.length ? (
+                <optgroup label="Current item">
+                  {currentPathOptions.map((option) => (
+                    <option key={`reaction-current-target-${option.candidate.id}`} value={option.candidate.id}>
+                      {option.relationshipLabel} · {formatRuntimeSourceCandidateLabel(option.candidate)}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
+              {containerPathOptions.length ? (
+                <optgroup label="Parent / container targets">
+                  {containerPathOptions.map((option) => (
+                    <option key={`reaction-container-target-${option.candidate.id}`} value={option.candidate.id}>
+                      {option.relationshipLabel} · {formatRuntimeSourceCandidateLabel(option.candidate)}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
+              {allOptions.length ? (
+                <optgroup label="Other matching nodes">
+                  {allOptions.map((option) => (
+                    <option key={`reaction-all-target-${option.candidate.id}`} value={option.candidate.id}>
+                      {option.relationshipLabel} · {formatRuntimeSourceCandidateLabel(option.candidate)}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
+            </select>
+          </label>
+          <label className="text-xs uppercase tracking-[0.16em] text-slate-500">
+            Search all nodes
+            <input
+              type="search"
+              value={reactionTargetSearch}
+              onChange={(event) => setReactionTargetSearch(event.target.value)}
+              placeholder="section, group, field..."
+              className="mt-1 w-full rounded-xl border border-soft bg-white px-3 py-2 text-sm normal-case tracking-normal text-slate-900"
+            />
+          </label>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2 text-sm text-slate-700">
+          <span className="app-pill">
+            Targeting {targetTypeLabel.toLowerCase()} · {target.label}
+          </span>
+          {runtimeNodeTypeIsContainer(target.nodeType) ? (
+            <span className="app-pill">Container target</span>
+          ) : (
+            <span className="app-pill">Item target</span>
+          )}
+        </div>
+
+        <div className="mt-3 overflow-hidden rounded-[0.8rem] border border-slate-200 bg-white">
+          {target.nodeType !== "form"
+            ? renderBooleanReactionPropertyRow({
+                listener,
+                target,
+                propertyKey: "visible",
+                label: "Visible",
+                description: "Controls whether this target appears in the runtime view.",
+                trueLabel: "Visible",
+                falseLabel: "Hidden",
+                trueKind: "show_node",
+                falseKind: "hide_node",
+              })
+            : null}
+          {target.nodeType !== "form"
+            ? renderBooleanReactionPropertyRow({
+                listener,
+                target,
+                propertyKey: "enabled",
+                label: "Enabled",
+                description: "Controls whether this target can be used or edited.",
+                trueLabel: "Enabled",
+                falseLabel: "Disabled",
+                trueKind: "enable_node",
+                falseKind: "disable_node",
+              })
+            : null}
+          {target.nodeType === "field"
+            ? renderBooleanReactionPropertyRow({
+                listener,
+                target,
+                propertyKey: "required",
+                label: "Required",
+                description: "Controls whether this field must be answered before submit.",
+                trueLabel: "Required",
+                falseLabel: "Optional",
+                trueKind: "mark_required",
+                falseKind: "mark_optional",
+              })
+            : null}
+          {renderValueReactionPropertyRow(listener, target)}
+          {renderNavigationReactionPropertyRow(listener, target)}
+        </div>
+      </div>
+    );
+  }
+
   function renderRuntimeListenerComposer(
     listener: RuntimeListenerDefinition,
     listenerIndex: number,
@@ -9926,19 +11314,23 @@ export default function App() {
     const eventType = getRuntimeListenerEventType(listener);
     const triggerIssue = validateRuntimeIdentifier(eventType, "Event type", triggerSuggestions[0] ?? "form.load");
     const chainTemplates = runtimeActionChainTemplatesForListener(listener);
-    const actionChoices = runtimeActionChoicesForListener(listener);
-    const groupedActionChoices = {
-      target: actionChoices.filter((choice) => choice.group === "target"),
-      value: actionChoices.filter((choice) => choice.group === "value"),
-      event: actionChoices.filter((choice) => choice.group === "event"),
-      advanced: actionChoices.filter((choice) => choice.group === "advanced"),
+    const payloadFields = listenerSourcePayloadFields(listener);
+    const payloadPathListId = `${sanitizeRuntimeIdentifier(listener.id, "listener")}-payload-path-options`;
+    const addEventPayloadCondition = () => {
+      const payloadPath = defaultEventPayloadConditionPath(listener);
+      updateRuntimeListener(listener.id, (current) => {
+        current.conditions.push(
+          createEventPayloadCondition(payloadPath, "exists", undefined, `${formatLabel(payloadPath)} exists`),
+        );
+      });
     };
-    const addListenerCondition = () => {
-      const defaultFieldId = listener.eventSourceNodeId ?? activeBuilderField?.id ?? builderFieldOptions[0]?.id ?? "";
+    const addFieldValueCondition = () => {
+      const defaultFieldId =
+        listenerSource?.nodeType === "field"
+          ? listenerSource.id
+          : (activeBuilderField?.id ?? builderFieldOptions[0]?.id ?? "");
       if (!defaultFieldId) {
-        updateRuntimeListener(listener.id, (current) => {
-          current.conditions.push(createEventPayloadCondition("value", "exists", undefined, "Event payload has value"));
-        });
+        addEventPayloadCondition();
         return;
       }
       const sourceField = activeDocument ? findAuthoringFieldById(activeDocument, defaultFieldId) : null;
@@ -10063,18 +11455,74 @@ export default function App() {
           </label>
         </div>
 
+        <div className="rounded-[0.95rem] border border-blue-200 bg-white p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Intercepted event</p>
+              <p className="mt-2 text-sm font-semibold text-slate-950">{eventType || "Event type not set"}</p>
+            </div>
+            <span className="app-pill">{payloadFields.length} payload properties</span>
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-500">Source</p>
+              <p className="mt-1 truncate text-sm text-slate-800">
+                {listenerSource ? formatRuntimeSourceCandidateLabel(listenerSource) : "Selected dispatcher"}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-500">Dispatcher</p>
+              <p className="mt-1 truncate text-sm text-slate-800">
+                {listenerDispatcher ? formatRuntimeSourceCandidateLabel(listenerDispatcher) : "Runtime dispatcher"}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-500">Listener target</p>
+              <p className="mt-1 truncate text-sm text-slate-800">
+                {listenerTarget ? formatRuntimeSourceCandidateLabel(listenerTarget) : "Current item"}
+              </p>
+            </div>
+          </div>
+          {payloadFields.length ? (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {payloadFields.slice(0, 12).map((field) => (
+                <span key={`${listener.id}-payload-${field.name}`} className="app-pill">
+                  {field.label ?? formatLabel(field.name)} · {field.valueType}
+                </span>
+              ))}
+              {payloadFields.length > 12 ? <span className="app-pill">+{payloadFields.length - 12} more</span> : null}
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-slate-500">No payload schema is defined for this source event yet.</p>
+          )}
+        </div>
+
         <div className="rounded-[0.95rem] border border-soft bg-white p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Conditions</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Event checks</p>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                Conditions are optional checks on this behavior. When they pass, the action chain runs.
+                Check intercepted payload values or field values before this listener runs its reactions.
               </p>
             </div>
-            <button type="button" onClick={addListenerCondition} className={actionButtonClass("secondary")}>
-              Add condition
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={addEventPayloadCondition} className={actionButtonClass("secondary")}>
+                Check event payload
+              </button>
+              <button type="button" onClick={addFieldValueCondition} className={actionButtonClass()}>
+                Check field value
+              </button>
+            </div>
           </div>
+          {payloadFields.length ? (
+            <datalist id={payloadPathListId}>
+              {payloadFields.map((field) => (
+                <option key={`${listener.id}-payload-path-${field.name}`} value={field.name}>
+                  {field.label ?? formatLabel(field.name)}
+                </option>
+              ))}
+            </datalist>
+          ) : null}
           {listener.conditions.length ? (
             <div className="mt-3 space-y-3">
               {listener.conditions.map((condition, conditionIndex) => {
@@ -10094,12 +11542,15 @@ export default function App() {
                                 return;
                               }
                               if (event.target.value === "event_payload") {
-                                nextCondition.source = { kind: "event_payload", path: payloadPath || "value" };
+                                nextCondition.source = {
+                                  kind: "event_payload",
+                                  path: payloadPath || defaultEventPayloadConditionPath(listener),
+                                };
                                 return;
                               }
                               const nextFieldId =
                                 sourceFieldId ||
-                                listener.eventSourceNodeId ||
+                                (listenerSource?.nodeType === "field" ? listenerSource.id : "") ||
                                 activeBuilderField?.id ||
                                 builderFieldOptions[0]?.id ||
                                 "";
@@ -10113,8 +11564,8 @@ export default function App() {
                           }
                           className="mt-1 w-full rounded-xl border border-soft bg-white px-3 py-2 text-sm normal-case tracking-normal text-slate-800"
                         >
-                          <option value="field_value">field value</option>
-                          <option value="event_payload">event payload</option>
+                          <option value="field_value">Field value</option>
+                          <option value="event_payload">Event payload</option>
                         </select>
                       </label>
                       {condition.source.kind === "field_value" ? (
@@ -10149,8 +11600,9 @@ export default function App() {
                         <label className="text-xs uppercase tracking-[0.16em] text-slate-500">
                           Payload path
                           <input
+                            list={payloadPathListId}
                             value={payloadPath}
-                            placeholder="value"
+                            placeholder={defaultEventPayloadConditionPath(listener)}
                             onChange={(event) =>
                               updateRuntimeListener(listener.id, (current) => {
                                 const nextCondition = current.conditions[conditionIndex];
@@ -10244,147 +11696,120 @@ export default function App() {
         </div>
 
         <div className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Action chain</p>
-              <p className="mt-2 text-sm text-slate-700">
-                Add one or more actions that run on this listener target when the event is heard.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => addRuntimeActionToListener(listener.id)}
-                className={actionButtonClass()}
-              >
-                Add dispatch
-              </button>
-              <button
-                type="button"
-                onClick={() => addRuntimeActionToListener(listener.id, "host_action")}
-                className={actionButtonClass("secondary")}
-              >
-                Add host action
-              </button>
-            </div>
-          </div>
-          {!listener.actions.length ? (
-            <div className="rounded-[0.95rem] border border-blue-200 bg-white p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-blue-700">
-                    Add first action
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-slate-700">
-                    This listener is saved. Choose what should happen to the listening component, or add an event/host
-                    action for advanced chains.
-                  </p>
-                </div>
-                <span className="app-pill">{actionChoices.length} action choices</span>
+          {renderRuntimeReactionProperties(listener, listenerTarget)}
+
+          <details className="rounded-[0.95rem] border border-soft bg-white p-4">
+            <summary className="cursor-pointer list-none rounded-[0.75rem] px-1 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500">
+              <span className="flex flex-wrap items-center justify-between gap-3">
+                <span>
+                  <span className="block text-xs uppercase tracking-[0.18em] text-slate-500">
+                    Advanced action chain
+                  </span>
+                  <span className="mt-2 block text-sm text-slate-700">
+                    Inspect ordered actions, host requests, dispatches, and chain templates when the property rows are
+                    not enough.
+                  </span>
+                </span>
+                <span className="app-pill">{listener.actions.length} actions</span>
+              </span>
+            </summary>
+
+            <div className="mt-4 space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => addRuntimeActionToListener(listener.id)}
+                  className={actionButtonClass()}
+                >
+                  Add dispatch
+                </button>
+                <button
+                  type="button"
+                  onClick={() => addRuntimeActionToListener(listener.id, "host_action")}
+                  className={actionButtonClass("secondary")}
+                >
+                  Add host action
+                </button>
               </div>
-              <div className="mt-4 grid gap-4">
-                {[
-                  { key: "target", label: "Target component actions", choices: groupedActionChoices.target },
-                  { key: "value", label: "Value actions", choices: groupedActionChoices.value },
-                  { key: "event", label: "Event actions", choices: groupedActionChoices.event },
-                  { key: "advanced", label: "Advanced actions", choices: groupedActionChoices.advanced },
-                ].map((group) =>
-                  group.choices.length ? (
-                    <div key={`listener-action-choice-${group.key}`}>
-                      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        {group.label}
-                      </p>
-                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                        {group.choices.map((choice) => (
+
+              {listener.actions.length ? (
+                <div className="rounded-[0.95rem] border border-soft bg-slate-50 p-4">
+                  <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-500">Chain path</p>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span className="app-pill">Listen for {formatLabel(eventType)}</span>
+                    <span className="app-pill">{listener.useCapture ? "Capture" : "Target + bubble"}</span>
+                    {listener.wiringMode === "cross_item" && listenerSource ? (
+                      <span className="app-pill">From {listenerSource.label}</span>
+                    ) : null}
+                    {listener.wiringMode === "cross_item" && listenerTarget ? (
+                      <span className="app-pill">Update {listenerTarget.label}</span>
+                    ) : null}
+                    {listener.actions.map((action, actionIndex) => (
+                      <Fragment key={`${listener.id}-summary-${action.id}`}>
+                        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Then</span>
+                        <span
+                          className={`app-pill ${options?.selectedActionId === action.id ? "ring-2 ring-blue-300" : ""}`}
+                        >
+                          {actionIndex + 1}. {formatLabel(action.kind)}
+                        </span>
+                      </Fragment>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="app-muted-card p-4 text-sm text-slate-500">
+                  No ordered actions yet. Property rows above will add the common visibility, enabled, required, value,
+                  and navigation actions.
+                </div>
+              )}
+
+              {chainTemplates.length ? (
+                <div className="rounded-[0.95rem] border border-soft bg-slate-50 p-4">
+                  <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Common chains
+                  </p>
+                  <p className="mt-2 text-sm text-slate-700">
+                    Use a starter chain when this flow needs more than one action and you do not want to build it node
+                    by node.
+                  </p>
+                  <div className="mt-3 grid gap-3">
+                    {chainTemplates.map((template) => (
+                      <div key={template.id} className="rounded-[0.95rem] border border-slate-200 bg-white p-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="font-semibold text-slate-900">{template.label}</p>
+                            <p className="mt-1 text-sm text-slate-600">{template.description}</p>
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              <span className="app-pill">Then {template.actionSummary}</span>
+                              <span className="app-pill">{behaviorPresetCategoryLabels[template.category]}</span>
+                            </div>
+                          </div>
                           <button
-                            key={choice.id}
                             type="button"
                             onClick={() =>
-                              addChosenRuntimeActionToListener(listener.id, choice.createAction, choice.label)
+                              replaceRuntimeActionChain(listener.id, template.createActions, template.label)
                             }
-                            className="rounded-[0.85rem] border border-slate-200 bg-slate-50 px-3 py-3 text-left transition hover:border-blue-300 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                            className={actionButtonClass(listener.actions.length ? "secondary" : "primary")}
                           >
-                            <span className="app-pill">{formatLabel(choice.kind)}</span>
-                            <span className="mt-2 block text-sm font-semibold text-slate-950">{choice.label}</span>
-                            <span className="mt-1 block text-xs leading-5 text-slate-600">{choice.description}</span>
+                            {listener.actions.length ? "Replace chain" : "Apply chain"}
                           </button>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null,
-                )}
-              </div>
-            </div>
-          ) : null}
-          {listener.actions.length ? (
-            <div className="rounded-[0.95rem] border border-soft bg-white p-4">
-              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-500">Chain path</p>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <span className="app-pill">Listen for {formatLabel(eventType)}</span>
-                <span className="app-pill">{listener.useCapture ? "Capture" : "Target + bubble"}</span>
-                {listener.wiringMode === "cross_item" && listenerSource ? (
-                  <span className="app-pill">From {listenerSource.label}</span>
-                ) : null}
-                {listener.wiringMode === "cross_item" && listenerTarget ? (
-                  <span className="app-pill">Update {listenerTarget.label}</span>
-                ) : null}
-                {listener.actions.map((action, actionIndex) => (
-                  <Fragment key={`${listener.id}-summary-${action.id}`}>
-                    <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Then</span>
-                    <span
-                      className={`app-pill ${options?.selectedActionId === action.id ? "ring-2 ring-blue-300" : ""}`}
-                    >
-                      {actionIndex + 1}. {formatLabel(action.kind)}
-                    </span>
-                  </Fragment>
-                ))}
-              </div>
-            </div>
-          ) : null}
-          {chainTemplates.length ? (
-            <div className="rounded-[0.95rem] border border-soft bg-white p-4">
-              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-500">Common chains</p>
-              <p className="mt-2 text-sm text-slate-700">
-                Use a starter chain when this flow needs more than one action and you do not want to build it node by
-                node.
-              </p>
-              <div className="mt-3 grid gap-3">
-                {chainTemplates.map((template) => (
-                  <div key={template.id} className="rounded-[0.95rem] border border-slate-200 bg-slate-50 p-3">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-slate-900">{template.label}</p>
-                        <p className="mt-1 text-sm text-slate-600">{template.description}</p>
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          <span className="app-pill">Then {template.actionSummary}</span>
-                          <span className="app-pill">{behaviorPresetCategoryLabels[template.category]}</span>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => replaceRuntimeActionChain(listener.id, template.createActions, template.label)}
-                        className={actionButtonClass(listener.actions.length ? "secondary" : "primary")}
-                      >
-                        {listener.actions.length ? "Replace chain" : "Apply chain"}
-                      </button>
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </div>
+              ) : null}
+
+              {listener.actions.length
+                ? listener.actions.map((action, actionIndex) =>
+                    renderRuntimeActionEditor(listener, action, actionIndex, {
+                      highlighted: options?.selectedActionId === action.id,
+                      actionCount: listener.actions.length,
+                    }),
+                  )
+                : null}
             </div>
-          ) : null}
-          {listener.actions.length ? (
-            listener.actions.map((action, actionIndex) =>
-              renderRuntimeActionEditor(listener, action, actionIndex, {
-                highlighted: options?.selectedActionId === action.id,
-                actionCount: listener.actions.length,
-              }),
-            )
-          ) : (
-            <div className="app-muted-card p-4 text-sm text-slate-500">
-              No actions yet. Add one to define what this listener should do.
-            </div>
-          )}
+          </details>
         </div>
       </div>
     );
@@ -10953,8 +12378,8 @@ export default function App() {
                         Events this component dispatches
                       </p>
                       <p className="mt-1 text-xs leading-5 text-slate-600">
-                        Saved dispatcher definitions stay with this source component and can be reused by listeners on
-                        other components.
+                        Saved dispatcher definitions stay with this source item and can be reused by listeners on other
+                        items.
                       </p>
                     </div>
                     <span className="app-pill">{visibleEvents.length} saved</span>
@@ -10972,14 +12397,14 @@ export default function App() {
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap gap-1.5">
                                 <span className="app-pill">Event</span>
-                                <span className="app-pill">{eventDefinition.bubbles === false ? "Target only" : "Bubbles"}</span>
+                                <span className="app-pill">
+                                  {eventDefinition.bubbles === false ? "Target only" : "Bubbles"}
+                                </span>
                                 <span className="app-pill">
                                   {payloadCount} payload field{payloadCount === 1 ? "" : "s"}
                                 </span>
                               </div>
-                              <p className="mt-2 text-sm font-semibold text-slate-950">
-                                {formatLabel(eventType)}
-                              </p>
+                              <p className="mt-2 text-sm font-semibold text-slate-950">{formatLabel(eventType)}</p>
                               <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">
                                 {eventDefinition.description ||
                                   "This component can dispatch this event for other listeners to consume."}
@@ -10988,21 +12413,27 @@ export default function App() {
                             <div className="flex shrink-0 flex-wrap gap-1.5">
                               <button
                                 type="button"
-                                onClick={() => openRuntimeEventEditorForSelection(selectedAuthoring, eventDefinition.id)}
+                                onClick={() =>
+                                  openRuntimeEventEditorForSelection(selectedAuthoring, eventDefinition.id)
+                                }
                                 className={actionButtonClass("secondary")}
                               >
                                 Edit event
                               </button>
                               <button
                                 type="button"
-                                onClick={() => duplicateRuntimeEventSourceForSelection(selectedAuthoring, eventDefinition.id)}
+                                onClick={() =>
+                                  duplicateRuntimeEventSourceForSelection(selectedAuthoring, eventDefinition.id)
+                                }
                                 className={actionButtonClass("secondary")}
                               >
                                 Duplicate
                               </button>
                               <button
                                 type="button"
-                                onClick={() => removeRuntimeEventSourceForSelection(selectedAuthoring, eventDefinition.id)}
+                                onClick={() =>
+                                  removeRuntimeEventSourceForSelection(selectedAuthoring, eventDefinition.id)
+                                }
                                 className={actionButtonClass("danger")}
                               >
                                 Delete
@@ -11126,7 +12557,7 @@ export default function App() {
                                     phase: listener.actions.length ? "action" : "trigger",
                                     actionId: listener.actions[0]?.id,
                                   });
-                                  setBehaviorStudioMode("create");
+                                  setBehaviorStudioMode("action");
                                   setBehaviorStudioView("studio");
                                 }}
                                 className={actionButtonClass("secondary")}
@@ -11187,14 +12618,21 @@ export default function App() {
             </div>
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={() => openBehaviorStudioAddBehavior()} className={actionButtonClass()}>
-                Add behavior
+                Add event
+              </button>
+              <button
+                type="button"
+                onClick={openBehaviorStudioListenerSection}
+                className={actionButtonClass("secondary")}
+              >
+                Add listener
               </button>
             </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             {scopeListeners.length ? (
               <span className="app-pill">
-                {scopeListeners.length} interaction flow{scopeListeners.length === 1 ? "" : "s"}
+                {scopeListeners.length} listener{scopeListeners.length === 1 ? "" : "s"}
               </span>
             ) : null}
             {activeRuntimeScope ? <span className="app-pill">{activeRuntimeScope.label}</span> : null}
@@ -11220,7 +12658,7 @@ export default function App() {
                 onClick={() => setBehaviorStudioManagerMode("flows")}
                 className={actionButtonClass("secondary")}
               >
-                Flows
+                Listeners
               </button>
               <button
                 type="button"
@@ -11240,7 +12678,7 @@ export default function App() {
                 }}
                 className={actionButtonClass("secondary")}
               >
-                Runtime lab
+                Test
               </button>
             </div>
           </div>
@@ -11609,6 +13047,408 @@ export default function App() {
     );
   }
 
+  function renderEventFlowStudio() {
+    const source =
+      (eventFlowSourceId ? (runtimeEventSourceCandidateById.get(eventFlowSourceId) ?? null) : null) ??
+      activeRuntimeTarget;
+    if (!source) {
+      return (
+        <div className="app-muted-card p-4 text-sm text-slate-500">
+          Select a form, step, section, group, field, or button before opening Test.
+        </div>
+      );
+    }
+    const target = activeRuntimeTarget ?? source;
+    const eventOptions = eventFlowOptionsForSource(source);
+    const effectiveEventType =
+      eventFlowEventType && eventOptions.some((eventOption) => eventOption.type === eventFlowEventType)
+        ? eventFlowEventType
+        : (eventOptions[0]?.type ?? defaultBehaviorTriggerName());
+    const savedEventDefinition =
+      source.eventDefinitions.find(
+        (eventDefinition) => runtimeEventDefinitionType(eventDefinition) === effectiveEventType,
+      ) ?? null;
+    const payloadFields = (
+      savedEventDefinition?.payloadShape?.fields.length
+        ? savedEventDefinition.payloadShape.fields
+        : runtimePayloadFieldsForEventType(effectiveEventType)
+    ).map((field) => ({ ...field }));
+    const sourceField =
+      activeDocument && (source.nodeType === "field" || source.nodeType === "component")
+        ? findAuthoringFieldById(activeDocument, source.id)
+        : null;
+    const selectedListenerIndex =
+      selectedBehaviorNode?.kind === "listener" && activeRuntimeScope
+        ? activeRuntimeScope.listeners.findIndex((listener) => listener.id === selectedBehaviorNode.listenerId)
+        : -1;
+    const selectedListener =
+      selectedListenerIndex >= 0 && activeRuntimeScope ? activeRuntimeScope.listeners[selectedListenerIndex] : null;
+    const allRuntimeListenerEntries = [
+      ...(logicMapData?.formListeners ?? []),
+      ...(logicMapData?.steps.flatMap((step) => step.runtimeListeners) ?? []),
+    ];
+    const allRuntimeListenerEntryById = new Map(allRuntimeListenerEntries.map((listener) => [listener.id, listener]));
+    const flowReport =
+      lastDispatchReport?.event.type === effectiveEventType &&
+      (lastDispatchReport.event.target?.nodeId === source.id || lastDispatchReport.event.source.nodeId === source.id)
+        ? lastDispatchReport
+        : null;
+    const stateDiffLabels = flowReport
+      ? [
+          flowReport.stateDiff.currentStepChanged ? "current step" : null,
+          flowReport.stateDiff.valuesChanged.length ? `${flowReport.stateDiff.valuesChanged.length} values` : null,
+          flowReport.stateDiff.nodesChanged.length ? `${flowReport.stateDiff.nodesChanged.length} nodes` : null,
+          flowReport.stateDiff.validationChanged ? "validation" : null,
+          flowReport.stateDiff.submitChanged ? "submit" : null,
+        ].filter((entry): entry is string => Boolean(entry))
+      : [];
+    const savedStatus = savedEventDefinition ? "Saved event definition" : "Draft event definition";
+
+    return (
+      <div className="mx-auto max-w-[62rem] space-y-3">
+        <div className="rounded-[1rem] border border-blue-200 bg-white p-4 shadow-[0_18px_42px_rgba(37,99,235,0.08)]">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Test</p>
+              <h4 className="mt-1 text-lg font-semibold text-slate-950">Fire event and inspect listeners</h4>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <span className="app-pill">{savedStatus}</span>
+                <span className="app-pill">{source.componentLabel}</span>
+                {activeRuntimeTarget ? (
+                  <span className="app-pill">Current target {activeRuntimeTarget.label}</span>
+                ) : null}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => runEventFlowDispatch(source, effectiveEventType, payloadFields)}
+                className={actionButtonClass("primary")}
+              >
+                Fire event
+              </button>
+              <button
+                type="button"
+                onClick={() => saveEventFlowEvent(source, effectiveEventType, payloadFields)}
+                className={actionButtonClass("secondary")}
+              >
+                Save event definition
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+            <div className="grid gap-3">
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                  Event source
+                  <select
+                    value={source.id}
+                    onChange={(event) => {
+                      setEventFlowSourceId(event.target.value);
+                      setEventFlowEventType("");
+                      setEventFlowPayloadValues({});
+                      setSelectedBehaviorNode(null);
+                    }}
+                    className="mt-1 w-full rounded-xl border border-soft bg-white px-3 py-2 text-sm normal-case tracking-normal text-slate-900"
+                  >
+                    {runtimeEventSourceCandidates.map((candidate) => (
+                      <option key={`event-flow-source-${candidate.id}`} value={candidate.id}>
+                        {formatRuntimeSourceCandidateLabel(candidate)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                  Event
+                  <select
+                    value={effectiveEventType}
+                    onChange={(event) => {
+                      setEventFlowEventType(event.target.value);
+                      setEventFlowPayloadValues({});
+                      setLastDispatchReport(null);
+                    }}
+                    className="mt-1 w-full rounded-xl border border-soft bg-white px-3 py-2 text-sm normal-case tracking-normal text-slate-900"
+                  >
+                    {eventOptions.map((eventOption) => {
+                      const eventIsSaved = source.eventDefinitions.some(
+                        (eventDefinition) => runtimeEventDefinitionType(eventDefinition) === eventOption.type,
+                      );
+                      return (
+                        <option key={`event-flow-event-${eventOption.type}`} value={eventOption.type}>
+                          {eventIsSaved ? "Saved" : "Draft"} · {eventOption.label}
+                        </option>
+                      );
+                    })}
+                    {!eventOptions.some((eventOption) => eventOption.type === effectiveEventType) ? (
+                      <option value={effectiveEventType}>{effectiveEventType}</option>
+                    ) : null}
+                  </select>
+                </label>
+              </div>
+
+              <div className="overflow-hidden rounded-[0.9rem] border border-slate-200 bg-white">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Payload</p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {!selectedListener ? (
+                      <span className="text-xs text-slate-500">Select a listener to add payload conditions</span>
+                    ) : null}
+                    <span className="app-pill">{payloadFields.length} fields</span>
+                  </div>
+                </div>
+                {payloadFields.length ? (
+                  payloadFields.map((field) => {
+                    const inputId = `event-flow-payload-${sanitizeRuntimeIdentifier(field.name, "payload")}`;
+                    const rawValue = eventFlowPayloadRawValue(field, source, sourceField, effectiveEventType, target);
+                    const updateRawValue = (value: string) =>
+                      setEventFlowPayloadValues((current) => ({ ...current, [field.name]: value }));
+                    return (
+                      <div
+                        key={`event-flow-payload-row-${field.name}`}
+                        className="grid gap-2 border-b border-slate-200 px-3 py-2.5 last:border-b-0 md:grid-cols-[minmax(8rem,13rem)_minmax(0,1fr)_auto] md:items-center"
+                      >
+                        <div className="min-w-0">
+                          <label htmlFor={inputId} className="text-sm font-medium text-slate-950">
+                            {field.label ?? formatLabel(field.name)}
+                          </label>
+                          <p className="mt-0.5 truncate text-xs text-slate-500">
+                            {field.name} · {field.valueType}
+                          </p>
+                        </div>
+                        {field.valueType === "boolean" ? (
+                          <select
+                            id={inputId}
+                            value={rawValue}
+                            onChange={(event) => updateRawValue(event.target.value)}
+                            className="w-full rounded-lg border border-soft bg-white px-3 py-2 text-sm text-slate-900"
+                          >
+                            <option value="true">true</option>
+                            <option value="false">false</option>
+                          </select>
+                        ) : field.valueType === "object" || field.valueType === "array" ? (
+                          <textarea
+                            id={inputId}
+                            value={rawValue}
+                            rows={2}
+                            onChange={(event) => updateRawValue(event.target.value)}
+                            className="w-full rounded-lg border border-soft bg-white px-3 py-2 font-mono text-xs text-slate-900"
+                          />
+                        ) : (
+                          <input
+                            id={inputId}
+                            type={field.valueType === "number" ? "number" : "text"}
+                            value={rawValue}
+                            onChange={(event) => updateRawValue(event.target.value)}
+                            className="w-full rounded-lg border border-soft bg-white px-3 py-2 text-sm text-slate-900"
+                          />
+                        )}
+                        <button
+                          type="button"
+                          disabled={!selectedListener}
+                          onClick={() => selectedListener && addEventFlowPayloadCondition(selectedListener, field.name)}
+                          className={actionButtonClass("secondary")}
+                        >
+                          Add payload condition
+                        </button>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="p-3 text-sm text-slate-500">This event does not define payload fields.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-[0.9rem] border border-soft bg-slate-50 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Trace</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-950">
+                    {flowReport ? `${flowReport.listeners.length} listener checks` : "No event fired yet"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={openBehaviorStudioListenerSection}
+                  className={actionButtonClass("secondary")}
+                >
+                  Create listener
+                </button>
+              </div>
+
+              <div className="mt-3 space-y-2" role="status" aria-live="polite">
+                <div className="rounded-[0.8rem] border border-blue-100 bg-white px-3 py-2">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Event fired</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-950">{effectiveEventType}</p>
+                  <p className="mt-1 truncate text-xs text-slate-500">{formatRuntimeSourceCandidateLabel(source)}</p>
+                </div>
+
+                {flowReport ? (
+                  flowReport.listeners.length ? (
+                    flowReport.listeners.map((listener) => {
+                      const listenerEntry = allRuntimeListenerEntryById.get(listener.listenerId) ?? null;
+                      const canEditListener = Boolean(listenerEntry);
+                      return (
+                        <div
+                          key={`event-flow-listener-report-${listener.listenerId}-${listener.eventPhase}`}
+                          className={`rounded-[0.8rem] border bg-white px-3 py-2 ${
+                            listener.matched ? "border-emerald-200" : "border-slate-200"
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                                {listener.matched ? "Listener ran" : "Listener skipped"}
+                              </p>
+                              <p className="mt-1 truncate text-sm font-semibold text-slate-950">
+                                {listener.label ??
+                                  runtimeNodeLabelById.get(listener.dispatcherId) ??
+                                  listener.listenerId}
+                              </p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {listener.eventPhase ?? "target"} ·{" "}
+                                {listener.matched
+                                  ? `${listener.actions.length} action${listener.actions.length === 1 ? "" : "s"}`
+                                  : formatLabel(listener.skippedReason ?? "not matched")}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={!canEditListener}
+                              onClick={() => {
+                                if (!listenerEntry) {
+                                  return;
+                                }
+                                setSelectedAuthoring(listenerEntry.selection);
+                                setSelectedBehaviorNode({
+                                  kind: "listener",
+                                  listenerId: listener.listenerId,
+                                  phase: "action",
+                                  actionId: listener.actions[0]?.actionId,
+                                });
+                                setBehaviorStudioMode("action");
+                              }}
+                              className={actionButtonClass("secondary")}
+                            >
+                              Edit actions
+                            </button>
+                          </div>
+                          {listener.conditions.length ? (
+                            <div className="mt-2 grid gap-1.5">
+                              {listener.conditions.map((condition) => (
+                                <div
+                                  key={`event-flow-condition-${listener.listenerId}-${condition.conditionId}`}
+                                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs"
+                                >
+                                  <span className="font-semibold text-slate-700">
+                                    {condition.label ?? "Condition"} {condition.passed ? "passed" : "failed"}
+                                  </span>
+                                  <span className="text-slate-500">
+                                    {formatRuntimeDiagnosticValue(condition.actualValue)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                          {listener.actions.length ? (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {listener.actions.map((action) => (
+                                <span key={`event-flow-action-${action.actionId}`} className="app-pill">
+                                  {formatLabel(action.kind)} · {action.status}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="rounded-[0.8rem] border border-dashed border-slate-300 bg-white px-3 py-2 text-sm text-slate-500">
+                      No listeners reached this event.
+                    </div>
+                  )
+                ) : (
+                  <div className="rounded-[0.8rem] border border-dashed border-slate-300 bg-white px-3 py-2 text-sm text-slate-500">
+                    Fire the event to see the listener path.
+                  </div>
+                )}
+
+                {flowReport ? (
+                  <div className="rounded-[0.8rem] border border-slate-200 bg-white px-3 py-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">State changes</p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {(stateDiffLabels.length ? stateDiffLabels : ["no state changes"]).map((label) => (
+                        <span key={`event-flow-state-${label}`} className="app-pill">
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-3">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setBehaviorStudioCreating(false);
+                  setBehaviorStudioManagerMode("index");
+                  setBehaviorStudioMode("manage");
+                }}
+                className={actionButtonClass("secondary")}
+              >
+                Manage
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const eventDefinition =
+                    source.eventDefinitions.find(
+                      (candidate) => runtimeEventDefinitionType(candidate) === effectiveEventType,
+                    ) ?? null;
+                  const sourceSelection = authoringSelectionForRuntimeCandidate(source);
+                  if (eventDefinition) {
+                    openRuntimeEventEditorForSelection(sourceSelection, eventDefinition.id);
+                    return;
+                  }
+                  setSelectedAuthoring(sourceSelection);
+                  setBehaviorEventType(effectiveEventType);
+                  setBehaviorEventBubbles(runtimeEventBubblesForSource(source, effectiveEventType));
+                  setBehaviorEventDescription(runtimeCoreEventType(effectiveEventType)?.description ?? "");
+                  setBehaviorEventPayloadFields(payloadFields);
+                  setBehaviorEventMetadataExample("{}");
+                  setBehaviorStudioCreating(true);
+                  setBehaviorCreationPath("event");
+                  setBehaviorStudioMode("event");
+                }}
+                className={actionButtonClass("secondary")}
+              >
+                Edit event
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setBehaviorStudioCreating(true);
+                  setBehaviorCreationPath("listener");
+                  setBehaviorStudioMode("listener");
+                }}
+                className={actionButtonClass("secondary")}
+              >
+                Create listener
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function renderBehaviorCreationGuide() {
     if (!isBehaviorStudioCreating) {
       return null;
@@ -11643,7 +13483,10 @@ export default function App() {
                 "Add listener",
                 "Choose an authored event from another component and attach a listener to the current selection.",
               )
-            : renderHeader("Add behavior", "Start by deciding whether this component defines an event or listens for one.")}
+            : renderHeader(
+                "Add behavior",
+                "Start by deciding whether this component defines an event or listens for one.",
+              )}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <span className="app-pill">{currentBehaviorSelectionSummary()}</span>
           {activeBuilderField ? (
@@ -11717,9 +13560,44 @@ export default function App() {
     const effectiveEventType = behaviorEventType || eventOptions[0]?.type || defaultBehaviorTriggerName();
     const selectedCoreEvent = runtimeCoreEventType(effectiveEventType);
     const payloadFields = behaviorEventPayloadFields.length
-      ? behaviorEventPayloadFields
+      ? mergeRuntimePayloadFieldsWithStandardFields(behaviorEventPayloadFields)
       : runtimePayloadFieldsForEventType(effectiveEventType);
+    const editablePayloadFieldEntries = payloadFields
+      .map((field, index) => ({ field, index }))
+      .filter(({ field }) => !isAutomaticRuntimePayloadField(field.name));
+    const automaticPayloadFieldCount = payloadFields.length - editablePayloadFieldEntries.length;
     const existingEvents = activeRuntimeScope.eventSources;
+    const existingEventTypes = new Set(existingEvents.map(runtimeEventDefinitionType));
+    const nextUnsavedEventOption = eventOptions.find((option) => !existingEventTypes.has(option.type)) ?? null;
+    const beginAdditionalEvent = () => {
+      if (nextUnsavedEventOption) {
+        beginBehaviorEventCreationPath();
+        return;
+      }
+      const customEventType = `${runtimeScopeIdentifierBase(activeRuntimeScope, activeBuilderField)}.event`;
+      setBehaviorCreationPath("event");
+      setBehaviorStudioCreating(true);
+      setEditingBehaviorEventId(null);
+      setBehaviorEventType(customEventType);
+      setBehaviorEventBubbles(true);
+      setBehaviorEventDescription("");
+      setBehaviorEventPayloadFields(runtimePayloadFieldsForEventType(customEventType));
+      setBehaviorEventMetadataExample("{}");
+      setBehaviorEventAdvancedOpen(true);
+    };
+    const metadataExamplePayload = (): Record<string, unknown> | null => {
+      if (!payloadFields.some((field) => field.name === "metadata")) {
+        return {};
+      }
+      const metadata = behaviorEventMetadataExample.trim() || "{}";
+      try {
+        JSON.parse(metadata);
+      } catch (error) {
+        setErrorMessage(`Metadata JSON must be valid JSON text${error instanceof Error ? `: ${error.message}` : "."}`);
+        return null;
+      }
+      return { metadata };
+    };
     const updatePayloadField = (index: number, mutate: (field: RuntimePayloadField) => RuntimePayloadField) => {
       setBehaviorEventPayloadFields((current) =>
         (current.length ? current : payloadFields).map((field, fieldIndex) =>
@@ -11748,12 +13626,13 @@ export default function App() {
                 setBehaviorEventBubbles(nextCore?.bubbles ?? true);
                 setBehaviorEventDescription(nextCore?.description ?? "");
                 setBehaviorEventPayloadFields(runtimePayloadFieldsForEventType(nextType));
+                setBehaviorEventMetadataExample("{}");
               }}
               className="mt-1 w-full rounded-[0.8rem] border border-soft bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
             >
               {eventOptions.map((option) => (
                 <option key={`behavior-event-option-${option.type}`} value={option.type}>
-                  {option.label}
+                  {existingEventTypes.has(option.type) ? "Saved" : "Available"} · {option.label}
                 </option>
               ))}
               {!eventOptions.some((option) => option.type === effectiveEventType) ? (
@@ -11770,7 +13649,10 @@ export default function App() {
             <div className="mt-2 flex flex-wrap gap-1.5">
               <span className="app-pill">Dispatcher {runtimeNodeTypeLabel(activeRuntimeScope.scopeKind)}</span>
               <span className="app-pill">{behaviorEventBubbles ? "Bubbles" : "Target only"}</span>
-              <span className="app-pill">{payloadFields.length} payload fields</span>
+              <span className="app-pill">{editablePayloadFieldEntries.length} editable payload fields</span>
+              {automaticPayloadFieldCount ? (
+                <span className="app-pill">{automaticPayloadFieldCount} runtime fields automatic</span>
+              ) : null}
             </div>
           </div>
         </div>
@@ -11782,7 +13664,8 @@ export default function App() {
                 Payload properties
               </p>
               <p className="mt-1 text-xs leading-5 text-slate-600">
-                These properties describe what the dispatcher can send with this event.
+                These properties describe what listeners can inspect. Runtime identity fields are populated
+                automatically; set sample values in Test when firing the event.
               </p>
             </div>
             <button
@@ -11791,7 +13674,7 @@ export default function App() {
                 setBehaviorEventPayloadFields((current) => [
                   ...(current.length ? current : payloadFields),
                   {
-                    name: `payloadField${payloadFields.length + 1}`,
+                    name: `payloadField${editablePayloadFieldEntries.length + 1}`,
                     label: "Payload field",
                     valueType: "string",
                     required: false,
@@ -11806,96 +13689,135 @@ export default function App() {
           </div>
 
           <div className="mt-3 grid gap-2">
-            {payloadFields.map((field, index) => (
-              <div
-                key={`behavior-event-payload-${index}-${field.name}`}
-                className="grid gap-2 rounded-[0.8rem] border border-soft bg-slate-50 p-2 md:grid-cols-[minmax(7rem,1fr)_9rem_7rem_auto]"
-              >
-                <div>
-                  <label
-                    htmlFor={`behavior-event-payload-name-${index}`}
-                    className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500"
-                  >
-                    Name
-                  </label>
-                  <input
-                    id={`behavior-event-payload-name-${index}`}
-                    value={field.name}
-                    onChange={(event) =>
-                      updatePayloadField(index, (current) => ({
-                        ...current,
-                        name: event.target.value,
-                        label: current.label || event.target.value,
-                      }))
-                    }
-                    className="mt-1 w-full rounded-[0.7rem] border border-soft bg-white px-3 py-2 text-sm text-slate-900"
-                  />
-                </div>
-                <div>
-                  <label
-                    htmlFor={`behavior-event-payload-type-${index}`}
-                    className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500"
-                  >
-                    Type
-                  </label>
-                  <select
-                    id={`behavior-event-payload-type-${index}`}
-                    value={field.valueType}
-                    onChange={(event) =>
-                      updatePayloadField(index, (current) => ({
-                        ...current,
-                        valueType: event.target.value as RuntimePayloadField["valueType"],
-                      }))
-                    }
-                    className="mt-1 w-full rounded-[0.7rem] border border-soft bg-white px-3 py-2 text-sm text-slate-900"
-                  >
-                    {["string", "number", "boolean", "object", "array", "unknown"].map((valueType) => (
-                      <option key={`payload-type-${valueType}`} value={valueType}>
-                        {valueType}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <label className="mt-6 flex items-center gap-2 rounded-[0.7rem] border border-soft bg-white px-3 py-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={field.required}
-                    onChange={(event) =>
-                      updatePayloadField(index, (current) => ({ ...current, required: event.target.checked }))
-                    }
-                  />
-                  Required
-                </label>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setBehaviorEventPayloadFields((current) =>
-                      (current.length ? current : payloadFields).filter((_, fieldIndex) => fieldIndex !== index),
-                    )
-                  }
-                  className={actionButtonClass("secondary")}
+            {editablePayloadFieldEntries.map(({ field, index }) => {
+              const isMetadataField = field.name === "metadata";
+              const requiredInputId = `behavior-event-payload-required-${index}`;
+              const metadataExampleId = `behavior-event-payload-metadata-example-${index}`;
+              return (
+                <div
+                  key={`behavior-event-payload-${index}-${field.name}`}
+                  className="grid gap-2 rounded-[0.8rem] border border-soft bg-slate-50 p-2 md:grid-cols-[minmax(7rem,1fr)_9rem_7rem_auto]"
                 >
-                  Remove
-                </button>
-                <div className="md:col-span-4">
+                  <div>
+                    <p className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500">Name</p>
+                    {isMetadataField ? (
+                      <div className="mt-1 rounded-[0.7rem] border border-soft bg-white px-3 py-2 text-sm font-semibold text-slate-900">
+                        metadata
+                      </div>
+                    ) : (
+                      <input
+                        id={`behavior-event-payload-name-${index}`}
+                        aria-label="Payload property name"
+                        value={field.name}
+                        onChange={(event) =>
+                          updatePayloadField(index, (current) => ({
+                            ...current,
+                            name: event.target.value,
+                            label: current.label || event.target.value,
+                          }))
+                        }
+                        className="mt-1 w-full rounded-[0.7rem] border border-soft bg-white px-3 py-2 text-sm text-slate-900"
+                      />
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500">Type</p>
+                    {isMetadataField ? (
+                      <div className="mt-1 rounded-[0.7rem] border border-soft bg-white px-3 py-2 text-sm font-semibold text-slate-900">
+                        JSON string
+                      </div>
+                    ) : (
+                      <select
+                        id={`behavior-event-payload-type-${index}`}
+                        aria-label="Payload property type"
+                        value={field.valueType}
+                        onChange={(event) =>
+                          updatePayloadField(index, (current) => ({
+                            ...current,
+                            valueType: event.target.value as RuntimePayloadField["valueType"],
+                          }))
+                        }
+                        className="mt-1 w-full rounded-[0.7rem] border border-soft bg-white px-3 py-2 text-sm text-slate-900"
+                      >
+                        {["string", "number", "boolean", "object", "array", "unknown"].map((valueType) => (
+                          <option key={`payload-type-${valueType}`} value={valueType}>
+                            {valueType}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
                   <label
-                    htmlFor={`behavior-event-payload-description-${index}`}
-                    className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500"
+                    htmlFor={requiredInputId}
+                    className="mt-6 flex items-center gap-2 rounded-[0.7rem] border border-soft bg-white px-3 py-2 text-sm text-slate-700"
                   >
-                    Description
+                    <input
+                      id={requiredInputId}
+                      type="checkbox"
+                      checked={field.required}
+                      onChange={(event) =>
+                        updatePayloadField(index, (current) => ({ ...current, required: event.target.checked }))
+                      }
+                    />
+                    Required
                   </label>
-                  <input
-                    id={`behavior-event-payload-description-${index}`}
-                    value={field.description ?? ""}
-                    onChange={(event) =>
-                      updatePayloadField(index, (current) => ({ ...current, description: event.target.value }))
-                    }
-                    className="mt-1 w-full rounded-[0.7rem] border border-soft bg-white px-3 py-2 text-sm text-slate-900"
-                  />
+                  {isMetadataField ? (
+                    <span className="mt-6 inline-flex min-h-10 items-center justify-center rounded-[0.7rem] border border-soft bg-white px-3 py-2 text-sm font-semibold text-slate-500">
+                      Standard
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setBehaviorEventPayloadFields((current) =>
+                          (current.length ? current : payloadFields).filter((_, fieldIndex) => fieldIndex !== index),
+                        )
+                      }
+                      className={actionButtonClass("secondary")}
+                    >
+                      Remove
+                    </button>
+                  )}
+                  <div className="md:col-span-4">
+                    <label
+                      htmlFor={`behavior-event-payload-description-${index}`}
+                      className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500"
+                    >
+                      Description
+                    </label>
+                    <input
+                      id={`behavior-event-payload-description-${index}`}
+                      value={field.description ?? ""}
+                      onChange={(event) =>
+                        updatePayloadField(index, (current) => ({ ...current, description: event.target.value }))
+                      }
+                      className="mt-1 w-full rounded-[0.7rem] border border-soft bg-white px-3 py-2 text-sm text-slate-900"
+                    />
+                  </div>
+                  {isMetadataField ? (
+                    <div className="md:col-span-4">
+                      <label
+                        htmlFor={metadataExampleId}
+                        className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500"
+                      >
+                        Metadata JSON
+                      </label>
+                      <textarea
+                        id={metadataExampleId}
+                        value={behaviorEventMetadataExample}
+                        onChange={(event) => setBehaviorEventMetadataExample(event.target.value)}
+                        rows={3}
+                        className="mt-1 w-full rounded-[0.7rem] border border-soft bg-white px-3 py-2 font-mono text-xs text-slate-900"
+                      />
+                      <p className="mt-1 text-xs leading-5 text-slate-600">
+                        This example value is used as the default metadata payload in Test.
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
-              </div>
-            ))}
-            {!payloadFields.length ? (
+              );
+            })}
+            {!editablePayloadFieldEntries.length ? (
               <div className="app-muted-card p-3 text-sm text-slate-500">
                 No payload properties. Add one only when listeners or host integrations need event data.
               </div>
@@ -11923,6 +13845,7 @@ export default function App() {
                 onChange={(event) => {
                   setBehaviorEventType(event.target.value);
                   setBehaviorEventPayloadFields(runtimePayloadFieldsForEventType(event.target.value));
+                  setBehaviorEventMetadataExample("{}");
                 }}
                 className="mt-1 w-full rounded-[0.75rem] border border-soft bg-white px-3 py-2 text-sm text-slate-900"
               />
@@ -11955,32 +13878,53 @@ export default function App() {
 
         {existingEvents.length ? (
           <div className="mt-3 rounded-[0.85rem] border border-soft bg-slate-50 px-3 py-2">
-            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-500">Saved events</p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-500">Saved events</p>
+              <button type="button" onClick={beginAdditionalEvent} className={actionButtonClass()}>
+                Add another event
+              </button>
+            </div>
             <div className="mt-2 flex flex-wrap gap-1.5">
               {existingEvents.map((eventDefinition) => (
-                <span key={eventDefinition.id} className="app-pill">
+                <button
+                  key={eventDefinition.id}
+                  type="button"
+                  onClick={() => openRuntimeEventEditorForSelection(selectedAuthoring, eventDefinition.id)}
+                  className="app-pill transition hover:border-blue-300 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                >
                   {runtimeEventDefinitionType(eventDefinition)}
-                </span>
+                </button>
               ))}
             </div>
           </div>
         ) : null}
 
         <div className="mt-3 flex flex-wrap justify-end gap-2">
-          <button type="button" onClick={() => setBehaviorCreationPath("choice")} className={actionButtonClass("secondary")}>
-            Back
-          </button>
+          {behaviorStudioMode === "create" ? (
+            <button
+              type="button"
+              onClick={() => setBehaviorCreationPath("choice")}
+              className={actionButtonClass("secondary")}
+            >
+              Back
+            </button>
+          ) : null}
           <button
             type="button"
-            onClick={() =>
+            onClick={() => {
+              const payloadExample = metadataExamplePayload();
+              if (!payloadExample) {
+                return;
+              }
               addRuntimeEventSourceToScope({
                 eventId: editingBehaviorEventId,
                 eventType: effectiveEventType,
                 bubbles: behaviorEventBubbles,
                 payloadFields,
+                payloadExample,
                 description: behaviorEventDescription,
-              })
-            }
+              });
+            }}
             className={actionButtonClass("primary")}
           >
             {editingBehaviorEventId ? "Save event" : "Apply event"}
@@ -12001,28 +13945,44 @@ export default function App() {
 
     const sourceTypeOrder: BehaviorListenerSourceType[] = ["form", "step", "section", "group", "field", "component"];
     const effectiveSourceType = behaviorListenerSourceType;
-    const sourceCandidates = runtimeEventSourceCandidates.filter((candidate) => candidate.nodeType === effectiveSourceType);
+    const currentTargetListeners = activeRuntimeScope?.listeners ?? [];
+    const sourceTypeCounts = new Map(
+      sourceTypeOrder.map((nodeType) => [
+        nodeType,
+        runtimeEventSourceCandidates.filter((candidate) => candidate.nodeType === nodeType).length,
+      ]),
+    );
+    const sourceCandidates = runtimeEventSourceCandidates.filter(
+      (candidate) => candidate.nodeType === effectiveSourceType,
+    );
     const authoredEventTypes = uniqueRuntimeEventTypes(
       sourceCandidates.flatMap((candidate) => candidate.eventDefinitions.map(runtimeEventDefinitionType)),
     );
     const rawEventTypes = behaviorListenerShowRawEvents
-      ? uniqueRuntimeEventTypes(sourceCandidates.flatMap((candidate) => candidate.events.map((eventOption) => eventOption.type)))
+      ? uniqueRuntimeEventTypes(
+          sourceCandidates.flatMap((candidate) => candidate.events.map((eventOption) => eventOption.type)),
+        )
       : [];
     const eventTypes = uniqueRuntimeEventTypes([...authoredEventTypes, ...rawEventTypes]);
     const effectiveEventType =
       behaviorListenerEventType && eventTypes.includes(behaviorListenerEventType)
         ? behaviorListenerEventType
-        : eventTypes[0] ?? "";
+        : (eventTypes[0] ?? "");
     const sourceHasEvent = (candidate: RuntimeEventSourceCandidate) =>
-      candidate.eventDefinitions.some((eventDefinition) => runtimeEventDefinitionType(eventDefinition) === effectiveEventType) ||
-      (behaviorListenerShowRawEvents && candidate.events.some((eventOption) => eventOption.type === effectiveEventType));
+      candidate.eventDefinitions.some(
+        (eventDefinition) => runtimeEventDefinitionType(eventDefinition) === effectiveEventType,
+      ) ||
+      (behaviorListenerShowRawEvents &&
+        candidate.events.some((eventOption) => eventOption.type === effectiveEventType));
     const matchingSources = sourceCandidates.filter(sourceHasEvent);
     const effectiveSourceId =
       behaviorListenerSourceId && matchingSources.some((candidate) => candidate.id === behaviorListenerSourceId)
         ? behaviorListenerSourceId
-        : matchingSources[0]?.id ?? "";
+        : (matchingSources[0]?.id ?? "");
     const selectedSource = matchingSources.find((candidate) => candidate.id === effectiveSourceId) ?? null;
-    const selectedSourceBubbles = selectedSource ? runtimeEventBubblesForSource(selectedSource, effectiveEventType) : true;
+    const selectedSourceBubbles = selectedSource
+      ? runtimeEventBubblesForSource(selectedSource, effectiveEventType)
+      : true;
     const selectedDispatcher = selectedSource
       ? selectedSource.id === activeRuntimeTarget.id
         ? selectedSource
@@ -12034,20 +13994,60 @@ export default function App() {
 
     return (
       <div className="relative z-10 mt-3 rounded-[0.9rem] border border-blue-100 bg-white/85 p-3">
+        {currentTargetListeners.length ? (
+          <div className="mb-3 rounded-[0.85rem] border border-soft bg-slate-50 px-3 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Saved listeners
+                </p>
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  {currentTargetListeners.length} listener{currentTargetListeners.length === 1 ? "" : "s"} on{" "}
+                  {activeRuntimeTarget.label}
+                </p>
+              </div>
+              <span className="app-pill">Target {runtimeEntityTypeLabel(activeRuntimeTarget.nodeType)}</span>
+            </div>
+            <div className="mt-2 grid gap-2">
+              {currentTargetListeners.map((listener) => (
+                <button
+                  key={`saved-listener-${listener.id}`}
+                  type="button"
+                  onClick={() => {
+                    setSelectedBehaviorNode(createListenerGraphSelection(listener));
+                    setBehaviorStudioMode("action");
+                    setBehaviorStudioCreating(false);
+                  }}
+                  className="rounded-[0.75rem] border border-soft bg-white px-3 py-2 text-left transition hover:border-blue-300 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                >
+                  <span className="block text-sm font-semibold text-slate-950">
+                    {listener.label ?? formatLabel(getRuntimeListenerEventType(listener))}
+                  </span>
+                  <span className="mt-1 block text-xs leading-5 text-slate-600">
+                    {formatLabel(getRuntimeListenerEventType(listener))} · {listener.actions.length} action
+                    {listener.actions.length === 1 ? "" : "s"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <div className="grid gap-3 md:grid-cols-3">
           <div>
             <label
               htmlFor="behavior-listener-source-type"
               className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500"
             >
-              Component type
+              Entity type
             </label>
             <select
               id="behavior-listener-source-type"
               value={effectiveSourceType}
               onChange={(event) => {
                 const nextType = event.target.value as BehaviorListenerSourceType;
-                const nextCandidates = runtimeEventSourceCandidates.filter((candidate) => candidate.nodeType === nextType);
+                const nextCandidates = runtimeEventSourceCandidates.filter(
+                  (candidate) => candidate.nodeType === nextType,
+                );
                 const nextEvents = uniqueRuntimeEventTypes(
                   nextCandidates.flatMap((candidate) => candidate.eventDefinitions.map(runtimeEventDefinitionType)),
                 );
@@ -12065,7 +14065,7 @@ export default function App() {
             >
               {sourceTypeOrder.map((nodeType) => (
                 <option key={`listener-source-type-${nodeType}`} value={nodeType}>
-                  {runtimeNodeTypeLabel(nodeType)}
+                  {runtimeEntityTypeLabel(nodeType)} ({sourceTypeCounts.get(nodeType) ?? 0})
                 </option>
               ))}
             </select>
@@ -12106,7 +14106,7 @@ export default function App() {
               htmlFor="behavior-listener-source"
               className="text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-slate-500"
             >
-              Source component
+              Source item
             </label>
             <select
               id="behavior-listener-source"
@@ -12120,7 +14120,7 @@ export default function App() {
                   {formatRuntimeSourceCandidateLabel(source)}
                 </option>
               ))}
-              {!matchingSources.length ? <option value="">No components define this event</option> : null}
+              {!matchingSources.length ? <option value="">No items define this event</option> : null}
             </select>
           </div>
         </div>
@@ -12135,8 +14135,13 @@ export default function App() {
             Authored events only are shown by default. Use Advanced when you need to register against raw core events.
           </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
-            <span className="app-pill">Target {activeRuntimeTarget.componentLabel}</span>
-            {selectedDispatcher ? <span className="app-pill">Listen at {selectedDispatcher.componentLabel}</span> : null}
+            <span className="app-pill">Target {runtimeEntityTypeLabel(activeRuntimeTarget.nodeType)}</span>
+            {selectedDispatcher ? (
+              <span className="app-pill">Listen at {runtimeEntityTypeLabel(selectedDispatcher.nodeType)}</span>
+            ) : null}
+            {selectedSource ? (
+              <span className="app-pill">Source {runtimeEntityTypeLabel(selectedSource.nodeType)}</span>
+            ) : null}
             {effectiveEventType ? <span className="app-pill">{effectiveEventType}</span> : null}
           </div>
         </div>
@@ -12150,8 +14155,8 @@ export default function App() {
 
         {!authoredEventTypes.length && !behaviorListenerShowRawEvents ? (
           <div className="app-muted-card mt-3 p-3 text-sm text-slate-500">
-            No {runtimeNodeTypeLabel(effectiveSourceType).toLowerCase()} sources have saved events yet. Add an event to
-            a source component first, or open Advanced to inspect raw core events.
+            No {runtimeEntityTypeLabel(effectiveSourceType).toLowerCase()} sources have saved events yet. Add an event
+            to a source item first, or open Advanced to inspect raw core events.
           </div>
         ) : null}
 
@@ -12200,9 +14205,15 @@ export default function App() {
         </details>
 
         <div className="mt-3 flex flex-wrap justify-end gap-2">
-          <button type="button" onClick={() => setBehaviorCreationPath("choice")} className={actionButtonClass("secondary")}>
-            Back
-          </button>
+          {behaviorStudioMode === "create" ? (
+            <button
+              type="button"
+              onClick={() => setBehaviorCreationPath("choice")}
+              className={actionButtonClass("secondary")}
+            >
+              Back
+            </button>
+          ) : null}
           <button
             type="button"
             disabled={!selectedSource || !effectiveEventType || blocksCrossItemListener}
@@ -12212,6 +14223,229 @@ export default function App() {
             Apply listener
           </button>
         </div>
+      </div>
+    );
+  }
+
+  function renderBehaviorEventAuthoringStudio() {
+    return (
+      <div className="mx-auto max-w-[62rem] space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Event</p>
+            <h4 className="mt-1 text-lg font-semibold text-slate-950">
+              {editingBehaviorEventId ? "Edit event definition" : "Define event definition"}
+            </h4>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+              Events belong to the selected dispatcher and describe the payload that listeners can inspect.
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="app-pill">{currentBehaviorSelectionSummary()}</span>
+          {activeRuntimeScope ? (
+            <span className="app-pill">{activeRuntimeScope.eventSources.length} saved events</span>
+          ) : null}
+        </div>
+        {renderBehaviorEventCreationForm()}
+      </div>
+    );
+  }
+
+  function renderBehaviorListenerAuthoringStudio() {
+    return (
+      <div className="mx-auto max-w-[62rem] space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Listener</p>
+            <h4 className="mt-1 text-lg font-semibold text-slate-950">Create listener</h4>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+              A listener belongs to the component that reacts. After applying it, use Action to set what that component
+              changes.
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="app-pill">{currentBehaviorSelectionSummary()}</span>
+          {activeRuntimeTarget ? <span className="app-pill">Target {activeRuntimeTarget.label}</span> : null}
+          {activeRuntimeScope ? (
+            <span className="app-pill">
+              {activeRuntimeScope.listeners.length} saved listener
+              {activeRuntimeScope.listeners.length === 1 ? "" : "s"}
+            </span>
+          ) : null}
+        </div>
+        {renderBehaviorListenerCreationForm()}
+      </div>
+    );
+  }
+
+  function renderBehaviorActionStudio() {
+    const selectedListenerId = selectedBehaviorNode?.kind === "listener" ? selectedBehaviorNode.listenerId : null;
+    const selectedListener =
+      selectedListenerId && activeRuntimeScope
+        ? (activeRuntimeScope.listeners.find((listener) => listener.id === selectedListenerId) ?? null)
+        : null;
+    const selectedListenerTarget = selectedListener?.targetNodeId
+      ? (runtimeEventSourceCandidateById.get(selectedListener.targetNodeId) ?? activeRuntimeTarget)
+      : activeRuntimeTarget;
+    const allRuntimeListenerEntries = [
+      ...(logicMapData?.formListeners ?? []),
+      ...(logicMapData?.steps.flatMap((step) => step.runtimeListeners) ?? []),
+    ];
+    const selectedEntry = selectedListenerId
+      ? (allRuntimeListenerEntries.find((entry) => entry.id === selectedListenerId) ?? null)
+      : null;
+    const currentScopeListeners = activeRuntimeScope?.listeners ?? [];
+    const visibleEntries = currentScopeListeners.length
+      ? currentScopeListeners.map((listener) => ({
+          id: listener.id,
+          title: listener.label ?? `When ${formatLabel(getRuntimeListenerEventType(listener))}`,
+          detail: listener.actions.length
+            ? listener.actions.map((action) => formatLabel(action.kind)).join(", ")
+            : "No actions set",
+          selection: selectedAuthoring,
+          graphSelection: createListenerGraphSelection(listener),
+        }))
+      : allRuntimeListenerEntries.slice(0, 8).map((entry) => ({
+          id: entry.id,
+          title: `When ${formatLabel(entry.eventName)}`,
+          detail: `${entry.scopeLabel} · ${entry.actionsSummary}`,
+          selection: entry.selection,
+          graphSelection: entry.graphSelection,
+        }));
+
+    return (
+      <div className="mx-auto max-w-[62rem] space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Action</p>
+            <h4 className="mt-1 text-lg font-semibold text-slate-950">Set listener actions</h4>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+              Actions are edited on the reacting component. Select a listener, then set properties such as visibility,
+              value, required state, and target scope.
+            </p>
+          </div>
+        </div>
+
+        {selectedEntry && !selectedListener ? (
+          <div className="rounded-[0.95rem] border border-blue-200 bg-blue-50/70 p-4">
+            <p className="text-sm font-semibold text-slate-950">Open the listener scope to edit its actions.</p>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              {selectedEntry.scopeLabel} owns this listener, so the action properties load from that component.
+            </p>
+            <button
+              type="button"
+              onClick={() => setSelectedAuthoring(selectedEntry.selection)}
+              className={`${actionButtonClass("primary")} mt-3`}
+            >
+              Open listener scope
+            </button>
+          </div>
+        ) : selectedListener ? (
+          <div className="space-y-3">
+            <div className="rounded-[0.95rem] border border-blue-200 bg-blue-50/70 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Selected listener</p>
+                  <h5 className="mt-1 text-base font-semibold text-slate-950">
+                    {selectedListener.label ?? formatLabel(getRuntimeListenerEventType(selectedListener))}
+                  </h5>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">
+                    {selectedListener.actions.length} action{selectedListener.actions.length === 1 ? "" : "s"} on this
+                    listener.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedBehaviorNode(null)}
+                  className={actionButtonClass("secondary")}
+                >
+                  Choose another
+                </button>
+              </div>
+              <div className="mt-3 overflow-hidden rounded-[0.8rem] border border-blue-100 bg-white">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-blue-100 bg-slate-50 px-3 py-2">
+                  <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Actions on this listener
+                  </p>
+                  <span className="app-pill">
+                    {selectedListener.actions.length} action{selectedListener.actions.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                {selectedListener.actions.length ? (
+                  selectedListener.actions.map((action, actionIndex) => {
+                    const actionTargetId =
+                      runtimeNodeActionTargetId(action) ??
+                      runtimeFieldActionTargetId(action) ??
+                      runtimeNavigationActionTargetId(action);
+                    const actionTarget =
+                      actionTargetId && runtimeEventSourceCandidateById.has(actionTargetId)
+                        ? runtimeEventSourceCandidateById.get(actionTargetId)
+                        : null;
+                    return (
+                      <div
+                        key={`selected-listener-action-${action.id}`}
+                        className="grid gap-2 border-b border-blue-100 px-3 py-2.5 last:border-b-0 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center"
+                      >
+                        <span className="app-pill">Action {actionIndex + 1}</span>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-slate-950">{formatLabel(action.kind)}</p>
+                          <p className="mt-1 truncate text-xs text-slate-600">
+                            {actionTarget
+                              ? `${runtimeEntityTypeLabel(actionTarget.nodeType)} · ${actionTarget.label}`
+                              : describeRuntimeAction(action)}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeRuntimeAction(selectedListener.id, action.id)}
+                          className={actionButtonClass("secondary")}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="px-3 py-2.5 text-sm text-slate-500">
+                    Set a property below to create the first action.
+                  </div>
+                )}
+              </div>
+            </div>
+            {renderRuntimeReactionProperties(selectedListener, selectedListenerTarget)}
+          </div>
+        ) : (
+          <div className="rounded-[0.95rem] border border-soft bg-white p-4">
+            <p className="text-sm font-semibold text-slate-950">Choose a listener to edit actions</p>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              Current selection listeners are shown first. If this component has none, recent project listeners are
+              listed so you can jump to their owner.
+            </p>
+            <div className="mt-3 grid gap-2">
+              {visibleEntries.map((entry) => (
+                <button
+                  key={`action-listener-entry-${entry.id}`}
+                  type="button"
+                  onClick={() => {
+                    setSelectedAuthoring(entry.selection);
+                    setSelectedBehaviorNode(entry.graphSelection);
+                  }}
+                  className="rounded-[0.85rem] border border-soft bg-slate-50 px-3 py-2 text-left transition hover:border-blue-300 hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                >
+                  <span className="block text-sm font-semibold text-slate-950">{entry.title}</span>
+                  <span className="mt-1 block text-xs leading-5 text-slate-600">{entry.detail}</span>
+                </button>
+              ))}
+              {!visibleEntries.length ? (
+                <div className="app-muted-card p-3 text-sm text-slate-500">
+                  No listeners have been created yet. Create a listener before assigning actions.
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -12387,71 +14621,16 @@ export default function App() {
       selectedRuleIndex >= 0 && activeBuilderField
         ? legacyFieldConditionals(activeBuilderField)[selectedRuleIndex]
         : null;
-    const selectedListenerIndex =
-      selectedBehaviorNode?.kind === "listener" && activeRuntimeScope
-        ? activeRuntimeScope.listeners.findIndex((listener) => listener.id === selectedBehaviorNode.listenerId)
-        : -1;
-    const selectedListener =
-      selectedListenerIndex >= 0 && activeRuntimeScope ? activeRuntimeScope.listeners[selectedListenerIndex] : null;
-    const studioBehaviorSummary = currentBehaviorSelectionSummary(selectedRule, selectedListener);
-
     return (
-      <div className="mx-auto max-w-[52rem] space-y-3">
+      <div className="mx-auto max-w-[62rem] space-y-3">
         {isBehaviorStudioCreating ? (
           renderBehaviorCreationGuide()
-        ) : (
+        ) : selectedRule && selectedRuleIndex >= 0 ? (
           <div className="rounded-[1.05rem] border border-soft bg-white p-3.5 shadow-[0_16px_32px_rgba(15,23,42,0.07)] sm:p-4">
-            {selectedRule && selectedRuleIndex >= 0 ? (
-              renderLegacyConditionalRuleEditor(selectedRule, selectedRuleIndex)
-            ) : selectedListener && selectedListenerIndex >= 0 ? (
-              renderRuntimeListenerComposer(selectedListener, selectedListenerIndex, {
-                selectedActionId:
-                  selectedBehaviorNode?.kind === "listener" && selectedBehaviorNode.phase === "action"
-                    ? (selectedBehaviorNode.actionId ?? null)
-                    : null,
-              })
-            ) : (
-              <div className="rounded-[0.95rem] border border-dashed border-slate-300 bg-slate-50 p-4">
-                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                  Create behavior
-                </p>
-                <h5 className="mt-1.5 text-base font-semibold text-slate-950">Choose an event or listener</h5>
-                <p className="mt-2 max-w-2xl text-sm leading-5 text-slate-600">
-                  Define an event this component dispatches, or attach a listener to an authored event from another
-                  component.
-                </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => openBehaviorStudioAddBehavior()}
-                    disabled={!activeRuntimeScope}
-                    className={actionButtonClass("primary")}
-                  >
-                    Add behavior
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openBehaviorStudioReactToAnotherItem()}
-                    disabled={!activeRuntimeTarget}
-                    className={actionButtonClass("secondary")}
-                  >
-                    Add listener
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setBehaviorStudioMode("manage")}
-                    className={actionButtonClass("secondary")}
-                  >
-                    Open manager
-                  </button>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <span className="app-pill">{studioBehaviorSummary}</span>
-                  {activeRuntimeScope ? <span className="app-pill">{activeRuntimeScope.label}</span> : null}
-                </div>
-              </div>
-            )}
+            {renderLegacyConditionalRuleEditor(selectedRule, selectedRuleIndex)}
           </div>
+        ) : (
+          renderEventFlowStudio()
         )}
       </div>
     );
@@ -13370,7 +15549,7 @@ export default function App() {
       selectedAuthoring === null
         ? "Form runtime"
         : selectedAuthoring.kind === "field"
-          ? `Field · ${activeBuilderField?.label ?? "Current field"}`
+          ? `${runtimeNodeTypeLabel(runtimeNodeTypeForAuthoringField(activeBuilderField))} · ${activeBuilderField?.label ?? "Current field"}`
           : selectedAuthoring.kind === "group"
             ? `Group · ${activeGroup?.label ?? "Current group"}`
             : selectedAuthoring.kind === "section"
@@ -14172,7 +16351,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => {
-                  setBehaviorStudioMode("create");
+                  setBehaviorStudioMode("event");
                   setBehaviorStudioView("studio");
                 }}
                 className={actionButtonClass("secondary")}
@@ -16234,7 +18413,7 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() => {
-                                setBehaviorStudioMode("create");
+                                setBehaviorStudioMode("event");
                                 setBehaviorStudioView("studio");
                               }}
                               className={actionButtonClass("secondary")}
@@ -16263,7 +18442,7 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() => {
-                                setBehaviorStudioMode("create");
+                                setBehaviorStudioMode("event");
                                 setBehaviorStudioView("studio");
                               }}
                               className={actionButtonClass("secondary")}
@@ -19841,13 +22020,19 @@ export default function App() {
                                 </p>
                                 <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
                                   <h3 id="behavior-studio-title" className="text-lg font-semibold text-slate-950">
-                                    {behaviorStudioMode === "create"
-                                      ? "Create behavior"
-                                      : behaviorStudioMode === "manage"
-                                        ? "Behavior Manager"
-                                        : behaviorStudioMode === "test"
-                                          ? "Runtime lab"
-                                          : "Graph view"}
+                                    {behaviorStudioMode === "event"
+                                      ? "Event"
+                                      : behaviorStudioMode === "listener"
+                                        ? "Listener"
+                                        : behaviorStudioMode === "action"
+                                          ? "Action"
+                                          : behaviorStudioMode === "create"
+                                            ? "Behavior editor"
+                                            : behaviorStudioMode === "manage"
+                                              ? "Behavior Manager"
+                                              : behaviorStudioMode === "test"
+                                                ? "Test"
+                                                : "Graph view"}
                                   </h3>
                                   <span className="app-pill max-w-[22rem] truncate">
                                     {currentBehaviorSelectionSummary()}
@@ -19857,16 +22042,37 @@ export default function App() {
                               <div className="flex flex-wrap gap-1.5">
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    setBehaviorFocusTarget(null);
-                                    setBehaviorStudioMode("create");
-                                    setBehaviorStudioView("studio");
-                                  }}
+                                  onClick={openBehaviorStudioEventSection}
                                   className={actionButtonClass(
-                                    behaviorStudioMode === "create" ? "primary" : "secondary",
+                                    behaviorStudioMode === "event" ? "primary" : "secondary",
                                   )}
                                 >
-                                  Create
+                                  Event
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={openBehaviorStudioListenerSection}
+                                  className={actionButtonClass(
+                                    behaviorStudioMode === "listener" ? "primary" : "secondary",
+                                  )}
+                                >
+                                  Listener
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={openBehaviorStudioActionSection}
+                                  className={actionButtonClass(
+                                    behaviorStudioMode === "action" ? "primary" : "secondary",
+                                  )}
+                                >
+                                  Action
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={openBehaviorStudioTestSection}
+                                  className={actionButtonClass(behaviorStudioMode === "test" ? "primary" : "secondary")}
+                                >
+                                  Test
                                 </button>
                                 <button
                                   type="button"
@@ -19885,27 +22091,6 @@ export default function App() {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    setBehaviorStudioCreating(false);
-                                    setBehaviorFocusTarget(null);
-                                    setBehaviorStudioMode("test");
-                                    setBehaviorStudioView("studio");
-                                  }}
-                                  className={actionButtonClass(behaviorStudioMode === "test" ? "primary" : "secondary")}
-                                >
-                                  Test
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={openGraphInspectorSurface}
-                                  className={actionButtonClass(
-                                    behaviorStudioMode === "graph" ? "primary" : "secondary",
-                                  )}
-                                >
-                                  Graph
-                                </button>
-                                <button
-                                  type="button"
                                   aria-label="Close behavior studio"
                                   onClick={closeBehaviorStudio}
                                   className={iconButtonClass()}
@@ -19918,11 +22103,17 @@ export default function App() {
                           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4">
                             {behaviorStudioMode === "manage"
                               ? renderBehaviorStudioManager()
-                              : behaviorStudioMode === "create"
-                                ? renderBehaviorStudioSurface()
-                                : behaviorStudioMode === "test"
-                                  ? renderBehaviorStudioTestPanel()
-                                  : renderBehaviorWorkspace()}
+                              : behaviorStudioMode === "event"
+                                ? renderBehaviorEventAuthoringStudio()
+                                : behaviorStudioMode === "listener"
+                                  ? renderBehaviorListenerAuthoringStudio()
+                                  : behaviorStudioMode === "action"
+                                    ? renderBehaviorActionStudio()
+                                    : behaviorStudioMode === "create"
+                                      ? renderBehaviorStudioSurface()
+                                      : behaviorStudioMode === "test"
+                                        ? renderEventFlowStudio()
+                                        : renderBehaviorWorkspace()}
                           </div>
                         </div>
                       </div>,
