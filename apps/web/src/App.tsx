@@ -76,6 +76,8 @@ import {
   refreshChoiceOptions,
 } from "./lib/authoring-utils";
 import type { ConversionRecord, ProcessingStepStatus } from "./lib/types";
+import { HomeStage } from "./features/project/HomeStage";
+import { badgeToneFromProjectStatus } from "./features/project/utils/project-utils";
 
 type AppStage = "home" | "review" | "workspace";
 type ReviewPreviewMode = "overlay" | "pdf";
@@ -1603,10 +1605,6 @@ function badgeToneFromStep(status: ProcessingStepStatus): "neutral" | "warning" 
     return "error";
   }
   return "neutral";
-}
-
-function badgeToneFromProjectStatus(status: ProjectStatus): "neutral" | "success" {
-  return status === "published" ? "success" : "neutral";
 }
 
 function flattenSectionFields(page: PageNode): FieldNode[] {
@@ -19610,145 +19608,20 @@ export default function App() {
         )}
 
         {stage === "home" ? (
-          <StageShell
-            eyebrow="Start"
-            title="New or open a project"
-            summary="Treat this as a durable creation tool. Start blank, import a PDF, reopen a saved JSON file, or jump back into a recent project."
-          >
-            <section className="grid gap-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-              <div className="grid gap-5">
-                <PanelCard title="New" eyebrow="Create a project">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <button
-                      type="button"
-                      onClick={() => void handleCreateBlankProject()}
-                      disabled={isImportingJson}
-                      className="rounded-[1.35rem] border border-blue-200 bg-[linear-gradient(135deg,#eff6ff_0%,#ffffff_62%)] p-5 text-left shadow-sm transition hover:border-blue-300"
-                    >
-                      <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Blank form</p>
-                      <h3 className="mt-2 text-lg font-semibold text-slate-950">Start from scratch</h3>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">
-                        Create a clean project with one starter step and begin authoring directly in the workspace.
-                      </p>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNewProjectDialogOpen(false);
-                        inputRef.current?.click();
-                      }}
-                      disabled={isUploading}
-                      className="rounded-[1.35rem] border border-slate-200 bg-[linear-gradient(135deg,#fff7ed_0%,#ffffff_62%)] p-5 text-left shadow-sm transition hover:border-slate-300"
-                    >
-                      <p className="text-xs uppercase tracking-[0.18em] text-amber-700">Import PDF</p>
-                      <h3 className="mt-2 text-lg font-semibold text-slate-950">Create from source</h3>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">
-                        Start a PDF-backed intake flow, review the extraction against the source, then promote it into a
-                        project.
-                      </p>
-                    </button>
-                  </div>
-                </PanelCard>
-
-                <PanelCard title="Recent Projects" eyebrow="Open existing">
-                  <div className="space-y-3">
-                    {projects.length ? (
-                      projects.slice(0, 6).map((project) => (
-                        <button
-                          key={project.id}
-                          type="button"
-                          onClick={() => handleOpenProject(project.id)}
-                          className="block w-full rounded-[1rem] border border-soft bg-white px-4 py-3 text-left transition hover:border-slate-300"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="font-semibold text-slate-950">{project.name}</p>
-                              <p className="mt-1 text-sm text-slate-600">
-                                {project.revisionCount} revisions · updated{" "}
-                                {new Date(project.updatedAt).toLocaleString()}
-                              </p>
-                            </div>
-                            <StatusBadge tone={badgeToneFromProjectStatus(project.status)}>
-                              {formatLabel(project.status)}
-                            </StatusBadge>
-                          </div>
-                        </button>
-                      ))
-                    ) : (
-                      <div className="app-muted-card p-4 text-sm text-slate-500">
-                        No saved projects yet. Start with a blank form or import a PDF.
-                      </div>
-                    )}
-                  </div>
-                </PanelCard>
-              </div>
-
-              <div className="grid gap-5">
-                <PanelCard
-                  title="Open"
-                  eyebrow="Files and history"
-                  aside={
-                    <button
-                      type="button"
-                      onClick={() => jsonInputRef.current?.click()}
-                      disabled={isImportingJson}
-                      className={actionButtonClass("primary")}
-                    >
-                      {isImportingJson ? "Opening..." : "Open JSON"}
-                    </button>
-                  }
-                >
-                  <div className="space-y-4">
-                    <div className="app-muted-card p-4">
-                      <p className="text-sm font-semibold text-slate-950">Authoring JSON</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">
-                        Load a previously created authoring document and reopen it as a durable project.
-                      </p>
-                    </div>
-                    <div className="app-muted-card p-4">
-                      <p className="text-sm font-semibold text-slate-950">Traditional tool flow</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">
-                        `New` creates a project. `Open` returns you to saved work. Review is now part of PDF intake, not
-                        the identity of the whole app.
-                      </p>
-                    </div>
-                  </div>
-                </PanelCard>
-
-                <PanelCard title="Recent Imports" eyebrow="Resume intake">
-                  <div className="space-y-3">
-                    {conversions.length ? (
-                      conversions.slice(0, 6).map((conversion) => (
-                        <button
-                          key={conversion.id}
-                          type="button"
-                          onClick={() => handleResumeImport(conversion)}
-                          className="block w-full rounded-[1rem] border border-soft bg-white px-4 py-3 text-left transition hover:border-slate-300"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="font-semibold text-slate-950">{conversion.filename}</p>
-                              <p className="mt-1 text-sm text-slate-600">
-                                {conversion.documentSignals?.pageCount ?? 0} pages ·{" "}
-                                {Math.round(conversion.confidence * 100)}% confidence
-                              </p>
-                            </div>
-                            <StatusBadge tone={badgeToneFromReview(conversion.reviewStatus)}>
-                              {formatLabel(conversion.reviewStatus)}
-                            </StatusBadge>
-                          </div>
-                        </button>
-                      ))
-                    ) : (
-                      <div className="app-muted-card p-4 text-sm text-slate-500">
-                        No imports in the queue. Use `New` to start from a PDF.
-                      </div>
-                    )}
-                  </div>
-                </PanelCard>
-              </div>
-            </section>
-          </StageShell>
+          <HomeStage
+            projects={projects}
+            conversions={conversions}
+            isImportingJson={isImportingJson}
+            isUploading={isUploading}
+            onCreateBlankProject={() => void handleCreateBlankProject()}
+            onImportPdf={() => {
+              setNewProjectDialogOpen(false);
+              inputRef.current?.click();
+            }}
+            onOpenJson={() => jsonInputRef.current?.click()}
+            onOpenProject={handleOpenProject}
+            onResumeImport={handleResumeImport}
+          />
         ) : null}
 
         {stage === "review" ? (
