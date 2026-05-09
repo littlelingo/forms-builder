@@ -792,12 +792,9 @@ export function BehaviorComposer({
                       highlighted: options?.selectedActionId === action.id,
                       actionCount: listener.actions.length,
                     }}
-                    activeRuntimeScope={activeRuntimeScope}
-                    activeBuilderField={activeBuilderField}
                     builderStepOptions={builderStepOptions}
                     builderFieldOptions={builderFieldOptions}
                     builderNodeOptions={builderNodeOptions}
-                    runtimePayloadReferenceOptionsForAction={[]}
                     payloadTemplates={runtimePayloadTemplatesForAction(action, listener)}
                     emittedEventSuggestions={runtimeEventNameSuggestions(
                       activeRuntimeScope,

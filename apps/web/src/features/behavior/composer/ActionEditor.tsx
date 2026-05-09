@@ -21,11 +21,9 @@ import {
   validateRuntimeIdentifier,
 } from "../utils/runtime-helpers";
 import type {
-  RuntimeEditorScope,
   RuntimePayloadEditorState,
   RuntimePayloadEntry,
   RuntimePayloadFieldType,
-  RuntimePayloadReferenceOption,
   RuntimePayloadTemplate,
 } from "../utils/runtime-helpers";
 import { SuggestionChips } from "./SuggestionChips";
@@ -74,17 +72,291 @@ function renderRuntimePayloadTemplates(config: {
   );
 }
 
+interface PayloadEditorProps {
+  heading: string;
+  description: string;
+  keyNamespace: string;
+  addLabel: string;
+  emptyLabel: string;
+  applySuccessMessage: string;
+  structuredPayloadEntries: RuntimePayloadEntry[];
+  payloadIssues: string[];
+  payloadTemplates: RuntimePayloadTemplate[];
+  editorState: RuntimePayloadEditorState;
+  listenerId: string;
+  actionId: string;
+  onSetEditorMode: (mode: RuntimePayloadMode) => void;
+  onApplyRuntimePayloadTemplate: (template: RuntimePayloadTemplate) => void;
+  onApplyRuntimePayloadEntries: (listenerId: string, actionId: string, entries: RuntimePayloadEntry[]) => void;
+  onUpdateRuntimePayloadEditorRaw: (actionId: string, raw: string) => void;
+  onUpdateRuntimeAction: (
+    listenerId: string,
+    actionId: string,
+    mutate: (current: RuntimeActionDefinition) => void,
+  ) => void;
+  onSyncRuntimePayloadEditor: (actionId: string, payload: Record<string, unknown>) => void;
+  getCurrentPayload: () => Record<string, unknown>;
+  onSetMessage: (message: string) => void;
+  onSetErrorMessage: (message: string) => void;
+}
+
+function PayloadEditor({
+  heading,
+  description,
+  keyNamespace,
+  addLabel,
+  emptyLabel,
+  applySuccessMessage,
+  structuredPayloadEntries,
+  payloadIssues,
+  payloadTemplates,
+  editorState,
+  listenerId,
+  actionId,
+  onSetEditorMode,
+  onApplyRuntimePayloadTemplate,
+  onApplyRuntimePayloadEntries,
+  onUpdateRuntimePayloadEditorRaw,
+  onUpdateRuntimeAction,
+  onSyncRuntimePayloadEditor,
+  getCurrentPayload,
+  onSetMessage,
+  onSetErrorMessage,
+}: PayloadEditorProps) {
+  return (
+    <div className="rounded-[0.95rem] border border-soft bg-slate-50 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{heading}</p>
+          <p className="mt-2 text-sm text-slate-700">{description}</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => onSetEditorMode("key_value")}
+            className={actionButtonClass(editorState.mode === "key_value" ? "primary" : "secondary")}
+          >
+            Structured fields
+          </button>
+          <button
+            type="button"
+            onClick={() => onSetEditorMode("json")}
+            className={actionButtonClass(editorState.mode === "json" ? "primary" : "secondary")}
+          >
+            Raw JSON
+          </button>
+        </div>
+      </div>
+
+      {editorState.mode === "key_value" ? (
+        <div className="mt-4 space-y-3">
+          {renderRuntimePayloadTemplates({
+            label: "Quick payload templates",
+            templates: payloadTemplates,
+            onApply: (template) => {
+              onApplyRuntimePayloadTemplate(template);
+              onSetMessage(`${template.label} payload template applied.`);
+            },
+          })}
+          {structuredPayloadEntries.map((entry, payloadIndex, payloadEntries) => (
+            <div
+              key={`${keyNamespace}-${payloadIndex}`}
+              className="grid gap-2 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,0.65fr)_minmax(0,1.15fr)_auto]"
+            >
+              <input
+                value={entry.key}
+                onChange={(event) => {
+                  const nextEntries = payloadEntries.map((candidate, candidateIndex) =>
+                    candidateIndex === payloadIndex ? { ...candidate, key: event.target.value } : candidate,
+                  );
+                  onApplyRuntimePayloadEntries(listenerId, actionId, nextEntries);
+                }}
+                placeholder="field name"
+                className="rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
+              />
+              <select
+                value={entry.type}
+                onChange={(event) => {
+                  const nextType = event.target.value as RuntimePayloadFieldType;
+                  const nextEntries = payloadEntries.map((candidate, candidateIndex) =>
+                    candidateIndex === payloadIndex
+                      ? {
+                          ...candidate,
+                          type: nextType,
+                          value: runtimePayloadEntryValueForType(nextType, candidate.value),
+                        }
+                      : candidate,
+                  );
+                  onApplyRuntimePayloadEntries(listenerId, actionId, nextEntries);
+                }}
+                className="rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
+              >
+                {runtimePayloadFieldTypeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {entry.type === "boolean" ? (
+                <select
+                  value={entry.value}
+                  onChange={(event) => {
+                    const nextEntries = payloadEntries.map((candidate, candidateIndex) =>
+                      candidateIndex === payloadIndex ? { ...candidate, value: event.target.value } : candidate,
+                    );
+                    onApplyRuntimePayloadEntries(listenerId, actionId, nextEntries);
+                  }}
+                  className="rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
+                >
+                  <option value="true">true</option>
+                  <option value="false">false</option>
+                </select>
+              ) : entry.type === "json" ? (
+                <textarea
+                  value={entry.value}
+                  onChange={(event) => {
+                    const nextEntries = payloadEntries.map((candidate, candidateIndex) =>
+                      candidateIndex === payloadIndex ? { ...candidate, value: event.target.value } : candidate,
+                    );
+                    onApplyRuntimePayloadEntries(listenerId, actionId, nextEntries);
+                  }}
+                  rows={3}
+                  placeholder='{"nested":"json"}'
+                  className="rounded-2xl border border-soft px-4 py-3 font-mono text-sm text-slate-800"
+                />
+              ) : entry.type === "runtime" ? (
+                <div className="space-y-2">
+                  <select
+                    value={entry.value}
+                    onChange={(event) => {
+                      const nextEntries = payloadEntries.map((candidate, candidateIndex) =>
+                        candidateIndex === payloadIndex ? { ...candidate, value: event.target.value } : candidate,
+                      );
+                      onApplyRuntimePayloadEntries(listenerId, actionId, nextEntries);
+                    }}
+                    className="rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
+                  >
+                    {runtimePayloadReferenceOptions.map((option) => (
+                      <option key={option.key} value={option.key}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-slate-500">
+                    {runtimePayloadReferenceOptions.find((option) => option.key === entry.value)?.description ??
+                      "Resolve this value from runtime context when the action runs."}
+                  </p>
+                </div>
+              ) : entry.type === "null" ? (
+                <div className="flex items-center rounded-2xl border border-soft bg-slate-100 px-4 py-3 text-sm text-slate-500">
+                  This field will send `null`.
+                </div>
+              ) : (
+                <input
+                  type={entry.type === "number" ? "number" : "text"}
+                  value={entry.value}
+                  onChange={(event) => {
+                    const nextEntries = payloadEntries.map((candidate, candidateIndex) =>
+                      candidateIndex === payloadIndex ? { ...candidate, value: event.target.value } : candidate,
+                    );
+                    onApplyRuntimePayloadEntries(listenerId, actionId, nextEntries);
+                  }}
+                  placeholder={entry.type === "number" ? "0" : "plain text"}
+                  className="rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
+                />
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  const nextEntries = payloadEntries.filter((_, candidateIndex) => candidateIndex !== payloadIndex);
+                  onApplyRuntimePayloadEntries(listenerId, actionId, nextEntries);
+                }}
+                className={actionButtonClass("danger")}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          {!structuredPayloadEntries.length ? (
+            <div className="app-muted-card p-4 text-sm text-slate-500">{emptyLabel}</div>
+          ) : null}
+          {payloadIssues.length ? (
+            <div className="rounded-[0.95rem] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {payloadIssues.map((issue) => (
+                <p key={issue}>{issue}</p>
+              ))}
+            </div>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              const nextEntries = [
+                ...structuredPayloadEntries,
+                {
+                  key: `field_${structuredPayloadEntries.length + 1}`,
+                  value: "",
+                  type: "string" as RuntimePayloadFieldType,
+                },
+              ];
+              onApplyRuntimePayloadEntries(listenerId, actionId, nextEntries);
+            }}
+            className={actionButtonClass()}
+          >
+            {addLabel}
+          </button>
+        </div>
+      ) : (
+        <div className="mt-4 space-y-3">
+          <textarea
+            value={editorState.raw}
+            onChange={(event) => onUpdateRuntimePayloadEditorRaw(actionId, event.target.value)}
+            rows={8}
+            className="w-full rounded-2xl border border-soft px-4 py-3 font-mono text-sm text-slate-800"
+          />
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  const parsed = JSON.parse(editorState.raw);
+                  if (!isRecord(parsed)) {
+                    throw new Error("Payload JSON must be an object.");
+                  }
+                  onUpdateRuntimeAction(listenerId, actionId, (current) => {
+                    current.config.payload = parsed;
+                  });
+                  onSyncRuntimePayloadEditor(actionId, parsed);
+                  onSetMessage(applySuccessMessage);
+                } catch (error) {
+                  onSetErrorMessage(error instanceof Error ? error.message : "Invalid payload JSON.");
+                }
+              }}
+              className={actionButtonClass("primary")}
+            >
+              Apply JSON
+            </button>
+            <button
+              type="button"
+              onClick={() => onSyncRuntimePayloadEditor(actionId, getCurrentPayload())}
+              className={actionButtonClass()}
+            >
+              Reset from payload
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export interface ActionEditorProps {
   listener: RuntimeListenerDefinition;
   action: RuntimeActionDefinition;
   actionIndex: number;
   options?: { highlighted?: boolean; actionCount?: number };
-  activeRuntimeScope: RuntimeEditorScope | null;
-  activeBuilderField: AuthoringField | null;
   builderStepOptions: Array<{ id: string; optionLabel: string }>;
   builderFieldOptions: Array<{ id: string; optionLabel: string }>;
   builderNodeOptions: Array<{ id: string; optionLabel: string }>;
-  runtimePayloadReferenceOptionsForAction: RuntimePayloadReferenceOption[];
   payloadTemplates: RuntimePayloadTemplate[];
   emittedEventSuggestions: string[];
   hostHandlerSuggestions: string[];
@@ -388,240 +660,31 @@ export function ActionEditor({
               />
               <span className="text-sm text-slate-700">Event bubbles to ancestor dispatchers</span>
             </label>
-            <div className="rounded-[0.95rem] border border-soft bg-slate-50 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Event payload</p>
-                  <p className="mt-2 text-sm text-slate-700">
-                    Name the signal first, then add only the extra context the runtime or host needs to receive with it.
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onSetRuntimePayloadEditorMode(action, "key_value")}
-                    className={actionButtonClass(
-                      getRuntimePayloadEditorState(action).mode === "key_value" ? "primary" : "secondary",
-                    )}
-                  >
-                    Structured fields
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onSetRuntimePayloadEditorMode(action, "json")}
-                    className={actionButtonClass(
-                      getRuntimePayloadEditorState(action).mode === "json" ? "primary" : "secondary",
-                    )}
-                  >
-                    Raw JSON
-                  </button>
-                </div>
-              </div>
-
-              {getRuntimePayloadEditorState(action).mode === "key_value" ? (
-                <div className="mt-4 space-y-3">
-                  {renderRuntimePayloadTemplates({
-                    label: "Quick payload templates",
-                    templates: payloadTemplates,
-                    onApply: (template) => {
-                      onApplyRuntimePayloadTemplate(listener.id, action.id, template);
-                      onSetMessage(`${template.label} payload template applied.`);
-                    },
-                  })}
-                  {structuredPayloadEntries.map((entry, payloadIndex, payloadEntries) => (
-                    <div
-                      key={`${action.id}-payload-${payloadIndex}`}
-                      className="grid gap-2 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,0.65fr)_minmax(0,1.15fr)_auto]"
-                    >
-                      <input
-                        value={entry.key}
-                        onChange={(event) => {
-                          const nextEntries = payloadEntries.map((candidate, candidateIndex) =>
-                            candidateIndex === payloadIndex ? { ...candidate, key: event.target.value } : candidate,
-                          );
-                          onApplyRuntimePayloadEntries(listener.id, action.id, nextEntries);
-                        }}
-                        placeholder="field name"
-                        className="rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-                      />
-                      <select
-                        value={entry.type}
-                        onChange={(event) => {
-                          const nextType = event.target.value as RuntimePayloadFieldType;
-                          const nextEntries = payloadEntries.map((candidate, candidateIndex) =>
-                            candidateIndex === payloadIndex
-                              ? {
-                                  ...candidate,
-                                  type: nextType,
-                                  value: runtimePayloadEntryValueForType(nextType, candidate.value),
-                                }
-                              : candidate,
-                          );
-                          onApplyRuntimePayloadEntries(listener.id, action.id, nextEntries);
-                        }}
-                        className="rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-                      >
-                        {runtimePayloadFieldTypeOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      {entry.type === "boolean" ? (
-                        <select
-                          value={entry.value}
-                          onChange={(event) => {
-                            const nextEntries = payloadEntries.map((candidate, candidateIndex) =>
-                              candidateIndex === payloadIndex ? { ...candidate, value: event.target.value } : candidate,
-                            );
-                            onApplyRuntimePayloadEntries(listener.id, action.id, nextEntries);
-                          }}
-                          className="rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-                        >
-                          <option value="true">true</option>
-                          <option value="false">false</option>
-                        </select>
-                      ) : entry.type === "json" ? (
-                        <textarea
-                          value={entry.value}
-                          onChange={(event) => {
-                            const nextEntries = payloadEntries.map((candidate, candidateIndex) =>
-                              candidateIndex === payloadIndex ? { ...candidate, value: event.target.value } : candidate,
-                            );
-                            onApplyRuntimePayloadEntries(listener.id, action.id, nextEntries);
-                          }}
-                          rows={3}
-                          placeholder='{"nested":"json"}'
-                          className="rounded-2xl border border-soft px-4 py-3 font-mono text-sm text-slate-800"
-                        />
-                      ) : entry.type === "runtime" ? (
-                        <div className="space-y-2">
-                          <select
-                            value={entry.value}
-                            onChange={(event) => {
-                              const nextEntries = payloadEntries.map((candidate, candidateIndex) =>
-                                candidateIndex === payloadIndex
-                                  ? { ...candidate, value: event.target.value }
-                                  : candidate,
-                              );
-                              onApplyRuntimePayloadEntries(listener.id, action.id, nextEntries);
-                            }}
-                            className="rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-                          >
-                            {runtimePayloadReferenceOptions.map((option) => (
-                              <option key={option.key} value={option.key}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                          <p className="text-xs text-slate-500">
-                            {runtimePayloadReferenceOptions.find((option) => option.key === entry.value)?.description ??
-                              "Resolve this value from runtime context when the action runs."}
-                          </p>
-                        </div>
-                      ) : entry.type === "null" ? (
-                        <div className="flex items-center rounded-2xl border border-soft bg-slate-100 px-4 py-3 text-sm text-slate-500">
-                          This field will send `null`.
-                        </div>
-                      ) : (
-                        <input
-                          type={entry.type === "number" ? "number" : "text"}
-                          value={entry.value}
-                          onChange={(event) => {
-                            const nextEntries = payloadEntries.map((candidate, candidateIndex) =>
-                              candidateIndex === payloadIndex ? { ...candidate, value: event.target.value } : candidate,
-                            );
-                            onApplyRuntimePayloadEntries(listener.id, action.id, nextEntries);
-                          }}
-                          placeholder={entry.type === "number" ? "0" : "plain text"}
-                          className="rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-                        />
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const nextEntries = payloadEntries.filter(
-                            (_, candidateIndex) => candidateIndex !== payloadIndex,
-                          );
-                          onApplyRuntimePayloadEntries(listener.id, action.id, nextEntries);
-                        }}
-                        className={actionButtonClass("danger")}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-                  {!runtimePayloadEntries(getRuntimeActionPayload(action)).length ? (
-                    <div className="app-muted-card p-4 text-sm text-slate-500">
-                      No payload fields yet. Add one only if the event should send more than its name.
-                    </div>
-                  ) : null}
-                  {payloadIssues.length ? (
-                    <div className="rounded-[0.95rem] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                      {payloadIssues.map((issue) => (
-                        <p key={issue}>{issue}</p>
-                      ))}
-                    </div>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const nextEntries = [
-                        ...structuredPayloadEntries,
-                        {
-                          key: `field_${structuredPayloadEntries.length + 1}`,
-                          value: "",
-                          type: "string" as RuntimePayloadFieldType,
-                        },
-                      ];
-                      onApplyRuntimePayloadEntries(listener.id, action.id, nextEntries);
-                    }}
-                    className={actionButtonClass()}
-                  >
-                    Add event field
-                  </button>
-                </div>
-              ) : (
-                <div className="mt-4 space-y-3">
-                  <textarea
-                    value={getRuntimePayloadEditorState(action).raw}
-                    onChange={(event) => onUpdateRuntimePayloadEditorRaw(action.id, event.target.value)}
-                    rows={8}
-                    className="w-full rounded-2xl border border-soft px-4 py-3 font-mono text-sm text-slate-800"
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        try {
-                          const parsed = JSON.parse(getRuntimePayloadEditorState(action).raw);
-                          if (!isRecord(parsed)) {
-                            throw new Error("Payload JSON must be an object.");
-                          }
-                          onUpdateRuntimeAction(listener.id, action.id, (current) => {
-                            current.config.payload = parsed;
-                          });
-                          onSyncRuntimePayloadEditor(action.id, parsed);
-                          onSetMessage("Runtime payload JSON applied.");
-                        } catch (error) {
-                          onSetErrorMessage(error instanceof Error ? error.message : "Invalid payload JSON.");
-                        }
-                      }}
-                      className={actionButtonClass("primary")}
-                    >
-                      Apply JSON
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onSyncRuntimePayloadEditor(action.id, getRuntimeActionPayload(action))}
-                      className={actionButtonClass()}
-                    >
-                      Reset from payload
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+            <PayloadEditor
+              heading="Event payload"
+              description="Name the signal first, then add only the extra context the runtime or host needs to receive with it."
+              keyNamespace={`${action.id}-payload`}
+              addLabel="Add event field"
+              emptyLabel="No payload fields yet. Add one only if the event should send more than its name."
+              applySuccessMessage="Runtime payload JSON applied."
+              structuredPayloadEntries={structuredPayloadEntries}
+              payloadIssues={payloadIssues}
+              payloadTemplates={payloadTemplates}
+              editorState={getRuntimePayloadEditorState(action)}
+              listenerId={listener.id}
+              actionId={action.id}
+              onSetEditorMode={(mode) => onSetRuntimePayloadEditorMode(action, mode)}
+              onApplyRuntimePayloadTemplate={(template) =>
+                onApplyRuntimePayloadTemplate(listener.id, action.id, template)
+              }
+              onApplyRuntimePayloadEntries={onApplyRuntimePayloadEntries}
+              onUpdateRuntimePayloadEditorRaw={onUpdateRuntimePayloadEditorRaw}
+              onUpdateRuntimeAction={onUpdateRuntimeAction}
+              onSyncRuntimePayloadEditor={onSyncRuntimePayloadEditor}
+              getCurrentPayload={() => getRuntimeActionPayload(action)}
+              onSetMessage={onSetMessage}
+              onSetErrorMessage={onSetErrorMessage}
+            />
           </div>
         ) : null}
 
@@ -650,241 +713,31 @@ export function ActionEditor({
               />
               {hostHandlerIssue ? <p className="mt-2 text-sm text-rose-600">{hostHandlerIssue}</p> : null}
             </div>
-            <div className="rounded-[0.95rem] border border-soft bg-slate-50 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Request payload</p>
-                  <p className="mt-2 text-sm text-slate-700">
-                    Point this action at the host handler first, then add only the request fields the host actually
-                    expects.
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onSetRuntimePayloadEditorMode(action, "key_value")}
-                    className={actionButtonClass(
-                      getRuntimePayloadEditorState(action).mode === "key_value" ? "primary" : "secondary",
-                    )}
-                  >
-                    Structured fields
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onSetRuntimePayloadEditorMode(action, "json")}
-                    className={actionButtonClass(
-                      getRuntimePayloadEditorState(action).mode === "json" ? "primary" : "secondary",
-                    )}
-                  >
-                    Raw JSON
-                  </button>
-                </div>
-              </div>
-
-              {getRuntimePayloadEditorState(action).mode === "key_value" ? (
-                <div className="mt-4 space-y-3">
-                  {renderRuntimePayloadTemplates({
-                    label: "Quick payload templates",
-                    templates: payloadTemplates,
-                    onApply: (template) => {
-                      onApplyRuntimePayloadTemplate(listener.id, action.id, template);
-                      onSetMessage(`${template.label} payload template applied.`);
-                    },
-                  })}
-                  {structuredPayloadEntries.map((entry, payloadIndex, payloadEntries) => (
-                    <div
-                      key={`${action.id}-host-payload-${payloadIndex}`}
-                      className="grid gap-2 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,0.65fr)_minmax(0,1.15fr)_auto]"
-                    >
-                      <input
-                        value={entry.key}
-                        onChange={(event) => {
-                          const nextEntries = payloadEntries.map((candidate, candidateIndex) =>
-                            candidateIndex === payloadIndex ? { ...candidate, key: event.target.value } : candidate,
-                          );
-                          onApplyRuntimePayloadEntries(listener.id, action.id, nextEntries);
-                        }}
-                        placeholder="field name"
-                        className="rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-                      />
-                      <select
-                        value={entry.type}
-                        onChange={(event) => {
-                          const nextType = event.target.value as RuntimePayloadFieldType;
-                          const nextEntries = payloadEntries.map((candidate, candidateIndex) =>
-                            candidateIndex === payloadIndex
-                              ? {
-                                  ...candidate,
-                                  type: nextType,
-                                  value: runtimePayloadEntryValueForType(nextType, candidate.value),
-                                }
-                              : candidate,
-                          );
-                          onApplyRuntimePayloadEntries(listener.id, action.id, nextEntries);
-                        }}
-                        className="rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-                      >
-                        {runtimePayloadFieldTypeOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      {entry.type === "boolean" ? (
-                        <select
-                          value={entry.value}
-                          onChange={(event) => {
-                            const nextEntries = payloadEntries.map((candidate, candidateIndex) =>
-                              candidateIndex === payloadIndex ? { ...candidate, value: event.target.value } : candidate,
-                            );
-                            onApplyRuntimePayloadEntries(listener.id, action.id, nextEntries);
-                          }}
-                          className="rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-                        >
-                          <option value="true">true</option>
-                          <option value="false">false</option>
-                        </select>
-                      ) : entry.type === "json" ? (
-                        <textarea
-                          value={entry.value}
-                          onChange={(event) => {
-                            const nextEntries = payloadEntries.map((candidate, candidateIndex) =>
-                              candidateIndex === payloadIndex ? { ...candidate, value: event.target.value } : candidate,
-                            );
-                            onApplyRuntimePayloadEntries(listener.id, action.id, nextEntries);
-                          }}
-                          rows={3}
-                          placeholder='{"nested":"json"}'
-                          className="rounded-2xl border border-soft px-4 py-3 font-mono text-sm text-slate-800"
-                        />
-                      ) : entry.type === "runtime" ? (
-                        <div className="space-y-2">
-                          <select
-                            value={entry.value}
-                            onChange={(event) => {
-                              const nextEntries = payloadEntries.map((candidate, candidateIndex) =>
-                                candidateIndex === payloadIndex
-                                  ? { ...candidate, value: event.target.value }
-                                  : candidate,
-                              );
-                              onApplyRuntimePayloadEntries(listener.id, action.id, nextEntries);
-                            }}
-                            className="rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-                          >
-                            {runtimePayloadReferenceOptions.map((option) => (
-                              <option key={option.key} value={option.key}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                          <p className="text-xs text-slate-500">
-                            {runtimePayloadReferenceOptions.find((option) => option.key === entry.value)?.description ??
-                              "Resolve this value from runtime context when the action runs."}
-                          </p>
-                        </div>
-                      ) : entry.type === "null" ? (
-                        <div className="flex items-center rounded-2xl border border-soft bg-slate-100 px-4 py-3 text-sm text-slate-500">
-                          This field will send `null`.
-                        </div>
-                      ) : (
-                        <input
-                          type={entry.type === "number" ? "number" : "text"}
-                          value={entry.value}
-                          onChange={(event) => {
-                            const nextEntries = payloadEntries.map((candidate, candidateIndex) =>
-                              candidateIndex === payloadIndex ? { ...candidate, value: event.target.value } : candidate,
-                            );
-                            onApplyRuntimePayloadEntries(listener.id, action.id, nextEntries);
-                          }}
-                          placeholder={entry.type === "number" ? "0" : "plain text"}
-                          className="rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-                        />
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const nextEntries = payloadEntries.filter(
-                            (_, candidateIndex) => candidateIndex !== payloadIndex,
-                          );
-                          onApplyRuntimePayloadEntries(listener.id, action.id, nextEntries);
-                        }}
-                        className={actionButtonClass("danger")}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-                  {!runtimePayloadEntries(getRuntimeActionPayload(action)).length ? (
-                    <div className="app-muted-card p-4 text-sm text-slate-500">
-                      No request fields yet. Add them only if the host action needs context beyond the handler key.
-                    </div>
-                  ) : null}
-                  {payloadIssues.length ? (
-                    <div className="rounded-[0.95rem] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                      {payloadIssues.map((issue) => (
-                        <p key={issue}>{issue}</p>
-                      ))}
-                    </div>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const nextEntries = [
-                        ...structuredPayloadEntries,
-                        {
-                          key: `field_${structuredPayloadEntries.length + 1}`,
-                          value: "",
-                          type: "string" as RuntimePayloadFieldType,
-                        },
-                      ];
-                      onApplyRuntimePayloadEntries(listener.id, action.id, nextEntries);
-                    }}
-                    className={actionButtonClass()}
-                  >
-                    Add request field
-                  </button>
-                </div>
-              ) : (
-                <div className="mt-4 space-y-3">
-                  <textarea
-                    value={getRuntimePayloadEditorState(action).raw}
-                    onChange={(event) => onUpdateRuntimePayloadEditorRaw(action.id, event.target.value)}
-                    rows={8}
-                    className="w-full rounded-2xl border border-soft px-4 py-3 font-mono text-sm text-slate-800"
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        try {
-                          const parsed = JSON.parse(getRuntimePayloadEditorState(action).raw);
-                          if (!isRecord(parsed)) {
-                            throw new Error("Payload JSON must be an object.");
-                          }
-                          onUpdateRuntimeAction(listener.id, action.id, (current) => {
-                            current.config.payload = parsed;
-                          });
-                          onSyncRuntimePayloadEditor(action.id, parsed);
-                          onSetMessage("Host action payload JSON applied.");
-                        } catch (error) {
-                          onSetErrorMessage(error instanceof Error ? error.message : "Invalid payload JSON.");
-                        }
-                      }}
-                      className={actionButtonClass("primary")}
-                    >
-                      Apply JSON
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onSyncRuntimePayloadEditor(action.id, getRuntimeActionPayload(action))}
-                      className={actionButtonClass()}
-                    >
-                      Reset from payload
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+            <PayloadEditor
+              heading="Request payload"
+              description="Point this action at the host handler first, then add only the request fields the host actually expects."
+              keyNamespace={`${action.id}-host-payload`}
+              addLabel="Add request field"
+              emptyLabel="No request fields yet. Add them only if the host action needs context beyond the handler key."
+              applySuccessMessage="Host action payload JSON applied."
+              structuredPayloadEntries={structuredPayloadEntries}
+              payloadIssues={payloadIssues}
+              payloadTemplates={payloadTemplates}
+              editorState={getRuntimePayloadEditorState(action)}
+              listenerId={listener.id}
+              actionId={action.id}
+              onSetEditorMode={(mode) => onSetRuntimePayloadEditorMode(action, mode)}
+              onApplyRuntimePayloadTemplate={(template) =>
+                onApplyRuntimePayloadTemplate(listener.id, action.id, template)
+              }
+              onApplyRuntimePayloadEntries={onApplyRuntimePayloadEntries}
+              onUpdateRuntimePayloadEditorRaw={onUpdateRuntimePayloadEditorRaw}
+              onUpdateRuntimeAction={onUpdateRuntimeAction}
+              onSyncRuntimePayloadEditor={onSyncRuntimePayloadEditor}
+              getCurrentPayload={() => getRuntimeActionPayload(action)}
+              onSetMessage={onSetMessage}
+              onSetErrorMessage={onSetErrorMessage}
+            />
           </div>
         ) : null}
 
