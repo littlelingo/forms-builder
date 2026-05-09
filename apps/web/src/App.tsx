@@ -78,6 +78,7 @@ import { BuilderStage, PreviewCanvas, StepStrip } from "./features/builder";
 import { BuilderFieldCard } from "./features/builder/cards/BuilderFieldCard";
 import { DragHandle, DropMarker, EmptyDropZone } from "./features/builder/dnd/drag-handles";
 import { dropTargetKey, isCompatibleDropTarget, summarizeAuthoringStep } from "./features/builder/utils/builder-utils";
+import { actionButtonClass, formatLabel } from "./lib/ui-utils";
 import { HomeStage } from "./features/project/HomeStage";
 import { badgeToneFromProjectStatus } from "./features/project/utils/project-utils";
 import { ReviewStage } from "./features/review/ReviewStage";
@@ -283,13 +284,6 @@ const builderFieldTypeOptions: Array<{ value: BuilderFieldTypeOption; label: str
   { value: "action_button", label: "Button" },
 ];
 
-function formatLabel(value: string | undefined | null): string {
-  if (!value) {
-    return "Unknown";
-  }
-  return value.replaceAll("_", " ");
-}
-
 function createBlankAuthoringDocument(): AuthoringDocument {
   const document: AuthoringDocument = {
     id: crypto.randomUUID(),
@@ -412,16 +406,6 @@ function subtleButtonClass(active: boolean): string {
     : "inline-flex h-8 items-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-950";
 }
 
-function actionButtonClass(kind: "primary" | "secondary" | "danger" = "secondary"): string {
-  if (kind === "primary") {
-    return "inline-flex h-9 items-center justify-center rounded-md border border-blue-600 bg-blue-600 px-3.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:pointer-events-none disabled:opacity-50";
-  }
-  if (kind === "danger") {
-    return "inline-flex h-9 items-center justify-center rounded-md border border-rose-200 bg-white px-3.5 text-sm font-medium text-rose-700 shadow-sm transition hover:bg-rose-50 disabled:pointer-events-none disabled:opacity-50";
-  }
-  return "inline-flex h-9 items-center justify-center rounded-md border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 disabled:pointer-events-none disabled:opacity-50";
-}
-
 function iconButtonClass(kind: "secondary" | "danger" | "primary" = "secondary"): string {
   if (kind === "primary") {
     return "inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-200 bg-white text-sm font-medium text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50";
@@ -441,19 +425,6 @@ function PageIcon() {
         <path d="M5.75 7h4.5M5.75 9.25h4.5M5.75 11.5h3.25" />
       </svg>
     </span>
-  );
-}
-
-function DragHandleIcon() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4" fill="currentColor">
-      <circle cx="5.25" cy="4" r="1" />
-      <circle cx="10.75" cy="4" r="1" />
-      <circle cx="5.25" cy="8" r="1" />
-      <circle cx="10.75" cy="8" r="1" />
-      <circle cx="5.25" cy="12" r="1" />
-      <circle cx="10.75" cy="12" r="1" />
-    </svg>
   );
 }
 

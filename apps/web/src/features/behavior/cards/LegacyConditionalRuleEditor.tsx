@@ -1,12 +1,6 @@
-import { actionButtonClass, iconButtonClass } from "../../builder/utils/builder-utils";
+import { iconButtonClass } from "../../builder/utils/builder-utils";
 import type { LegacyConditionalRule, LegacyConditionalRuleGroup } from "../utils/runtime-helpers";
-
-function formatLabel(value: string | undefined | null): string {
-  if (!value) {
-    return "Unknown";
-  }
-  return value.replaceAll("_", " ");
-}
+import { actionButtonClass, formatLabel } from "../../../lib/ui-utils";
 
 export interface LegacyConditionalRuleEditorProps {
   rule: LegacyConditionalRule;

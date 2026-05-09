@@ -2,13 +2,7 @@ import type { AuthoringProjectRecord } from "@form-builder/schema";
 import { PanelCard, StatusBadge } from "@form-builder/ui";
 
 import { badgeToneFromProjectStatus } from "./utils/project-utils";
-
-function formatLabel(value: string | undefined | null): string {
-  if (!value) {
-    return "Unknown";
-  }
-  return value.replaceAll("_", " ");
-}
+import { formatLabel } from "../../lib/ui-utils";
 
 export interface ProjectListProps {
   projects: AuthoringProjectRecord[];

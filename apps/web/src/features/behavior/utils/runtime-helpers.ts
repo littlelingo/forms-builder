@@ -20,6 +20,7 @@ import type {
 import { runtimeCoreEventType, runtimeCoreEventTypes, runtimeStandardEventPayloadFields } from "@form-builder/schema";
 
 import type { AuthoringSelection } from "../../../lib/authoring-utils";
+import { formatLabel } from "../../../lib/ui-utils";
 
 // ---------------------------------------------------------------------------
 // Local behavior types (previously in App.tsx)
@@ -1411,15 +1412,4 @@ export function isRuntimeTraceChainRelevantEntry(entry: RuntimeTraceEntry): bool
     entry.event.type === "form.submit" ||
     entry.event.type === "form.validation_failed"
   );
-}
-
-// ---------------------------------------------------------------------------
-// formatLabel — kept local to helpers since it's needed by runtimeNodeTypeLabel
-// and runtimeEntityTypeLabel. App.tsx retains its own copy for non-behavior uses.
-// ---------------------------------------------------------------------------
-function formatLabel(value: string | undefined | null): string {
-  if (!value) {
-    return "Unknown";
-  }
-  return value.replaceAll("_", " ");
 }

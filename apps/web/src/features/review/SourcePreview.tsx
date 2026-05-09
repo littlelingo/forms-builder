@@ -5,6 +5,7 @@ import { PanelCard } from "@form-builder/ui";
 
 import type { PageSummary, ReviewPreviewMode } from "./ReviewStage";
 import { overlayRects } from "./utils/review-utils";
+import { actionButtonClass } from "../../lib/ui-utils";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) {
@@ -20,16 +21,6 @@ function subtleButtonClass(active: boolean): string {
   return active
     ? "inline-flex h-8 items-center rounded-md border border-blue-200 bg-blue-50 px-3 text-sm font-medium text-blue-700"
     : "inline-flex h-8 items-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-950";
-}
-
-function actionButtonClass(kind: "primary" | "secondary" | "danger" = "secondary"): string {
-  if (kind === "primary") {
-    return "inline-flex h-9 items-center justify-center rounded-md border border-blue-600 bg-blue-600 px-3.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:pointer-events-none disabled:opacity-50";
-  }
-  if (kind === "danger") {
-    return "inline-flex h-9 items-center justify-center rounded-md border border-rose-200 bg-white px-3.5 text-sm font-medium text-rose-700 shadow-sm transition hover:bg-rose-50 disabled:pointer-events-none disabled:opacity-50";
-  }
-  return "inline-flex h-9 items-center justify-center rounded-md border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 disabled:pointer-events-none disabled:opacity-50";
 }
 
 function overlayTone(field: FieldNode, selected: boolean): string {
