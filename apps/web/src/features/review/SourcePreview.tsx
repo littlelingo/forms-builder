@@ -1,9 +1,10 @@
 import type { DragEvent } from "react";
 
-import type { Coordinates, FieldNode, PageNode, SectionNode } from "@form-builder/schema";
+import type { FieldNode, PageNode } from "@form-builder/schema";
 import { PanelCard } from "@form-builder/ui";
 
 import type { PageSummary, ReviewPreviewMode } from "./ReviewStage";
+import { overlayRects } from "./utils/review-utils";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) {
@@ -42,50 +43,6 @@ function overlayTone(field: FieldNode, selected: boolean): string {
     return "fill-amber-300/18 stroke-amber-500";
   }
   return "fill-sky-400/18 stroke-sky-600";
-}
-
-function orderedReviewSectionFields(section: SectionNode): FieldNode[] {
-  const orderedItems = [
-    ...section.fields.map((field) => ({
-      orderIndex: field.orderIndex,
-      kind: "field" as const,
-      fields: [field],
-    })),
-    ...section.groups.map((group) => ({
-      orderIndex: group.orderIndex,
-      kind: "group" as const,
-      fields: [...group.fields].sort(
-        (left, right) => left.orderIndex - right.orderIndex || left.label.localeCompare(right.label),
-      ),
-    })),
-  ].sort((left, right) => left.orderIndex - right.orderIndex || (left.kind === "field" ? -1 : 1));
-
-  return orderedItems.flatMap((item) => item.fields);
-}
-
-function overlayRects(field: FieldNode): Coordinates[] {
-  const optionRects =
-    field.semanticType === "radio" || field.semanticType === "checkbox" || field.semanticType === "select"
-      ? field.options.flatMap((option) =>
-          option.evidence
-            .map((anchor) => anchor.bounds)
-            .filter((bounds): bounds is Coordinates => bounds !== undefined),
-        )
-      : [];
-
-  const sourceRects = field.sourceCoordinates;
-  const fallbackEvidenceRects = field.evidence
-    .map((anchor) => anchor.bounds)
-    .filter((bounds): bounds is Coordinates => bounds !== undefined);
-
-  const preferredRects =
-    optionRects.length > 0
-      ? [...optionRects, ...sourceRects.slice(optionRects.length)]
-      : sourceRects.length > 0
-        ? sourceRects
-        : fallbackEvidenceRects;
-
-  return preferredRects;
 }
 
 function primaryPageHeading(page: PageNode): string {

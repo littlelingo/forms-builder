@@ -12,7 +12,6 @@ import type {
   AuthoringProjectRecord,
   AuthoringSection,
   AuthoringStep,
-  Coordinates,
   FieldNode,
   GroupNode,
   PageNode,
@@ -79,7 +78,7 @@ import type { ConversionRecord } from "./lib/types";
 import { HomeStage } from "./features/project/HomeStage";
 import { badgeToneFromProjectStatus } from "./features/project/utils/project-utils";
 import { ReviewStage } from "./features/review/ReviewStage";
-import { badgeToneFromReview, badgeToneFromStatus } from "./features/review/utils/review-utils";
+import { badgeToneFromReview, badgeToneFromStatus, overlayRects } from "./features/review/utils/review-utils";
 
 type AppStage = "home" | "review" | "workspace";
 type ReviewPreviewMode = "overlay" | "pdf";
@@ -3000,42 +2999,6 @@ function primaryPageHeading(page: PageNode): string {
 function secondaryPageHeading(page: PageNode): string | null {
   const primary = primaryPageHeading(page);
   return page.label && page.label !== primary ? page.label : null;
-}
-
-function overlayRects(field: FieldNode): Coordinates[] {
-  const optionRects =
-    field.semanticType === "radio" || field.semanticType === "checkbox" || field.semanticType === "select"
-      ? field.options.flatMap((option) =>
-          option.evidence
-            .map((anchor) => anchor.bounds)
-            .filter((bounds): bounds is Coordinates => bounds !== undefined),
-        )
-      : [];
-
-  const sourceRects = field.sourceCoordinates;
-  const fallbackEvidenceRects = field.evidence
-    .map((anchor) => anchor.bounds)
-    .filter((bounds): bounds is Coordinates => bounds !== undefined);
-
-  const preferredRects =
-    optionRects.length > 0
-      ? [...optionRects, ...sourceRects.slice(optionRects.length)]
-      : sourceRects.length > 0
-        ? sourceRects
-        : fallbackEvidenceRects;
-
-  const deduped = new Map<string, Coordinates>();
-  for (const bounds of preferredRects) {
-    const key = [
-      bounds.page,
-      bounds.x.toFixed(2),
-      bounds.y.toFixed(2),
-      bounds.width.toFixed(2),
-      bounds.height.toFixed(2),
-    ].join(":");
-    deduped.set(key, bounds);
-  }
-  return [...deduped.values()];
 }
 
 function importedDocumentFromPayload(payload: unknown): AuthoringDocument | null {
