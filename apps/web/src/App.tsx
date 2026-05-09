@@ -85,115 +85,144 @@ import { ReviewStage } from "./features/review/ReviewStage";
 import { badgeToneFromReview, badgeToneFromStatus, overlayRects } from "./features/review/utils/review-utils";
 import { InspectorRail } from "./features/inspector";
 import type { InspectorTab } from "./features/inspector";
+import {
+  BehaviorEdgeLabel,
+  BehaviorGraphNode,
+  LegacyConditionalRuleEditor,
+  RuntimeReactionProperties,
+  behaviorPresetCategoryLabels,
+  builtInRuntimeEventNames,
+  buildRuntimeTraceContextSummary,
+  buildStructuredRuntimeTraceEvidence,
+  cloneRuntimePayloadShape,
+  createEventPayloadCondition,
+  createFieldValueCondition,
+  createListenerGraphSelection,
+  createRuntimeAction,
+  createRuntimeDocumentBehavior,
+  createRuntimeEventSource,
+  createRuntimeListener,
+  createRuntimeNodeBehavior,
+  createRuntimePayloadEntry,
+  createRuntimePayloadReferenceEntry,
+  createRuntimePayloadShapeFromFields,
+  describeRuntimeAction,
+  documentBehaviorClusterFocusLabel,
+  ensureUniqueEventSource,
+  estimateJsonBytes,
+  fallbackRuntimePayloadFieldsForEvent,
+  findAuthoringFieldById,
+  findRuntimeEventSourceForUpsert,
+  formatBytes,
+  formatDispatchKey,
+  formatNodeOptionLabel,
+  formatRuntimeDiagnosticValue,
+  formatRuntimeEvidenceValue,
+  formatRuntimeSourceCandidateLabel,
+  getButtonBehaviorSummary,
+  getRuntimeActionEventType,
+  getRuntimeActionPayload,
+  getRuntimeListenerEventType,
+  getRuntimeTraceEntryKey,
+  inferRuntimePayloadFieldType,
+  isAuthoredRuntimeEvidenceEntry,
+  isAutomaticRuntimePayloadField,
+  isLegacyConditionalRuleEnabled,
+  isRecord,
+  isRuntimePayloadReference,
+  isRuntimePayloadReferenceKey,
+  isRuntimeTraceChainRelevantEntry,
+  legacyFieldConditionals,
+  mergeRuntimePayloadFieldsWithStandardFields,
+  mutableLegacyFieldConditionals,
+  normalizeDocumentBehaviorClusterKind,
+  runtimeActionOptions,
+  runtimeAutomaticEventPayloadFieldNames,
+  runtimeEntityTypeLabel,
+  runtimeEventBubblesForSource,
+  runtimeEventDefinitionType,
+  runtimeFieldActionTargetId,
+  runtimeNavigationActionTargetId,
+  runtimeNodeActionTargetId,
+  runtimeNodeTypeLabel,
+  runtimePayloadEntries,
+  runtimePayloadEntryValueForType,
+  runtimePayloadFieldTypeOptions,
+  runtimePayloadFieldsForEventType,
+  runtimePayloadFromEntries,
+  runtimePayloadIssues,
+  runtimePayloadReferenceOptions,
+  runtimePayloadValueFromEntry,
+  sanitizeRuntimeIdentifier,
+  setLegacyConditionalRuleEnabled,
+  stringifyRuntimePayloadValue,
+  upsertRuntimeEventSource,
+  validateRuntimeIdentifier,
+} from "./features/behavior";
+import type {
+  BehaviorGraphDensity,
+  BehaviorGraphEntryContext,
+  BehaviorGraphFilter,
+  BehaviorGraphMode,
+  BehaviorGraphSelection,
+  BehaviorIndexObjectView,
+  BehaviorIndexStatusFilter,
+  BehaviorListenerSourceType,
+  BehaviorPresetBase,
+  BehaviorPresetCategory,
+  BehaviorPresetGroupCategory,
+  BehaviorScopeCluster,
+  BehaviorStudioAnchor,
+  BehaviorStudioCreationPath,
+  BehaviorStudioManagerMode,
+  BehaviorStudioMode,
+  BehaviorStudioPlacement,
+  BehaviorStudioPositionLayout,
+  BehaviorStudioView,
+  BehaviorWorkspaceMode,
+  CrossItemActionStarter,
+  DocumentBehaviorCanvasDensity,
+  DocumentBehaviorClusterFamily,
+  DocumentBehaviorClusterFocus,
+  DocumentBehaviorClusterGroupSummary,
+  DocumentBehaviorExpandedTarget,
+  DocumentBehaviorSurfaceMode,
+  EventFlowPayloadValues,
+  LegacyConditionalRule,
+  LegacyRuleField,
+  LegacyConditionalRuleGroup,
+  LegacyConditionalRuleGroupMember,
+  LogicMapConditionalEntry,
+  LogicMapListenerEntry,
+  LogicMapStepEntry,
+  MapViewMode,
+  RuntimeActionChainTemplate,
+  RuntimeEditorScope,
+  RuntimeEventSourceCandidate,
+  RuntimeListenerActionChoice,
+  RuntimePayloadEditorState,
+  RuntimePayloadEntry,
+  RuntimePayloadFieldType,
+  RuntimePayloadReferenceKey,
+  RuntimePayloadReferenceOption,
+  RuntimePayloadTemplate,
+  RuntimePreset,
+  RuntimeReactionBooleanValue,
+  RuntimeReactionNavigationValue,
+  RuntimeReactionTargetOption,
+  RuntimeReactionValueMode,
+  RuntimeSourceEventOption,
+  RuntimeTraceChainStep,
+  RuntimeTraceChainSummary,
+  RuntimeTraceContextSummary,
+  StructuredRuntimeTraceEvidence,
+} from "./features/behavior";
 
 type AppStage = "home" | "review" | "workspace";
 type ReviewPreviewMode = "overlay" | "pdf";
 type ReviewFlowMode = "new_project" | "resume_import";
 type WorkspaceLandingMode = "promoted_import" | "reopened_import";
 type BuilderFieldTypeOption = SemanticType | "action_button";
-type BehaviorPresetCategory =
-  | "recommended"
-  | "source"
-  | "visibility"
-  | "validation"
-  | "data"
-  | "navigation"
-  | "events"
-  | "advanced";
-type BehaviorPresetGroupCategory = Exclude<BehaviorPresetCategory, "recommended" | "source" | "advanced">;
-
-interface RuntimeEditorScope {
-  scopeKind: "form" | "step" | "section" | "group" | "field" | "component";
-  label: string;
-  description: string;
-  eventSources: RuntimeEventDefinition[];
-  listeners: RuntimeListenerDefinition[];
-}
-
-interface BehaviorPresetBase {
-  id: string;
-  label: string;
-  description: string;
-  category: BehaviorPresetGroupCategory;
-  actionSummary: string;
-  componentLabel?: string;
-}
-
-interface RuntimeSourceEventOption {
-  type: string;
-  label: string;
-  bubbles: boolean;
-  description?: string | null;
-}
-
-interface RuntimeEventSourceCandidate {
-  id: string;
-  dispatchKey?: string | null;
-  nodeType: RuntimeNodeType;
-  label: string;
-  componentLabel: string;
-  locationLabel: string;
-  semanticType?: SemanticType | null;
-  pathIds: string[];
-  events: RuntimeSourceEventOption[];
-  eventDefinitions: RuntimeEventDefinition[];
-}
-
-interface CrossItemActionStarter {
-  id: string;
-  label: string;
-  description: string;
-  actionSummary: string;
-  createActions: () => RuntimeActionDefinition[];
-}
-
-interface LegacyConditionalRule {
-  ruleId: string;
-  whenFieldId: string;
-  operator: RuntimeConditionDefinition["operator"];
-  expectedValue?: string;
-  effect: "show" | "hide" | "require" | "disable";
-  enabled?: boolean;
-}
-
-interface LogicMapConditionalEntry {
-  id: string;
-  title: string;
-  detail: string;
-  scopeLabel: string;
-  sourceFieldLabel: string;
-  sourceFieldId: string;
-  targetFieldLabel: string;
-  targetFieldId: string;
-  effectLabel: string;
-  enabled: boolean;
-  stepId: string;
-  sectionId: string;
-  sourceSelection: AuthoringSelection;
-  ruleIndex: number;
-  graphSelection: BehaviorGraphSelection;
-}
-
-interface LegacyConditionalRuleGroupMember {
-  rule: LegacyConditionalRule;
-  index: number;
-}
-
-interface LegacyConditionalRuleGroup {
-  key: string;
-  sourceFieldLabel: string;
-  conditionTitle: string;
-  conditionDetail: string;
-  effectsSummary: string;
-  members: LegacyConditionalRuleGroupMember[];
-}
-
-interface RuntimePreset extends BehaviorPresetBase {
-  triggerName: string;
-  actionKinds: RuntimeActionKind[];
-  apply: (scope: RuntimeEditorScope, currentField: AuthoringField | null) => RuntimeListenerDefinition;
-}
-
 interface PageSummary {
   page: PageNode;
   fields: FieldNode[];
@@ -207,226 +236,6 @@ interface StepSummary {
   statementCount: number;
   interactiveCount: number;
   longLabelCount: number;
-}
-
-interface RuntimePayloadEditorState {
-  mode: RuntimePayloadMode;
-  raw: string;
-}
-
-type RuntimePayloadFieldType = "string" | "number" | "boolean" | "json" | "null" | "runtime";
-
-type RuntimePayloadReferenceKey =
-  | "current.field.id"
-  | "current.field.key"
-  | "current.step.id"
-  | "current.step.title"
-  | "current.form.id"
-  | "current.form.title"
-  | "current.project.id"
-  | "current.source.node.id"
-  | "current.source.node.key"
-  | "current.source.node.type"
-  | "current.event.type"
-  | "current.event.target.id"
-  | "current.event.target.key"
-  | "current.event.target.type"
-  | "current.event.currentTarget.id"
-  | "current.event.currentTarget.key"
-  | "current.event.currentTarget.type"
-  | "current.event.phase"
-  | "current.runtime.value"
-  | `current.event.payload.${string}`;
-
-interface RuntimePayloadEntry {
-  key: string;
-  value: string;
-  type: RuntimePayloadFieldType;
-}
-
-interface RuntimePayloadTemplate {
-  id: string;
-  label: string;
-  description: string;
-  entries: RuntimePayloadEntry[];
-}
-
-interface RuntimePayloadReferenceOption {
-  key: RuntimePayloadReferenceKey;
-  label: string;
-  description: string;
-}
-
-interface RuntimeListenerActionChoice {
-  id: string;
-  label: string;
-  description: string;
-  kind: RuntimeActionKind;
-  group: "target" | "value" | "event" | "advanced";
-  createAction: () => RuntimeActionDefinition;
-}
-
-type RuntimeReactionBooleanValue = "unset" | "true" | "false";
-type RuntimeReactionValueMode = "unset" | "static" | "payload" | "clear";
-type RuntimeReactionNavigationValue =
-  | "unset"
-  | "go_to_next_step"
-  | "go_to_previous_step"
-  | "go_to_step"
-  | "submit_form";
-
-type EventFlowPayloadValues = Record<string, string>;
-
-interface RuntimeReactionTargetOption {
-  candidate: RuntimeEventSourceCandidate;
-  relationshipLabel: string;
-  group: "path" | "all";
-}
-
-interface StructuredRuntimeTraceEvidence {
-  entryKey: string;
-  heading: string;
-  title: string;
-  summary: string;
-  pills: Array<{ label: string; value: string }>;
-  payloadEntries: Array<{ key: string; value: string }>;
-  footer: string;
-}
-
-interface RuntimeTraceContextSummary {
-  entryKey: string;
-  title: string;
-  detail: string;
-  direction: string;
-  timestamp: string;
-  inspectable: boolean;
-}
-
-interface RuntimeTraceChainStep {
-  entryKey: string;
-  role: "trigger" | "selected" | "after" | "before";
-  title: string;
-  detail: string;
-  direction: string;
-  timestamp: string;
-  inspectable: boolean;
-}
-
-interface RuntimeTraceChainSummary {
-  correlationId: string;
-  entryKey: string;
-  title: string;
-  summary: string;
-  stepLabels: string[];
-  authoredCount: number;
-  latestTimestamp: string;
-  active: boolean;
-}
-
-type BehaviorGraphFilter = "all" | "state" | "interaction";
-type BehaviorGraphMode = "focus" | "overview";
-type BehaviorGraphDensity = "comfortable" | "dense";
-type BehaviorStudioView = "studio" | "advanced";
-type BehaviorStudioMode = "create" | "event" | "listener" | "action" | "manage" | "test" | "graph";
-type BehaviorStudioManagerMode = "all" | "conditions" | "flows" | "index";
-type BehaviorStudioCreationPath = "choice" | "event" | "listener";
-type BehaviorListenerSourceType = RuntimeNodeType;
-type BehaviorStudioAnchor = {
-  top: number;
-  bottom: number;
-  centerX: number;
-  pointerX: number;
-  width: number;
-};
-type BehaviorStudioPlacement = "above" | "below" | "center";
-type BehaviorStudioPositionLayout = {
-  dialogStyle?: CSSProperties;
-  arrowStyle?: CSSProperties;
-  placement: BehaviorStudioPlacement;
-  anchored: boolean;
-};
-type BehaviorIndexObjectView = "all" | "impacts" | "started";
-type BehaviorIndexStatusFilter = "all" | "enabled" | "disabled";
-type DocumentBehaviorSurfaceMode = "board" | "minimap" | "canvas";
-type DocumentBehaviorClusterFocus = "all" | "field" | "group" | "section" | "step";
-type DocumentBehaviorClusterFamily = Exclude<DocumentBehaviorClusterFocus, "all">;
-type DocumentBehaviorCanvasDensity = "comfortable" | "dense";
-type DocumentBehaviorExpandedTarget = "form" | string | null;
-type BehaviorWorkspaceMode = "authoring" | "document_graph";
-
-interface LogicMapListenerEntry {
-  id: string;
-  scopeLabel: string;
-  eventName: string;
-  actionsSummary: string;
-  actionKinds: RuntimeActionKind[];
-  enabled: boolean;
-  sourceNodeId?: string | null;
-  targetNodeIds: string[];
-  actionCount: number;
-  stepId?: string | null;
-  selection: AuthoringSelection | null;
-  graphSelection: BehaviorGraphSelection;
-}
-
-type BehaviorGraphSelection =
-  | {
-      kind: "rule";
-      ruleId: string;
-      phase: "trigger" | "condition" | "effect";
-    }
-  | {
-      kind: "listener";
-      listenerId: string;
-      phase: "trigger" | "action";
-      actionId?: string;
-    };
-
-interface LogicMapStepEntry {
-  id: string;
-  title: string;
-  selection: AuthoringSelection;
-  sectionCount: number;
-  fieldCount: number;
-  conditionalBehavior: LogicMapConditionalEntry[];
-  runtimeListeners: LogicMapListenerEntry[];
-}
-
-interface BehaviorScopeCluster {
-  key: string;
-  title: string;
-  kindLabel: string;
-  detail: string;
-  conditions: LogicMapConditionalEntry[];
-  listeners: LogicMapListenerEntry[];
-  selection: AuthoringSelection | null;
-}
-
-interface DocumentBehaviorClusterGroupSummary {
-  key: Exclude<DocumentBehaviorClusterFocus, "all">;
-  label: string;
-  firstLaneId: string | null;
-  scopeCount: number;
-  laneCount: number;
-  ruleCount: number;
-  listenerCount: number;
-}
-
-interface RuntimeActionChainTemplate {
-  id: string;
-  label: string;
-  description: string;
-  category: BehaviorPresetGroupCategory;
-  actionSummary: string;
-  createActions: () => RuntimeActionDefinition[];
-}
-
-type MapViewMode = "graph" | "summary";
-
-interface BehaviorGraphEntryContext {
-  source: "map" | "navigator" | "clusters";
-  title: string;
-  detail: string;
 }
 
 interface SourceReferenceMatchState {
@@ -478,79 +287,11 @@ const builderFieldTypeOptions: Array<{ value: BuilderFieldTypeOption; label: str
   { value: "action_button", label: "Button" },
 ];
 
-const runtimeActionOptions: Array<{ value: RuntimeActionKind; label: string }> = [
-  { value: "go_to_next_step", label: "Go to next step" },
-  { value: "go_to_previous_step", label: "Go to previous step" },
-  { value: "go_to_step", label: "Go to a specific step" },
-  { value: "submit_form", label: "Submit form" },
-  { value: "set_field_value", label: "Set a field value" },
-  { value: "clear_field_value", label: "Clear a field value" },
-  { value: "show_node", label: "Show a node" },
-  { value: "hide_node", label: "Hide a node" },
-  { value: "enable_node", label: "Enable a node" },
-  { value: "disable_node", label: "Disable a node" },
-  { value: "mark_required", label: "Mark required" },
-  { value: "mark_optional", label: "Mark optional" },
-  { value: "dispatch_event", label: "Dispatch event" },
-  { value: "host_action", label: "Request host action" },
-];
-
-const builtInRuntimeEventNames = new Set<string>(runtimeCoreEventTypes.map((eventType) => eventType.type));
-
-const behaviorPresetCategoryLabels: Record<BehaviorPresetCategory, string> = {
-  recommended: "This item",
-  source: "Another item",
-  visibility: "Visibility",
-  validation: "Validation",
-  data: "Data",
-  navigation: "Navigation",
-  events: "Event actions",
-  advanced: "Advanced",
-};
-
 function formatLabel(value: string | undefined | null): string {
   if (!value) {
     return "Unknown";
   }
   return value.replaceAll("_", " ");
-}
-
-function normalizeDocumentBehaviorClusterKind(kindLabel: string): DocumentBehaviorClusterFamily {
-  const normalized = kindLabel.trim().toLowerCase();
-  if (normalized === "field" || normalized === "group" || normalized === "section" || normalized === "step") {
-    return normalized;
-  }
-  return "step";
-}
-
-function documentBehaviorClusterFocusLabel(focus: DocumentBehaviorClusterFocus): string {
-  if (focus === "all") {
-    return "All scopes";
-  }
-  return `${focus[0]?.toUpperCase() ?? ""}${focus.slice(1)} scopes`;
-}
-
-function createRuntimeNodeBehavior(): RuntimeNodeBehavior {
-  return {
-    eventSources: [],
-    listeners: [],
-  };
-}
-
-function createRuntimeDocumentBehavior(): RuntimeDocumentBehavior {
-  return {
-    version: "1.0",
-    formEvents: [],
-    formListeners: [],
-    hostBindings: [],
-    submitEventName: "form.submit",
-    sessionStateShape: {
-      mode: "key_value",
-      fields: [],
-      example: {},
-      notes: [],
-    },
-  };
 }
 
 function createBlankAuthoringDocument(): AuthoringDocument {
@@ -572,988 +313,6 @@ function createBlankAuthoringDocument(): AuthoringDocument {
   };
   ensureDocumentDispatchKeys(document);
   return document;
-}
-
-function cloneRuntimePayloadShape(shape: RuntimePayloadShape | null | undefined): RuntimePayloadShape | null {
-  return shape ? (JSON.parse(JSON.stringify(shape)) as RuntimePayloadShape) : null;
-}
-
-function createRuntimeEventSource(
-  name: string,
-  scope: RuntimeEditorScope,
-  nodeId?: string,
-  options: {
-    id?: string | null;
-    bubbles?: boolean | null;
-    payloadShape?: RuntimePayloadShape | null;
-    description?: string | null;
-  } = {},
-): RuntimeEventDefinition {
-  const coreEvent = runtimeCoreEventType(name);
-  return {
-    id: options.id ?? crypto.randomUUID(),
-    type: name,
-    dispatcherId: nodeId ?? null,
-    dispatcherType: scope.scopeKind,
-    bubbles: options.bubbles ?? coreEvent?.bubbles ?? (name.includes(".") ? undefined : true),
-    name,
-    sourceNodeId: nodeId ?? null,
-    sourceNodeType: scope.scopeKind,
-    payloadShape: cloneRuntimePayloadShape(options.payloadShape ?? coreEvent?.payloadShape ?? null),
-    description: options.description ?? coreEvent?.description ?? null,
-  };
-}
-
-function createRuntimeAction(kind: RuntimeActionKind, config: Record<string, unknown> = {}): RuntimeActionDefinition {
-  return {
-    id: crypto.randomUUID(),
-    kind,
-    label: null,
-    target: null,
-    config,
-    continueOnError: false,
-  };
-}
-
-function createFieldValueCondition(
-  fieldId: string,
-  operator: RuntimeConditionDefinition["operator"],
-  expectedValue?: unknown,
-  label?: string,
-): RuntimeConditionDefinition {
-  return {
-    id: crypto.randomUUID(),
-    label: label ?? null,
-    enabled: true,
-    source: {
-      kind: "field_value",
-      fieldId,
-    },
-    operator,
-    expectedValue,
-  };
-}
-
-function createEventPayloadCondition(
-  path: string,
-  operator: RuntimeConditionDefinition["operator"],
-  expectedValue?: unknown,
-  label?: string,
-): RuntimeConditionDefinition {
-  return {
-    id: crypto.randomUUID(),
-    label: label ?? null,
-    enabled: true,
-    source: {
-      kind: "event_payload",
-      path,
-    },
-    operator,
-    expectedValue,
-  };
-}
-
-function createRuntimeListener(
-  eventName: string,
-  actions: RuntimeActionDefinition[],
-  sourceNodeId?: string | null,
-): RuntimeListenerDefinition {
-  return {
-    id: crypto.randomUUID(),
-    label: null,
-    type: eventName,
-    dispatcherId: sourceNodeId ?? null,
-    dispatcherType: null,
-    eventSourceNodeId: sourceNodeId ?? null,
-    eventSourceNodeType: null,
-    eventSourceLabel: null,
-    targetNodeId: sourceNodeId ?? null,
-    targetNodeType: null,
-    wiringMode: "local",
-    useCapture: false,
-    priority: 0,
-    eventName,
-    sourceNodeId: sourceNodeId ?? null,
-    enabled: true,
-    conditions: [],
-    actions,
-  };
-}
-
-type LegacyRuleField = AuthoringField & { conditionals?: LegacyConditionalRule[] };
-
-function legacyFieldConditionals(field: AuthoringField | null | undefined): LegacyConditionalRule[] {
-  return (field as LegacyRuleField | null | undefined)?.conditionals ?? [];
-}
-
-function mutableLegacyFieldConditionals(field: AuthoringField): LegacyConditionalRule[] {
-  const legacyField = field as LegacyRuleField;
-  legacyField.conditionals ??= [];
-  return legacyField.conditionals;
-}
-
-function isLegacyConditionalRuleEnabled(rule: LegacyConditionalRule): boolean {
-  return rule.enabled !== false;
-}
-
-function setLegacyConditionalRuleEnabled(rule: LegacyConditionalRule, enabled: boolean): void {
-  rule.enabled = enabled;
-}
-
-function createListenerGraphSelection(listener: RuntimeListenerDefinition): BehaviorGraphSelection {
-  return {
-    kind: "listener",
-    listenerId: listener.id,
-    phase: listener.actions.length ? "action" : "trigger",
-    actionId: listener.actions[0]?.id,
-  };
-}
-
-function findAuthoringFieldById(document: AuthoringDocument, fieldId: string): AuthoringField | null {
-  for (const step of document.steps) {
-    for (const section of step.sections) {
-      const sectionField = section.fields.find((field) => field.id === fieldId);
-      if (sectionField) {
-        return sectionField;
-      }
-      for (const group of section.groups) {
-        const groupField = group.fields.find((field) => field.id === fieldId);
-        if (groupField) {
-          return groupField;
-        }
-      }
-    }
-  }
-  return null;
-}
-
-function formatDispatchKey(dispatchKey: string | null | undefined): string {
-  return dispatchKey?.trim() ? dispatchKey : "no dispatch key";
-}
-
-function formatNodeOptionLabel(kindLabel: string, label: string, dispatchKey: string | null | undefined): string {
-  return `${kindLabel} · ${label || "Untitled"} · ${formatDispatchKey(dispatchKey)}`;
-}
-
-function formatRuntimeSourceCandidateLabel(candidate: RuntimeEventSourceCandidate): string {
-  return formatNodeOptionLabel(candidate.componentLabel, candidate.label, candidate.dispatchKey);
-}
-
-function runtimeNodeTypeLabel(nodeType: RuntimeNodeType): string {
-  switch (nodeType) {
-    case "form":
-      return "Form";
-    case "step":
-      return "Step";
-    case "section":
-      return "Section";
-    case "group":
-      return "Group";
-    case "component":
-      return "Component / button";
-    case "field":
-      return "Field";
-    default:
-      return formatLabel(nodeType);
-  }
-}
-
-function runtimeEntityTypeLabel(nodeType: RuntimeNodeType): string {
-  switch (nodeType) {
-    case "form":
-      return "Form";
-    case "step":
-      return "Step";
-    case "section":
-      return "Section";
-    case "group":
-      return "Group / container";
-    case "field":
-      return "Field / input";
-    case "component":
-      return "Component / button";
-    default:
-      return formatLabel(nodeType);
-  }
-}
-
-function formatRuntimeDiagnosticValue(value: unknown): string {
-  if (value === undefined) {
-    return "undefined";
-  }
-  if (value === null) {
-    return "null";
-  }
-  if (typeof value === "string") {
-    return value || '""';
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function getRuntimeActionPayload(action: RuntimeActionDefinition): Record<string, unknown> {
-  return isRecord(action.config.payload) ? action.config.payload : {};
-}
-
-function getRuntimeActionEventType(action: RuntimeActionDefinition): string {
-  return String(action.config.eventType ?? action.config.eventName ?? "custom.event");
-}
-
-function getRuntimeListenerEventType(listener: RuntimeListenerDefinition): string {
-  return listener.type ?? listener.eventName;
-}
-
-const runtimePayloadFieldTypeOptions: Array<{ value: RuntimePayloadFieldType; label: string }> = [
-  { value: "string", label: "Text" },
-  { value: "number", label: "Number" },
-  { value: "boolean", label: "True/false" },
-  { value: "json", label: "JSON" },
-  { value: "null", label: "Null" },
-  { value: "runtime", label: "Runtime ref" },
-];
-
-const runtimePayloadReferenceOptions: RuntimePayloadReferenceOption[] = [
-  {
-    key: "current.field.id",
-    label: "Current field id",
-    description: "Resolve the current source field id when this action runs.",
-  },
-  {
-    key: "current.field.key",
-    label: "Current field key",
-    description: "Resolve the current source field stable key when this action runs.",
-  },
-  {
-    key: "current.step.id",
-    label: "Current step id",
-    description: "Resolve the active step id from the runtime session.",
-  },
-  {
-    key: "current.step.title",
-    label: "Current step title",
-    description: "Resolve the active step title from the runtime document.",
-  },
-  {
-    key: "current.form.id",
-    label: "Current form id",
-    description: "Resolve the mounted form id at runtime.",
-  },
-  {
-    key: "current.form.title",
-    label: "Current form title",
-    description: "Resolve the mounted form title at runtime.",
-  },
-  {
-    key: "current.project.id",
-    label: "Current project id",
-    description: "Resolve the mounted project id from the runtime session.",
-  },
-  {
-    key: "current.source.node.id",
-    label: "Current source node id",
-    description: "Resolve the runtime source node id that triggered this action.",
-  },
-  {
-    key: "current.source.node.key",
-    label: "Current source key",
-    description: "Resolve the readable dispatch key for the node that triggered this action.",
-  },
-  {
-    key: "current.source.node.type",
-    label: "Current source node type",
-    description: "Resolve the runtime source node type that triggered this action.",
-  },
-  {
-    key: "current.event.type",
-    label: "Event type",
-    description: "Resolve the AS3-style event type currently being handled.",
-  },
-  {
-    key: "current.event.target.id",
-    label: "Event target id",
-    description: "Resolve the original dispatcher id that dispatched the event.",
-  },
-  {
-    key: "current.event.target.key",
-    label: "Event target key",
-    description: "Resolve the readable dispatch key for the original event target.",
-  },
-  {
-    key: "current.event.target.type",
-    label: "Event target type",
-    description: "Resolve the original dispatcher type that dispatched the event.",
-  },
-  {
-    key: "current.event.currentTarget.id",
-    label: "Current target id",
-    description: "Resolve the dispatcher id whose listener is currently running.",
-  },
-  {
-    key: "current.event.currentTarget.key",
-    label: "Current target key",
-    description: "Resolve the readable dispatch key for the dispatcher whose listener is currently running.",
-  },
-  {
-    key: "current.event.currentTarget.type",
-    label: "Current target type",
-    description: "Resolve the dispatcher type whose listener is currently running.",
-  },
-  {
-    key: "current.event.phase",
-    label: "Event phase",
-    description: "Resolve capture, target, or bubble for the current listener invocation.",
-  },
-  {
-    key: "current.runtime.value",
-    label: "Current runtime value",
-    description: "Resolve the current source field value from the runtime session.",
-  },
-  {
-    key: "current.event.payload.value",
-    label: "Event payload value",
-    description: "Resolve the value property from the event payload.",
-  },
-  {
-    key: "current.event.payload.nextValue",
-    label: "Event payload next value",
-    description: "Resolve the nextValue property from the event payload.",
-  },
-  {
-    key: "current.event.payload.selectedValue",
-    label: "Event payload selected value",
-    description: "Resolve the selectedValue property from the event payload.",
-  },
-  {
-    key: "current.event.payload.selectedValues",
-    label: "Event payload selected values",
-    description: "Resolve the selectedValues array from the event payload.",
-  },
-  {
-    key: "current.event.payload.changedOption",
-    label: "Event payload changed option",
-    description: "Resolve the changedOption property from the event payload.",
-  },
-  {
-    key: "current.event.payload.optionValue",
-    label: "Event payload option value",
-    description: "Resolve the optionValue property from the event payload.",
-  },
-  {
-    key: "current.event.payload.checked",
-    label: "Event payload checked",
-    description: "Resolve the checked property from the event payload.",
-  },
-];
-
-function isRuntimePayloadReferenceKey(value: string): value is RuntimePayloadReferenceKey {
-  return (
-    runtimePayloadReferenceOptions.some((option) => option.key === value) ||
-    /^current\.event\.payload\.[A-Za-z0-9_.-]+$/.test(value)
-  );
-}
-
-function isRuntimePayloadReference(value: unknown): value is { $runtime: RuntimePayloadReferenceKey } {
-  return isRecord(value) && typeof value.$runtime === "string" && isRuntimePayloadReferenceKey(value.$runtime);
-}
-
-const runtimeIdentifierPattern = /^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$/;
-
-function inferRuntimePayloadFieldType(value: unknown): RuntimePayloadFieldType {
-  if (isRuntimePayloadReference(value)) {
-    return "runtime";
-  }
-  if (value === null) {
-    return "null";
-  }
-  if (typeof value === "number") {
-    return "number";
-  }
-  if (typeof value === "boolean") {
-    return "boolean";
-  }
-  if (typeof value === "string") {
-    return "string";
-  }
-  return "json";
-}
-
-function stringifyRuntimePayloadValue(value: unknown, type?: RuntimePayloadFieldType): string {
-  if (type === "runtime" && isRuntimePayloadReference(value)) {
-    return value.$runtime;
-  }
-  if (type === "null" || value === null || value === undefined) {
-    return "";
-  }
-  if (type === "boolean" && typeof value === "boolean") {
-    return value ? "true" : "false";
-  }
-  if (typeof value === "string") {
-    return value;
-  }
-  return JSON.stringify(value);
-}
-
-function runtimePayloadValueFromEntry(entry: RuntimePayloadEntry): unknown {
-  switch (entry.type) {
-    case "string":
-      return entry.value;
-    case "number":
-      return Number(entry.value || "0");
-    case "boolean":
-      return entry.value === "false" ? false : true;
-    case "json":
-      try {
-        return JSON.parse(entry.value);
-      } catch {
-        return {};
-      }
-    case "null":
-      return null;
-    case "runtime":
-      return { $runtime: entry.value };
-    default:
-      return entry.value;
-  }
-}
-
-function runtimePayloadEntryValueForType(type: RuntimePayloadFieldType, currentValue: string): string {
-  switch (type) {
-    case "string":
-      return currentValue;
-    case "number":
-      return Number.isFinite(Number(currentValue)) && currentValue.trim().length ? currentValue : "0";
-    case "boolean":
-      return currentValue === "false" ? "false" : "true";
-    case "json":
-      return currentValue.trim().length ? currentValue : "{}";
-    case "null":
-      return "";
-    case "runtime":
-      return isRuntimePayloadReferenceKey(currentValue)
-        ? currentValue
-        : (runtimePayloadReferenceOptions[0]?.key ?? "current.field.id");
-    default:
-      return currentValue;
-  }
-}
-
-function runtimePayloadEntries(payload: Record<string, unknown>): RuntimePayloadEntry[] {
-  return Object.entries(payload).map(([key, value]) => ({
-    key,
-    type: inferRuntimePayloadFieldType(value),
-    value: stringifyRuntimePayloadValue(value, inferRuntimePayloadFieldType(value)),
-  }));
-}
-
-function runtimePayloadFromEntries(entries: RuntimePayloadEntry[]): Record<string, unknown> {
-  return entries.reduce<Record<string, unknown>>((accumulator, entry) => {
-    const key = entry.key.trim();
-    if (!key) {
-      return accumulator;
-    }
-    accumulator[key] = runtimePayloadValueFromEntry(entry);
-    return accumulator;
-  }, {});
-}
-
-function runtimePayloadIssues(entries: RuntimePayloadEntry[]): string[] {
-  const issues: string[] = [];
-  const blankKeys = entries.filter((entry) => !entry.key.trim()).length;
-  const duplicateKeys = Array.from(
-    entries.reduce<Map<string, number>>((accumulator, entry) => {
-      const key = entry.key.trim();
-      if (!key) {
-        return accumulator;
-      }
-      accumulator.set(key, (accumulator.get(key) ?? 0) + 1);
-      return accumulator;
-    }, new Map<string, number>()),
-  )
-    .filter(([, count]) => count > 1)
-    .map(([key]) => key);
-  const invalidJsonKeys = entries
-    .filter((entry) => entry.type === "json")
-    .flatMap((entry) => {
-      try {
-        JSON.parse(entry.value);
-        return [];
-      } catch {
-        return [entry.key.trim() || "Unnamed JSON field"];
-      }
-    });
-  const invalidRuntimeKeys = entries
-    .filter((entry) => entry.type === "runtime")
-    .flatMap((entry) =>
-      isRuntimePayloadReferenceKey(entry.value) ? [] : [entry.key.trim() || "Unnamed runtime field"],
-    );
-
-  if (blankKeys) {
-    issues.push(
-      blankKeys === 1 ? "Every payload field needs a name." : `${blankKeys} payload fields still need names.`,
-    );
-  }
-  if (duplicateKeys.length) {
-    issues.push(`Duplicate payload field names: ${duplicateKeys.join(", ")}.`);
-  }
-  if (invalidJsonKeys.length) {
-    issues.push(`Fix the JSON value for: ${invalidJsonKeys.join(", ")}.`);
-  }
-  if (invalidRuntimeKeys.length) {
-    issues.push(`Choose a runtime reference for: ${invalidRuntimeKeys.join(", ")}.`);
-  }
-  return issues;
-}
-
-function createRuntimePayloadEntry(
-  key: string,
-  value: unknown,
-  type: RuntimePayloadFieldType = inferRuntimePayloadFieldType(value),
-): RuntimePayloadEntry {
-  return {
-    key,
-    type,
-    value: stringifyRuntimePayloadValue(value, type),
-  };
-}
-
-function createRuntimePayloadReferenceEntry(
-  key: string,
-  referenceKey: RuntimePayloadReferenceKey,
-): RuntimePayloadEntry {
-  return createRuntimePayloadEntry(key, { $runtime: referenceKey }, "runtime");
-}
-
-function sanitizeRuntimeIdentifier(value: string | undefined | null, fallback: string): string {
-  const normalized = String(value ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ".")
-    .replace(/^\.+|\.+$/g, "")
-    .replace(/\.{2,}/g, ".");
-  return normalized || fallback;
-}
-
-function validateRuntimeIdentifier(value: string | undefined | null, label: string, example: string): string | null {
-  const trimmed = String(value ?? "").trim();
-  if (!trimmed) {
-    return `${label} is required. Try ${example}.`;
-  }
-  if (!runtimeIdentifierPattern.test(trimmed)) {
-    return `${label} should use letters or numbers separated by dots, dashes, or underscores. Try ${example}.`;
-  }
-  return null;
-}
-
-function estimateJsonBytes(value: unknown): number {
-  return new TextEncoder().encode(JSON.stringify(value ?? null)).length;
-}
-
-function ensureUniqueEventSource(
-  eventSources: RuntimeEventDefinition[],
-  name: string,
-  scope: RuntimeEditorScope,
-  nodeId?: string,
-): void {
-  if (
-    eventSources.some(
-      (source) =>
-        (source.type ?? source.name) === name &&
-        (source.dispatcherId ?? source.sourceNodeId ?? null) === (nodeId ?? null),
-    )
-  ) {
-    return;
-  }
-  eventSources.push(createRuntimeEventSource(name, scope, nodeId));
-}
-
-function runtimeEventDefinitionType(eventDefinition: RuntimeEventDefinition | null | undefined): string {
-  return eventDefinition?.type ?? eventDefinition?.name ?? "";
-}
-
-function runtimeEventBubblesForSource(source: RuntimeEventSourceCandidate, eventType: string): boolean {
-  const eventDefinition = source.eventDefinitions.find(
-    (candidate) => runtimeEventDefinitionType(candidate) === eventType,
-  );
-  if (typeof eventDefinition?.bubbles === "boolean") {
-    return eventDefinition.bubbles;
-  }
-  const eventOption = source.events.find((candidate) => candidate.type === eventType);
-  return eventOption?.bubbles ?? runtimeCoreEventType(eventType)?.bubbles ?? true;
-}
-
-const runtimeAutomaticEventPayloadFieldNames = new Set(
-  [
-    ...runtimeStandardEventPayloadFields.map((field) => field.name),
-    "componentId",
-    "componentKey",
-    "componentType",
-    "fieldId",
-    "fieldKey",
-    "fieldLabel",
-    "formId",
-    "formTitle",
-    "label",
-    "nodeId",
-    "nodeKey",
-    "nodeType",
-    "projectId",
-    "sourceLabel",
-    "stepTitle",
-  ].filter((fieldName) => fieldName !== "metadata"),
-);
-
-function isAutomaticRuntimePayloadField(fieldName: string): boolean {
-  return runtimeAutomaticEventPayloadFieldNames.has(fieldName);
-}
-
-function mergeRuntimePayloadFieldsWithStandardFields(fields: RuntimePayloadField[]): RuntimePayloadField[] {
-  const seen = new Set<string>();
-  const fieldByName = new Map(fields.map((field) => [field.name, field]));
-  const standardFields = runtimeStandardEventPayloadFields.map((field) => {
-    const override = field.name === "metadata" ? fieldByName.get(field.name) : null;
-    return override ? { ...field, ...override, name: field.name, valueType: field.valueType } : field;
-  });
-  return [...standardFields, ...fields]
-    .map((field) => ({ ...field }))
-    .filter((field) => {
-      if (seen.has(field.name)) {
-        return false;
-      }
-      seen.add(field.name);
-      return true;
-    });
-}
-
-function createRuntimePayloadShapeFromFields(
-  fields: RuntimePayloadField[],
-  example: Record<string, unknown> = {},
-): RuntimePayloadShape {
-  return {
-    mode: "key_value",
-    fields: mergeRuntimePayloadFieldsWithStandardFields(fields),
-    example,
-    notes: [],
-  };
-}
-
-function fallbackRuntimePayloadFieldsForEvent(eventType: string): RuntimePayloadField[] {
-  if (eventType.includes("key")) {
-    return [
-      { name: "key", label: "Key", valueType: "string", required: false, description: "Keyboard key value." },
-      { name: "code", label: "Code", valueType: "string", required: false, description: "Physical key code." },
-    ];
-  }
-  if (eventType.includes("pointer") || eventType.includes("click")) {
-    return [
-      {
-        name: "componentId",
-        label: "Component id",
-        valueType: "string",
-        required: true,
-        description: "Runtime component id.",
-      },
-      { name: "label", label: "Label", valueType: "string", required: false, description: "Component label." },
-    ];
-  }
-  if (eventType.includes("change") || eventType.includes("input")) {
-    return [
-      { name: "value", label: "Value", valueType: "unknown", required: false, description: "Current value." },
-      { name: "nextValue", label: "Next value", valueType: "unknown", required: false, description: "New value." },
-    ];
-  }
-  return [
-    {
-      name: "sourceNodeId",
-      label: "Source node id",
-      valueType: "string",
-      required: false,
-      description: "Dispatcher node id.",
-    },
-  ];
-}
-
-function runtimePayloadFieldsForEventType(eventType: string): RuntimePayloadField[] {
-  const coreShape = runtimeCoreEventType(eventType)?.payloadShape;
-  return mergeRuntimePayloadFieldsWithStandardFields(
-    coreShape?.fields.length ? coreShape.fields : fallbackRuntimePayloadFieldsForEvent(eventType),
-  );
-}
-
-function upsertRuntimeEventSource(
-  eventSources: RuntimeEventDefinition[],
-  nextEvent: RuntimeEventDefinition,
-): "created" | "updated" {
-  const existing = findRuntimeEventSourceForUpsert(eventSources, nextEvent);
-  if (!existing) {
-    eventSources.push(nextEvent);
-    return "created";
-  }
-  existing.type = nextEvent.type;
-  existing.name = nextEvent.name;
-  existing.dispatcherId = nextEvent.dispatcherId;
-  existing.dispatcherType = nextEvent.dispatcherType;
-  existing.sourceNodeId = nextEvent.sourceNodeId;
-  existing.sourceNodeType = nextEvent.sourceNodeType;
-  existing.bubbles = nextEvent.bubbles;
-  existing.payloadShape = cloneRuntimePayloadShape(nextEvent.payloadShape);
-  existing.description = nextEvent.description;
-  return "updated";
-}
-
-function findRuntimeEventSourceForUpsert(
-  eventSources: RuntimeEventDefinition[],
-  nextEvent: RuntimeEventDefinition,
-): RuntimeEventDefinition | undefined {
-  const eventType = runtimeEventDefinitionType(nextEvent);
-  const dispatcherId = nextEvent.dispatcherId ?? nextEvent.sourceNodeId ?? null;
-  return eventSources.find(
-    (source) =>
-      source.id === nextEvent.id ||
-      (runtimeEventDefinitionType(source) === eventType &&
-        (source.dispatcherId ?? source.sourceNodeId ?? null) === dispatcherId),
-  );
-}
-
-function describeRuntimeAction(action: RuntimeActionDefinition): string {
-  switch (action.kind) {
-    case "go_to_next_step":
-      return "Go to the next step.";
-    case "go_to_previous_step":
-      return "Go to the previous step.";
-    case "go_to_step":
-      return `Go to step ${String(action.config.stepId ?? action.target?.nodeId ?? "target")}.`;
-    case "submit_form":
-      return "Validate and dispatch the form submit event.";
-    case "set_field_value":
-      return `Set ${String(action.config.fieldId ?? action.target?.nodeId ?? "field")} to ${JSON.stringify(action.config.value ?? "")}.`;
-    case "clear_field_value":
-      return `Clear ${String(action.config.fieldId ?? action.target?.nodeId ?? "field")}.`;
-    case "show_node":
-      return `Show ${String(action.config.nodeId ?? action.target?.nodeId ?? "node")}.`;
-    case "hide_node":
-      return `Hide ${String(action.config.nodeId ?? action.target?.nodeId ?? "node")}.`;
-    case "enable_node":
-      return `Enable ${String(action.config.nodeId ?? action.target?.nodeId ?? "node")}.`;
-    case "disable_node":
-      return `Disable ${String(action.config.nodeId ?? action.target?.nodeId ?? "node")}.`;
-    case "mark_required":
-      return `Make ${String(action.config.nodeId ?? action.target?.nodeId ?? "node")} required.`;
-    case "mark_optional":
-      return `Make ${String(action.config.nodeId ?? action.target?.nodeId ?? "node")} optional.`;
-    case "dispatch_event":
-    case "emit_event":
-      return `Dispatch ${getRuntimeActionEventType(action)}.`;
-    case "host_action":
-      return `Request host action ${String(action.config.handlerKey ?? "handler")}.`;
-    default:
-      return formatLabel(action.kind);
-  }
-}
-
-function runtimeNodeActionTargetId(action: RuntimeActionDefinition): string | null {
-  if (
-    action.kind === "show_node" ||
-    action.kind === "hide_node" ||
-    action.kind === "enable_node" ||
-    action.kind === "disable_node" ||
-    action.kind === "mark_required" ||
-    action.kind === "mark_optional"
-  ) {
-    return (
-      (typeof action.target?.nodeId === "string" && action.target.nodeId) ||
-      (typeof action.config.nodeId === "string" && action.config.nodeId) ||
-      null
-    );
-  }
-  return null;
-}
-
-function runtimeFieldActionTargetId(action: RuntimeActionDefinition): string | null {
-  if (action.kind === "set_field_value" || action.kind === "clear_field_value") {
-    return (
-      (typeof action.config.fieldId === "string" && action.config.fieldId) ||
-      (typeof action.target?.nodeId === "string" && action.target.nodeId) ||
-      null
-    );
-  }
-  return null;
-}
-
-function runtimeNavigationActionTargetId(action: RuntimeActionDefinition): string | null {
-  if (
-    action.kind === "go_to_next_step" ||
-    action.kind === "go_to_previous_step" ||
-    action.kind === "go_to_step" ||
-    action.kind === "submit_form"
-  ) {
-    return (typeof action.target?.nodeId === "string" && action.target.nodeId) || null;
-  }
-  return null;
-}
-
-function getButtonBehaviorSummary(field: AuthoringField): { action: string; eventName: string | null } {
-  const explicitListener = field.runtime?.listeners.find(
-    (listener) => getRuntimeListenerEventType(listener) === "component.click",
-  );
-  const firstAction = explicitListener?.actions[0];
-  if (firstAction) {
-    if (firstAction.kind === "go_to_previous_step") {
-      return { action: "previous_step", eventName: null };
-    }
-    if (firstAction.kind === "submit_form") {
-      return { action: "submit", eventName: null };
-    }
-    if (firstAction.kind === "dispatch_event" || firstAction.kind === "emit_event") {
-      return { action: "custom_event", eventName: getRuntimeActionEventType(firstAction) };
-    }
-    return { action: "next_step", eventName: null };
-  }
-  return {
-    action: field.rendererHints.action ?? "next_step",
-    eventName: field.rendererHints.eventName ?? null,
-  };
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) {
-    return `${bytes} B`;
-  }
-  if (bytes < 1024 * 1024) {
-    return `${(bytes / 1024).toFixed(1)} KB`;
-  }
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-}
-
-function formatRuntimeEvidenceValue(value: unknown): string {
-  if (value === null) {
-    return "null";
-  }
-  if (value === undefined) {
-    return "undefined";
-  }
-  if (typeof value === "string") {
-    return value;
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  return JSON.stringify(value);
-}
-
-function getRuntimeTraceEntryKey(entry: RuntimeTraceEntry): string {
-  return `${entry.event.correlationId}:${entry.event.timestamp}:${entry.event.type}`;
-}
-
-function isAuthoredRuntimeEvidenceEntry(entry: RuntimeTraceEntry): boolean {
-  if (entry.direction === "inbound") {
-    return false;
-  }
-  if (entry.event.type === "host.action_requested") {
-    return true;
-  }
-  return !builtInRuntimeEventNames.has(entry.event.type);
-}
-
-function buildStructuredRuntimeTraceEvidence(
-  entry: RuntimeTraceEntry,
-  resolveNodeLabel: (nodeId: unknown, fallbackType?: string | null) => string,
-): StructuredRuntimeTraceEvidence {
-  const sourceLabel = resolveNodeLabel(
-    entry.event.target?.nodeId ?? entry.event.source.nodeId,
-    entry.event.target?.nodeType ?? entry.event.source.nodeType,
-  );
-  if (entry.event.type === "host.action_requested") {
-    const payload = entry.event.payload;
-    const configPayload = isRecord(payload.config) && isRecord(payload.config.payload) ? payload.config.payload : {};
-    const target = isRecord(payload.target) ? payload.target : null;
-    const targetLabel =
-      target && ("nodeId" in target || "nodeType" in target)
-        ? resolveNodeLabel(target.nodeId, typeof target.nodeType === "string" ? target.nodeType : null)
-        : null;
-    const handlerKey =
-      typeof payload.handlerKey === "string"
-        ? payload.handlerKey
-        : isRecord(payload.config) && typeof payload.config.handlerKey === "string"
-          ? payload.config.handlerKey
-          : "host action";
-    return {
-      entryKey: getRuntimeTraceEntryKey(entry),
-      heading: "Latest host action",
-      title: handlerKey,
-      summary: `Requested from ${sourceLabel}${targetLabel ? ` toward ${targetLabel}` : ""}.`,
-      pills: [
-        { label: "Source", value: sourceLabel },
-        { label: "Correlation", value: entry.event.correlationId },
-        { label: "Direction", value: entry.direction },
-      ],
-      payloadEntries: Object.entries(configPayload).map(([key, value]) => ({
-        key,
-        value: formatRuntimeEvidenceValue(value),
-      })),
-      footer: entry.event.timestamp,
-    };
-  }
-  return {
-    entryKey: getRuntimeTraceEntryKey(entry),
-    heading: "Latest dispatched event",
-    title: entry.event.type,
-    summary: `Dispatchted from ${sourceLabel}.`,
-    pills: [
-      { label: "Source", value: sourceLabel },
-      { label: "Correlation", value: entry.event.correlationId },
-      { label: "Direction", value: entry.direction },
-    ],
-    payloadEntries: Object.entries(entry.event.payload).map(([key, value]) => ({
-      key,
-      value: formatRuntimeEvidenceValue(value),
-    })),
-    footer: entry.event.timestamp,
-  };
-}
-
-function buildRuntimeTraceContextSummary(
-  entry: RuntimeTraceEntry,
-  resolveNodeLabel: (nodeId: unknown, fallbackType?: string | null) => string,
-): RuntimeTraceContextSummary {
-  const sourceLabel = resolveNodeLabel(
-    entry.event.target?.nodeId ?? entry.event.source.nodeId,
-    entry.event.target?.nodeType ?? entry.event.source.nodeType,
-  );
-  const detail =
-    entry.event.type === "host.action_requested"
-      ? `Host request from ${sourceLabel}`
-      : isAuthoredRuntimeEvidenceEntry(entry)
-        ? `Dispatchted from ${sourceLabel}`
-        : `${formatLabel(entry.event.type)} from ${sourceLabel}`;
-  return {
-    entryKey: getRuntimeTraceEntryKey(entry),
-    title: entry.event.type,
-    detail,
-    direction: entry.direction,
-    timestamp: entry.event.timestamp,
-    inspectable: isAuthoredRuntimeEvidenceEntry(entry),
-  };
-}
-
-function isRuntimeTraceChainRelevantEntry(entry: RuntimeTraceEntry): boolean {
-  if (isAuthoredRuntimeEvidenceEntry(entry)) {
-    return true;
-  }
-  return (
-    entry.event.type === "field.change" ||
-    entry.event.type === "component.click" ||
-    entry.event.type === "form.submit" ||
-    entry.event.type === "form.validation_failed"
-  );
 }
 
 function slugify(value: string): string {
@@ -9484,216 +8243,6 @@ export default function App() {
     finalizeBehaviorStudioCreation();
   }
 
-  function renderLegacyConditionalRuleEditor(
-    rule: LegacyConditionalRule,
-    index: number,
-    options?: { compact?: boolean },
-  ) {
-    const conditionalGroup = buildLegacyConditionalRuleGroups(legacyFieldConditionals(activeBuilderField)).find(
-      (group) => group.members.some((member) => member.rule.ruleId === rule.ruleId),
-    );
-    const availableSiblingEffects = (["show", "hide", "require", "disable"] as const).filter(
-      (effect) => !conditionalGroup?.members.some((member) => member.rule.effect === effect),
-    );
-    return (
-      <div className={`rounded-[1rem] border border-blue-200 bg-blue-50/60 ${options?.compact ? "p-4" : "p-5"}`}>
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Condition editor</p>
-            <p className="mt-2 text-sm text-slate-700">
-              Refine the behavior condition and effect here without leaving the current field selection.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setEditingRuleIndex(null);
-              setSelectedBehaviorNode(null);
-            }}
-            className={iconButtonClass()}
-          >
-            ×
-          </button>
-        </div>
-        {conditionalGroup ? (
-          <div className="mt-4 rounded-[0.95rem] border border-blue-200 bg-white p-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Conditional bundle</p>
-                <p className="mt-2 text-sm text-slate-700">
-                  One condition can drive several effects. Keep related visibility, required, and enabled-conditional
-                  listener flows grouped here.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {conditionalGroup.members.map((member) => (
-                  <button
-                    key={member.rule.ruleId}
-                    type="button"
-                    onClick={() => {
-                      setEditingRuleIndex(member.index);
-                      setSelectedBehaviorNode({ kind: "rule", ruleId: member.rule.ruleId, phase: "effect" });
-                    }}
-                    className={actionButtonClass(member.rule.ruleId === rule.ruleId ? "primary" : "secondary")}
-                  >
-                    {formatLabel(member.rule.effect)}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {availableSiblingEffects.length ? (
-              <div className="mt-3">
-                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Add related effect
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {availableSiblingEffects.map((effect) => (
-                    <button
-                      key={`${rule.ruleId}-${effect}`}
-                      type="button"
-                      onClick={() => addSiblingLegacyConditionalRule(rule.ruleId, effect)}
-                      className={actionButtonClass("secondary")}
-                    >
-                      Add {formatLabel(effect)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-        <div className="mt-4 grid gap-3">
-          <div>
-            <label className="text-xs uppercase tracking-[0.18em] text-slate-500">When this field matches</label>
-            <select
-              value={rule.whenFieldId}
-              onChange={(event) =>
-                updateLegacyConditionalRule(index, (current) => {
-                  current.whenFieldId = event.target.value;
-                })
-              }
-              className="mt-2 w-full rounded-2xl border border-soft px-4 py-2.5 text-sm text-slate-800"
-            >
-              {builderFieldOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.optionLabel}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Condition</label>
-              <select
-                value={rule.operator}
-                onChange={(event) =>
-                  updateLegacyConditionalRule(index, (current) => {
-                    current.operator = event.target.value as LegacyConditionalRule["operator"];
-                  })
-                }
-                className="mt-2 w-full rounded-2xl border border-soft px-4 py-2.5 text-sm text-slate-800"
-              >
-                <option value="equals">equals</option>
-                <option value="not_equals">does not equal</option>
-                <option value="contains">contains</option>
-                <option value="exists">has any value</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Effect</label>
-              <select
-                value={rule.effect}
-                onChange={(event) =>
-                  updateLegacyConditionalRule(index, (current) => {
-                    current.effect = event.target.value as LegacyConditionalRule["effect"];
-                  })
-                }
-                className="mt-2 w-full rounded-2xl border border-soft px-4 py-2.5 text-sm text-slate-800"
-              >
-                <option value="show">show</option>
-                <option value="hide">hide</option>
-                <option value="require">require</option>
-                <option value="disable">disable</option>
-              </select>
-            </div>
-          </div>
-          {rule.operator !== "exists" ? (
-            <div>
-              <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Expected value</label>
-              <input
-                value={rule.expectedValue ?? ""}
-                onChange={(event) =>
-                  updateLegacyConditionalRule(index, (current) => {
-                    current.expectedValue = event.target.value;
-                  })
-                }
-                placeholder="Expected value"
-                className="mt-2 w-full rounded-2xl border border-soft px-4 py-2.5 text-sm text-slate-800"
-              />
-            </div>
-          ) : null}
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => removeLegacyConditionalRule(index)}
-              className={actionButtonClass("danger")}
-            >
-              Remove
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setEditingRuleIndex(null);
-                setSelectedBehaviorNode(null);
-              }}
-              className={actionButtonClass("primary")}
-            >
-              Done
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  function renderBehaviorGraphNode(config: {
-    eyebrow: string;
-    title: string;
-    detail: string;
-    tone: "blue" | "emerald" | "amber";
-    active?: boolean;
-    compact?: boolean;
-    onClick?: () => void;
-  }) {
-    const toneClass =
-      config.tone === "blue"
-        ? config.active
-          ? "border-blue-400 bg-blue-50 text-blue-950 shadow-[0_10px_24px_rgba(37,99,235,0.12)]"
-          : "border-blue-200 bg-blue-50/70 text-slate-900"
-        : config.tone === "emerald"
-          ? config.active
-            ? "border-emerald-400 bg-emerald-50 text-emerald-950 shadow-[0_10px_24px_rgba(5,150,105,0.12)]"
-            : "border-emerald-200 bg-emerald-50/70 text-slate-900"
-          : config.active
-            ? "border-amber-400 bg-amber-50 text-amber-950 shadow-[0_10px_24px_rgba(217,119,6,0.12)]"
-            : "border-amber-200 bg-amber-50/80 text-slate-900";
-    return (
-      <button
-        type="button"
-        onClick={config.onClick}
-        className={`rounded-[1rem] border text-left transition hover:-translate-y-0.5 hover:border-slate-300 ${
-          config.compact ? "min-w-[10rem] px-3 py-2.5" : "min-w-[12rem] px-4 py-3"
-        } ${toneClass}`}
-      >
-        <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">{config.eyebrow}</p>
-        <p className={`font-semibold ${config.compact ? "mt-1.5 text-sm" : "mt-2"}`}>{config.title}</p>
-        <p className={`text-slate-600 ${config.compact ? "mt-1.5 text-xs leading-5" : "mt-2 text-sm leading-6"}`}>
-          {config.detail}
-        </p>
-      </button>
-    );
-  }
-
   function renderSuggestionChips(config: { label: string; suggestions: string[]; onApply: (value: string) => void }) {
     if (!config.suggestions.length) {
       return null;
@@ -10569,353 +9118,6 @@ export default function App() {
     );
   }
 
-  function renderBooleanReactionPropertyRow(options: {
-    listener: RuntimeListenerDefinition;
-    target: RuntimeEventSourceCandidate;
-    propertyKey: string;
-    label: string;
-    description: string;
-    trueLabel: string;
-    falseLabel: string;
-    trueKind: RuntimeActionKind;
-    falseKind: RuntimeActionKind;
-  }) {
-    const { listener, target, propertyKey, label, description, trueLabel, falseLabel, trueKind, falseKind } = options;
-    const value = booleanReactionValue(listener, target.id, trueKind, falseKind);
-    const matches = booleanReactionActions(listener, target.id, trueKind, falseKind);
-    const selectId = `${sanitizeRuntimeIdentifier(listener.id, "listener")}-${sanitizeRuntimeIdentifier(
-      target.id,
-      "target",
-    )}-${propertyKey}`;
-    return (
-      <div className="grid gap-2 border-b border-slate-200 px-3 py-2.5 last:border-b-0 sm:grid-cols-[minmax(8rem,13rem)_minmax(0,1fr)] sm:items-center">
-        <div className="min-w-0">
-          <label htmlFor={selectId} title={description} className="text-sm font-medium text-slate-950">
-            {label}
-          </label>
-          {value === "conflict" ? (
-            <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
-              {matches.length} actions currently set this property. Choose one value to resolve.
-            </p>
-          ) : null}
-        </div>
-        <select
-          id={selectId}
-          value={value}
-          onChange={(event) =>
-            setRuntimeBooleanReactionProperty(
-              listener.id,
-              target,
-              trueKind,
-              falseKind,
-              event.target.value as RuntimeReactionBooleanValue,
-              label,
-            )
-          }
-          className="w-full rounded-lg border border-soft bg-white px-3 py-2 text-sm font-medium text-slate-900"
-        >
-          {value === "conflict" ? (
-            <option value="conflict" disabled>
-              Conflict
-            </option>
-          ) : null}
-          <option value="unset">No change</option>
-          <option value="true">{trueLabel}</option>
-          <option value="false">{falseLabel}</option>
-        </select>
-      </div>
-    );
-  }
-
-  function renderValueReactionPropertyRow(listener: RuntimeListenerDefinition, target: RuntimeEventSourceCandidate) {
-    if (target.nodeType !== "field") {
-      return null;
-    }
-    const mode = valueReactionMode(listener, target.id);
-    const matches = valueReactionActions(listener, target.id);
-    const setAction = matches.find((action) => action.kind === "set_field_value");
-    const runtimeValueReference = isRuntimePayloadReference(setAction?.config.value)
-      ? setAction.config.value.$runtime
-      : null;
-    const payloadOptions = listenerPayloadReferenceOptions(listener);
-    const valueRowId = `${sanitizeRuntimeIdentifier(listener.id, "listener")}-${sanitizeRuntimeIdentifier(
-      target.id,
-      "target",
-    )}-value`;
-    const valueDetailId = `${valueRowId}-detail`;
-    return (
-      <div className="border-b border-slate-200 px-3 py-2.5 last:border-b-0">
-        <div className="grid gap-2 sm:grid-cols-[minmax(8rem,13rem)_minmax(0,1fr)] sm:items-center">
-          <div className="min-w-0">
-            <label htmlFor={valueRowId} className="text-sm font-semibold text-slate-950">
-              Value
-            </label>
-            <span id={valueDetailId} className="sr-only">
-              Set, clear, or populate this field from the source event payload.
-            </span>
-            {mode === "conflict" ? (
-              <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
-                {matches.length} actions currently set or clear this value. Choose one mode to resolve.
-              </p>
-            ) : null}
-          </div>
-          <select
-            id={valueRowId}
-            aria-describedby={valueDetailId}
-            value={mode}
-            onChange={(event) =>
-              setRuntimeValueReactionMode(listener.id, target, event.target.value as RuntimeReactionValueMode)
-            }
-            className="w-full rounded-lg border border-soft bg-white px-3 py-2 text-sm font-medium text-slate-900"
-          >
-            {mode === "conflict" ? (
-              <option value="conflict" disabled>
-                Conflict
-              </option>
-            ) : null}
-            <option value="unset">No change</option>
-            <option value="static">Set static value</option>
-            <option value="payload">Use event payload</option>
-            <option value="clear">Clear value</option>
-          </select>
-        </div>
-        {mode === "static" ? (
-          <label className="mt-2 grid gap-2 text-sm text-slate-950 sm:grid-cols-[minmax(8rem,13rem)_minmax(0,1fr)] sm:items-center">
-            <span className="font-medium">Text</span>
-            <input
-              value={String(setAction?.config.value ?? "")}
-              onChange={(event) => updateRuntimeValueReactionStatic(listener.id, target, event.target.value)}
-              className="w-full rounded-lg border border-soft bg-white px-3 py-2 text-sm normal-case tracking-normal text-slate-900"
-            />
-          </label>
-        ) : null}
-        {mode === "payload" ? (
-          <label className="mt-2 grid gap-2 text-sm text-slate-950 sm:grid-cols-[minmax(8rem,13rem)_minmax(0,1fr)] sm:items-center">
-            <span className="font-medium">From event</span>
-            <select
-              value={runtimeValueReference ?? payloadOptions[0]?.key ?? "current.event.payload.value"}
-              onChange={(event) =>
-                updateRuntimeValueReactionPayload(listener.id, target, event.target.value as RuntimePayloadReferenceKey)
-              }
-              className="w-full rounded-lg border border-soft bg-white px-3 py-2 text-sm normal-case tracking-normal text-slate-900"
-            >
-              {payloadOptions.map((option) => (
-                <option key={`reaction-payload-${option.key}`} value={option.key}>
-                  {option.label}
-                </option>
-              ))}
-              {runtimeValueReference && !payloadOptions.some((option) => option.key === runtimeValueReference) ? (
-                <option value={runtimeValueReference}>{runtimeValueReference}</option>
-              ) : null}
-            </select>
-          </label>
-        ) : null}
-      </div>
-    );
-  }
-
-  function renderNavigationReactionPropertyRow(
-    listener: RuntimeListenerDefinition,
-    target: RuntimeEventSourceCandidate,
-  ) {
-    if (target.nodeType !== "component") {
-      return null;
-    }
-    const value = navigationReactionValue(listener, target.id);
-    const matches = navigationReactionActions(listener, target.id);
-    const navigationAction = matches.length === 1 ? matches[0] : null;
-    const selectId = `${sanitizeRuntimeIdentifier(listener.id, "listener")}-${sanitizeRuntimeIdentifier(
-      target.id,
-      "target",
-    )}-navigation`;
-    return (
-      <div className="border-b border-slate-200 px-3 py-2.5 last:border-b-0">
-        <div className="grid gap-2 sm:grid-cols-[minmax(8rem,13rem)_minmax(0,1fr)] sm:items-center">
-          <div className="min-w-0">
-            <label htmlFor={selectId} className="text-sm font-semibold text-slate-950">
-              Navigation
-            </label>
-            {value === "conflict" ? (
-              <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
-                {matches.length} navigation actions target this component. Choose one value to resolve.
-              </p>
-            ) : null}
-          </div>
-          <select
-            id={selectId}
-            value={value}
-            onChange={(event) =>
-              setRuntimeNavigationReaction(listener.id, target, event.target.value as RuntimeReactionNavigationValue)
-            }
-            className="w-full rounded-lg border border-soft bg-white px-3 py-2 text-sm font-medium text-slate-900"
-          >
-            {value === "conflict" ? (
-              <option value="conflict" disabled>
-                Conflict
-              </option>
-            ) : null}
-            <option value="unset">No change</option>
-            <option value="go_to_next_step">Go to next step</option>
-            <option value="go_to_previous_step">Go to previous step</option>
-            <option value="go_to_step">Go to specific step</option>
-            <option value="submit_form">Submit form</option>
-          </select>
-        </div>
-        {value === "go_to_step" ? (
-          <label className="mt-2 grid gap-2 text-sm text-slate-950 sm:grid-cols-[minmax(8rem,13rem)_minmax(0,1fr)] sm:items-center">
-            <span className="font-medium">Step</span>
-            <select
-              value={String(navigationAction?.config.stepId ?? builderStepOptions[0]?.id ?? "")}
-              onChange={(event) => updateRuntimeNavigationStep(listener.id, target, event.target.value)}
-              className="w-full rounded-lg border border-soft bg-white px-3 py-2 text-sm normal-case tracking-normal text-slate-900"
-            >
-              {builderStepOptions.map((option) => (
-                <option key={`reaction-step-${option.id}`} value={option.id}>
-                  {option.optionLabel}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-      </div>
-    );
-  }
-
-  function renderRuntimeReactionProperties(
-    listener: RuntimeListenerDefinition,
-    target: RuntimeEventSourceCandidate | null,
-  ) {
-    if (!target) {
-      return (
-        <div className="app-muted-card p-4 text-sm text-slate-500">
-          Select a reaction target before setting listener properties.
-        </div>
-      );
-    }
-    const targetOptions = runtimeReactionTargetOptions(listener, target);
-    const pathOptions = targetOptions.filter((option) => option.group === "path");
-    const containerPathOptions = pathOptions.filter((option) => runtimeNodeTypeIsContainer(option.candidate.nodeType));
-    const currentPathOptions = pathOptions.filter((option) => !runtimeNodeTypeIsContainer(option.candidate.nodeType));
-    const allOptions = targetOptions.filter((option) => option.group === "all");
-    const targetTypeLabel = runtimeNodeTypeLabel(target.nodeType);
-    return (
-      <div className="rounded-[0.95rem] border border-soft bg-white p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Property inspector</p>
-            <p className="mt-2 text-sm leading-6 text-slate-700">
-              Apply listener reactions to the current item, a parent/container, or another matching node.
-            </p>
-          </div>
-          <span className="app-pill">{listener.actions.length} saved actions</span>
-        </div>
-
-        <div className="mt-4 grid gap-3 rounded-[0.8rem] border border-slate-200 bg-slate-50 p-3 md:grid-cols-[minmax(0,1fr)_minmax(12rem,16rem)]">
-          <label className="text-xs uppercase tracking-[0.16em] text-slate-500">
-            Apply changes to
-            <select
-              value={target.id}
-              onChange={(event) => updateRuntimeReactionTarget(listener.id, event.target.value)}
-              className="mt-1 w-full rounded-xl border border-soft bg-white px-3 py-2 text-sm normal-case tracking-normal text-slate-900"
-            >
-              {currentPathOptions.length ? (
-                <optgroup label="Current item">
-                  {currentPathOptions.map((option) => (
-                    <option key={`reaction-current-target-${option.candidate.id}`} value={option.candidate.id}>
-                      {option.relationshipLabel} · {formatRuntimeSourceCandidateLabel(option.candidate)}
-                    </option>
-                  ))}
-                </optgroup>
-              ) : null}
-              {containerPathOptions.length ? (
-                <optgroup label="Parent / container targets">
-                  {containerPathOptions.map((option) => (
-                    <option key={`reaction-container-target-${option.candidate.id}`} value={option.candidate.id}>
-                      {option.relationshipLabel} · {formatRuntimeSourceCandidateLabel(option.candidate)}
-                    </option>
-                  ))}
-                </optgroup>
-              ) : null}
-              {allOptions.length ? (
-                <optgroup label="Other matching nodes">
-                  {allOptions.map((option) => (
-                    <option key={`reaction-all-target-${option.candidate.id}`} value={option.candidate.id}>
-                      {option.relationshipLabel} · {formatRuntimeSourceCandidateLabel(option.candidate)}
-                    </option>
-                  ))}
-                </optgroup>
-              ) : null}
-            </select>
-          </label>
-          <label className="text-xs uppercase tracking-[0.16em] text-slate-500">
-            Search all nodes
-            <input
-              type="search"
-              value={reactionTargetSearch}
-              onChange={(event) => setReactionTargetSearch(event.target.value)}
-              placeholder="section, group, field..."
-              className="mt-1 w-full rounded-xl border border-soft bg-white px-3 py-2 text-sm normal-case tracking-normal text-slate-900"
-            />
-          </label>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2 text-sm text-slate-700">
-          <span className="app-pill">
-            Targeting {targetTypeLabel.toLowerCase()} · {target.label}
-          </span>
-          {runtimeNodeTypeIsContainer(target.nodeType) ? (
-            <span className="app-pill">Container target</span>
-          ) : (
-            <span className="app-pill">Item target</span>
-          )}
-        </div>
-
-        <div className="mt-3 overflow-hidden rounded-[0.8rem] border border-slate-200 bg-white">
-          {target.nodeType !== "form"
-            ? renderBooleanReactionPropertyRow({
-                listener,
-                target,
-                propertyKey: "visible",
-                label: "Visible",
-                description: "Controls whether this target appears in the runtime view.",
-                trueLabel: "Visible",
-                falseLabel: "Hidden",
-                trueKind: "show_node",
-                falseKind: "hide_node",
-              })
-            : null}
-          {target.nodeType !== "form"
-            ? renderBooleanReactionPropertyRow({
-                listener,
-                target,
-                propertyKey: "enabled",
-                label: "Enabled",
-                description: "Controls whether this target can be used or edited.",
-                trueLabel: "Enabled",
-                falseLabel: "Disabled",
-                trueKind: "enable_node",
-                falseKind: "disable_node",
-              })
-            : null}
-          {target.nodeType === "field"
-            ? renderBooleanReactionPropertyRow({
-                listener,
-                target,
-                propertyKey: "required",
-                label: "Required",
-                description: "Controls whether this field must be answered before submit.",
-                trueLabel: "Required",
-                falseLabel: "Optional",
-                trueKind: "mark_required",
-                falseKind: "mark_optional",
-              })
-            : null}
-          {renderValueReactionPropertyRow(listener, target)}
-          {renderNavigationReactionPropertyRow(listener, target)}
-        </div>
-      </div>
-    );
-  }
-
   function renderRuntimeListenerComposer(
     listener: RuntimeListenerDefinition,
     listenerIndex: number,
@@ -11318,7 +9520,29 @@ export default function App() {
         </div>
 
         <div className="space-y-3">
-          {renderRuntimeReactionProperties(listener, listenerTarget)}
+          <RuntimeReactionProperties
+            listener={listener}
+            target={listenerTarget}
+            reactionTargetSearch={reactionTargetSearch}
+            builderStepOptions={builderStepOptions}
+            runtimeReactionTargetOptions={runtimeReactionTargetOptions}
+            runtimeNodeTypeIsContainer={runtimeNodeTypeIsContainer}
+            booleanReactionValue={booleanReactionValue}
+            booleanReactionActions={booleanReactionActions}
+            valueReactionMode={valueReactionMode}
+            valueReactionActions={valueReactionActions}
+            listenerPayloadReferenceOptions={listenerPayloadReferenceOptions}
+            navigationReactionValue={navigationReactionValue}
+            navigationReactionActions={navigationReactionActions}
+            onUpdateReactionTarget={updateRuntimeReactionTarget}
+            onSetReactionTargetSearch={setReactionTargetSearch}
+            onSetBooleanReactionProperty={setRuntimeBooleanReactionProperty}
+            onSetValueReactionMode={setRuntimeValueReactionMode}
+            onUpdateValueReactionStatic={updateRuntimeValueReactionStatic}
+            onUpdateValueReactionPayload={updateRuntimeValueReactionPayload}
+            onSetNavigationReaction={setRuntimeNavigationReaction}
+            onUpdateNavigationStep={updateRuntimeNavigationStep}
+          />
 
           <details className="rounded-[0.95rem] border border-soft bg-white p-4">
             <summary className="cursor-pointer list-none rounded-[0.75rem] px-1 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500">
@@ -11479,18 +9703,6 @@ export default function App() {
     setBehaviorFocusTarget(null);
     setInspectorTab("map");
     setMapViewMode("graph");
-  }
-
-  function renderBehaviorEdgeLabel(label: string, compact = false) {
-    return (
-      <span
-        className={`inline-flex items-center rounded-full border border-slate-200 bg-white font-semibold uppercase tracking-[0.16em] text-slate-500 ${
-          compact ? "px-2.5 py-1 text-[0.62rem]" : "px-3 py-1 text-[0.68rem]"
-        }`}
-      >
-        {label}
-      </span>
-    );
   }
 
   function resetBehaviorGraphViewport() {
@@ -14036,7 +12248,29 @@ export default function App() {
                 )}
               </div>
             </div>
-            {renderRuntimeReactionProperties(selectedListener, selectedListenerTarget)}
+            <RuntimeReactionProperties
+              listener={selectedListener}
+              target={selectedListenerTarget}
+              reactionTargetSearch={reactionTargetSearch}
+              builderStepOptions={builderStepOptions}
+              runtimeReactionTargetOptions={runtimeReactionTargetOptions}
+              runtimeNodeTypeIsContainer={runtimeNodeTypeIsContainer}
+              booleanReactionValue={booleanReactionValue}
+              booleanReactionActions={booleanReactionActions}
+              valueReactionMode={valueReactionMode}
+              valueReactionActions={valueReactionActions}
+              listenerPayloadReferenceOptions={listenerPayloadReferenceOptions}
+              navigationReactionValue={navigationReactionValue}
+              navigationReactionActions={navigationReactionActions}
+              onUpdateReactionTarget={updateRuntimeReactionTarget}
+              onSetReactionTargetSearch={setReactionTargetSearch}
+              onSetBooleanReactionProperty={setRuntimeBooleanReactionProperty}
+              onSetValueReactionMode={setRuntimeValueReactionMode}
+              onUpdateValueReactionStatic={updateRuntimeValueReactionStatic}
+              onUpdateValueReactionPayload={updateRuntimeValueReactionPayload}
+              onSetNavigationReaction={setRuntimeNavigationReaction}
+              onUpdateNavigationStep={updateRuntimeNavigationStep}
+            />
           </div>
         ) : (
           <div className="rounded-[0.95rem] border border-soft bg-white p-4">
@@ -14249,7 +12483,25 @@ export default function App() {
           renderBehaviorCreationGuide()
         ) : selectedRule && selectedRuleIndex >= 0 ? (
           <div className="rounded-[1.05rem] border border-soft bg-white p-3.5 shadow-[0_16px_32px_rgba(15,23,42,0.07)] sm:p-4">
-            {renderLegacyConditionalRuleEditor(selectedRule, selectedRuleIndex)}
+            <LegacyConditionalRuleEditor
+              rule={selectedRule}
+              index={selectedRuleIndex}
+              conditionalGroup={buildLegacyConditionalRuleGroups(legacyFieldConditionals(activeBuilderField)).find(
+                (group) => group.members.some((member) => member.rule.ruleId === selectedRule.ruleId),
+              )}
+              builderFieldOptions={builderFieldOptions}
+              onClose={() => {
+                setEditingRuleIndex(null);
+                setSelectedBehaviorNode(null);
+              }}
+              onSelectMember={(memberIndex, ruleId) => {
+                setEditingRuleIndex(memberIndex);
+                setSelectedBehaviorNode({ kind: "rule", ruleId, phase: "effect" });
+              }}
+              onAddSibling={addSiblingLegacyConditionalRule}
+              onUpdate={updateLegacyConditionalRule}
+              onRemove={removeLegacyConditionalRule}
+            />
           </div>
         ) : (
           renderEventFlowStudio()
@@ -14761,26 +13013,21 @@ export default function App() {
           </button>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          {renderBehaviorGraphNode({
-            eyebrow: "Trigger",
-            title: `Watch ${rule.sourceFieldLabel}`,
-            detail: `Observe ${rule.sourceFieldLabel} as the source input.`,
-            tone: "blue",
-          })}
-          {renderBehaviorEdgeLabel("When")}
-          {renderBehaviorGraphNode({
-            eyebrow: "Condition",
-            title: "Evaluate condition",
-            detail: rule.detail,
-            tone: "amber",
-          })}
-          {renderBehaviorEdgeLabel("Then")}
-          {renderBehaviorGraphNode({
-            eyebrow: "Effect",
-            title: `${formatLabel(rule.effectLabel)} ${rule.targetFieldLabel}`,
-            detail: `Apply the ${rule.effectLabel} effect to ${rule.targetFieldLabel}.`,
-            tone: "emerald",
-          })}
+          <BehaviorGraphNode
+            eyebrow="Trigger"
+            title={`Watch ${rule.sourceFieldLabel}`}
+            detail={`Observe ${rule.sourceFieldLabel} as the source input.`}
+            tone="blue"
+          />
+          <BehaviorEdgeLabel label="When" />
+          <BehaviorGraphNode eyebrow="Condition" title="Evaluate condition" detail={rule.detail} tone="amber" />
+          <BehaviorEdgeLabel label="Then" />
+          <BehaviorGraphNode
+            eyebrow="Effect"
+            title={`${formatLabel(rule.effectLabel)} ${rule.targetFieldLabel}`}
+            detail={`Apply the ${rule.effectLabel} effect to ${rule.targetFieldLabel}.`}
+            tone="emerald"
+          />
         </div>
       </div>
     );
@@ -14817,19 +13064,19 @@ export default function App() {
           </button>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          {renderBehaviorGraphNode({
-            eyebrow: "Trigger",
-            title: `When ${formatLabel(listener.eventName)}`,
-            detail: `${listener.scopeLabel} listens for this event.`,
-            tone: "blue",
-          })}
-          {renderBehaviorEdgeLabel("Then")}
-          {renderBehaviorGraphNode({
-            eyebrow: "Action",
-            title: `${listener.actionCount} action${listener.actionCount === 1 ? "" : "s"}`,
-            detail: listener.actionsSummary,
-            tone: "emerald",
-          })}
+          <BehaviorGraphNode
+            eyebrow="Trigger"
+            title={`When ${formatLabel(listener.eventName)}`}
+            detail={`${listener.scopeLabel} listens for this event.`}
+            tone="blue"
+          />
+          <BehaviorEdgeLabel label="Then" />
+          <BehaviorGraphNode
+            eyebrow="Action"
+            title={`${listener.actionCount} action${listener.actionCount === 1 ? "" : "s"}`}
+            detail={listener.actionsSummary}
+            tone="emerald"
+          />
         </div>
       </div>
     );
@@ -18137,19 +16384,20 @@ export default function App() {
                                     ) : null}
                                   </div>
                                   <div className="mt-3 flex flex-wrap items-center gap-2">
-                                    {renderBehaviorGraphNode({
-                                      eyebrow: "Trigger",
-                                      title: "Watch a field",
-                                      detail: `Observe ${group.sourceFieldLabel} as the source input.`,
-                                      tone: "blue",
-                                      compact: graphCompact,
-                                      active:
+                                    <BehaviorGraphNode
+                                      eyebrow="Trigger"
+                                      title="Watch a field"
+                                      detail={`Observe ${group.sourceFieldLabel} as the source input.`}
+                                      tone="blue"
+                                      compact={graphCompact}
+                                      active={
                                         selectedBehaviorNode?.kind === "rule" &&
                                         group.members.some(
                                           (member) => member.rule.ruleId === selectedBehaviorNode.ruleId,
                                         ) &&
-                                        selectedBehaviorNode.phase === "trigger",
-                                      onClick: () => {
+                                        selectedBehaviorNode.phase === "trigger"
+                                      }
+                                      onClick={() => {
                                         if (!representativeRule) {
                                           return;
                                         }
@@ -18157,22 +16405,23 @@ export default function App() {
                                           { kind: "rule", ruleId: representativeRule.ruleId, phase: "trigger" },
                                           group.members[0]?.index ?? null,
                                         );
-                                      },
-                                    })}
-                                    {renderBehaviorEdgeLabel("When", graphCompact)}
-                                    {renderBehaviorGraphNode({
-                                      eyebrow: "Shared condition",
-                                      title: group.conditionTitle,
-                                      detail: group.conditionDetail,
-                                      tone: "amber",
-                                      compact: graphCompact,
-                                      active:
+                                      }}
+                                    />
+                                    <BehaviorEdgeLabel label="When" compact={graphCompact} />
+                                    <BehaviorGraphNode
+                                      eyebrow="Shared condition"
+                                      title={group.conditionTitle}
+                                      detail={group.conditionDetail}
+                                      tone="amber"
+                                      compact={graphCompact}
+                                      active={
                                         selectedBehaviorNode?.kind === "rule" &&
                                         group.members.some(
                                           (member) => member.rule.ruleId === selectedBehaviorNode.ruleId,
                                         ) &&
-                                        selectedBehaviorNode.phase === "condition",
-                                      onClick: () => {
+                                        selectedBehaviorNode.phase === "condition"
+                                      }
+                                      onClick={() => {
                                         if (!representativeRule) {
                                           return;
                                         }
@@ -18180,27 +16429,29 @@ export default function App() {
                                           { kind: "rule", ruleId: representativeRule.ruleId, phase: "condition" },
                                           group.members[0]?.index ?? null,
                                         );
-                                      },
-                                    })}
+                                      }}
+                                    />
                                     {group.members.map((member) => (
                                       <Fragment key={`${group.key}-${member.rule.ruleId}`}>
-                                        {renderBehaviorEdgeLabel("Then", graphCompact)}
-                                        {renderBehaviorGraphNode({
-                                          eyebrow: "Effect",
-                                          title: `${formatLabel(member.rule.effect)} this field`,
-                                          detail: `Apply the ${member.rule.effect} effect to ${activeBuilderField?.label ?? "this field"}.`,
-                                          tone: "emerald",
-                                          compact: graphCompact,
-                                          active:
+                                        <BehaviorEdgeLabel label="Then" compact={graphCompact} />
+                                        <BehaviorGraphNode
+                                          eyebrow="Effect"
+                                          title={`${formatLabel(member.rule.effect)} this field`}
+                                          detail={`Apply the ${member.rule.effect} effect to ${activeBuilderField?.label ?? "this field"}.`}
+                                          tone="emerald"
+                                          compact={graphCompact}
+                                          active={
                                             selectedBehaviorNode?.kind === "rule" &&
                                             selectedBehaviorNode.ruleId === member.rule.ruleId &&
-                                            selectedBehaviorNode.phase === "effect",
-                                          onClick: () =>
+                                            selectedBehaviorNode.phase === "effect"
+                                          }
+                                          onClick={() =>
                                             openBehaviorNodeInStudio(
                                               { kind: "rule", ruleId: member.rule.ruleId, phase: "effect" },
                                               member.index,
-                                            ),
-                                        })}
+                                            )
+                                          }
+                                        />
                                       </Fragment>
                                     ))}
                                   </div>
@@ -18255,47 +16506,53 @@ export default function App() {
                                     </button>
                                   </div>
                                   <div className="mt-3 flex flex-wrap items-center gap-2">
-                                    {renderBehaviorGraphNode({
-                                      eyebrow: "Trigger",
-                                      title: `When ${formatLabel(listener.eventName)}`,
-                                      detail: listener.enabled
-                                        ? "This listener is enabled."
-                                        : "This listener is currently disabled.",
-                                      tone: "blue",
-                                      compact: graphCompact,
-                                      active:
+                                    <BehaviorGraphNode
+                                      eyebrow="Trigger"
+                                      title={`When ${formatLabel(listener.eventName)}`}
+                                      detail={
+                                        listener.enabled
+                                          ? "This listener is enabled."
+                                          : "This listener is currently disabled."
+                                      }
+                                      tone="blue"
+                                      compact={graphCompact}
+                                      active={
                                         selectedBehaviorNode?.kind === "listener" &&
                                         selectedBehaviorNode.listenerId === listener.id &&
-                                        selectedBehaviorNode.phase === "trigger",
-                                      onClick: () =>
+                                        selectedBehaviorNode.phase === "trigger"
+                                      }
+                                      onClick={() =>
                                         openBehaviorNodeInStudio({
                                           kind: "listener",
                                           listenerId: listener.id,
                                           phase: "trigger",
-                                        }),
-                                    })}
+                                        })
+                                      }
+                                    />
                                     {listener.actions.map((action) => (
                                       <div key={`${listener.id}-${action.id}`} className="contents">
-                                        {renderBehaviorEdgeLabel("Then", graphCompact)}
-                                        {renderBehaviorGraphNode({
-                                          eyebrow: "Action",
-                                          title: formatLabel(action.kind),
-                                          detail: describeRuntimeAction(action),
-                                          tone: "emerald",
-                                          compact: graphCompact,
-                                          active:
+                                        <BehaviorEdgeLabel label="Then" compact={graphCompact} />
+                                        <BehaviorGraphNode
+                                          eyebrow="Action"
+                                          title={formatLabel(action.kind)}
+                                          detail={describeRuntimeAction(action)}
+                                          tone="emerald"
+                                          compact={graphCompact}
+                                          active={
                                             selectedBehaviorNode?.kind === "listener" &&
                                             selectedBehaviorNode.listenerId === listener.id &&
                                             selectedBehaviorNode.phase === "action" &&
-                                            selectedBehaviorNode.actionId === action.id,
-                                          onClick: () =>
+                                            selectedBehaviorNode.actionId === action.id
+                                          }
+                                          onClick={() =>
                                             openBehaviorNodeInStudio({
                                               kind: "listener",
                                               listenerId: listener.id,
                                               phase: "action",
                                               actionId: action.id,
-                                            }),
-                                        })}
+                                            })
+                                          }
+                                        />
                                       </div>
                                     ))}
                                   </div>
