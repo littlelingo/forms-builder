@@ -269,14 +269,18 @@ const unsubscribe = engine.subscribe((event) => {
       const submit = event.payload.submit;
       submitToHostApi(submit)
         .then(() => {
-          engine.dispatch(buildInboundEvent("form.submit_success", event.correlationId, {
-            message: "Saved successfully",
-          }));
+          engine.dispatch(
+            buildInboundEvent("form.submit_success", event.correlationId, {
+              message: "Saved successfully",
+            }),
+          );
         })
         .catch((error) => {
-          engine.dispatch(buildInboundEvent("form.submit_error", event.correlationId, {
-            message: error instanceof Error ? error.message : "Submit failed.",
-          }));
+          engine.dispatch(
+            buildInboundEvent("form.submit_error", event.correlationId, {
+              message: error instanceof Error ? error.message : "Submit failed.",
+            }),
+          );
         });
       break;
     }

@@ -6,6 +6,7 @@ import {
   runtimeCoreEventType,
   runtimeCoreEventsForDispatcher,
   runtimeCoreEventTypes,
+  runtimeStandardEventPayloadFields,
 } from "@form-builder/schema";
 
 const expectedCoreEvents = [
@@ -131,21 +132,31 @@ test("dispatcher filtering returns type-specific field and component event sets"
 });
 
 test("core event catalog exposes event-specific payload shapes for Behavior Studio", () => {
+  const standardFieldNames = runtimeStandardEventPayloadFields.map((field) => field.name);
   const checkboxPayloadFields = new Set(
     runtimeCoreEventType("checkboxGroup.change")?.payloadShape?.fields.map((field) => field.name),
   );
+  for (const fieldName of standardFieldNames) {
+    assert.ok(checkboxPayloadFields.has(fieldName), `checkboxGroup.change missing standard field ${fieldName}`);
+  }
   assert.ok(checkboxPayloadFields.has("selectedValues"));
   assert.ok(checkboxPayloadFields.has("changedOption"));
 
   const clickPayloadFields = new Set(
     runtimeCoreEventType("component.click")?.payloadShape?.fields.map((field) => field.name),
   );
+  for (const fieldName of standardFieldNames) {
+    assert.ok(clickPayloadFields.has(fieldName), `component.click missing standard field ${fieldName}`);
+  }
   assert.ok(clickPayloadFields.has("componentId"));
   assert.ok(clickPayloadFields.has("label"));
 
   const keyPayloadFields = new Set(
     runtimeCoreEventType("field.key_down")?.payloadShape?.fields.map((field) => field.name),
   );
+  for (const fieldName of standardFieldNames) {
+    assert.ok(keyPayloadFields.has(fieldName), `field.key_down missing standard field ${fieldName}`);
+  }
   assert.ok(keyPayloadFields.has("key"));
   assert.ok(keyPayloadFields.has("shiftKey"));
 });

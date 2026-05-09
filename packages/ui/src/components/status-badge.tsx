@@ -17,11 +17,5 @@ export function StatusBadge({ tone, children, system = "shadcn" }: StatusBadgePr
     system === "uswds"
       ? "inline-flex items-center rounded-sm border px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.16em]"
       : "inline-flex items-center rounded-md border px-2.5 py-1 text-[0.68rem] font-medium uppercase tracking-[0.14em]";
-  return (
-    <span
-      className={`${baseClass} ${toneClasses[tone]}`}
-    >
-      {children}
-    </span>
-  );
+  return <span className={`${baseClass} ${toneClasses[tone]}`}>{children}</span>;
 }

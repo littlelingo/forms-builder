@@ -19,13 +19,7 @@
     "title": { "type": "string" },
     "documentClass": {
       "type": "string",
-      "enum": [
-        "xfa_backed_fillable",
-        "acroform_only",
-        "born_digital_nonfillable",
-        "scanned_image_heavy",
-        "mixed"
-      ]
+      "enum": ["xfa_backed_fillable", "acroform_only", "born_digital_nonfillable", "scanned_image_heavy", "mixed"]
     },
     "reviewStatus": {
       "type": "string",
@@ -55,15 +49,7 @@
   "$defs": {
     "sourcePriority": {
       "type": "string",
-      "enum": [
-        "xfa_xml",
-        "widget_geometry",
-        "acroform",
-        "layout",
-        "ocr",
-        "heuristic",
-        "reviewer_override"
-      ]
+      "enum": ["xfa_xml", "widget_geometry", "acroform", "layout", "ocr", "heuristic", "reviewer_override"]
     },
     "coordinates": {
       "type": "object",
@@ -114,12 +100,7 @@
         },
         "message": { "type": "string" },
         "value": {
-          "oneOf": [
-            { "type": "string" },
-            { "type": "number" },
-            { "type": "integer" },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "type": "string" }, { "type": "number" }, { "type": "integer" }, { "type": "null" }]
         }
       }
     },
@@ -295,13 +276,7 @@
     },
     "extractionIssue": {
       "type": "object",
-      "required": [
-        "code",
-        "severity",
-        "message",
-        "evidenceAnchorIds",
-        "confidenceBand"
-      ],
+      "required": ["code", "severity", "message", "evidenceAnchorIds", "confidenceBand"],
       "properties": {
         "code": {
           "type": "string",

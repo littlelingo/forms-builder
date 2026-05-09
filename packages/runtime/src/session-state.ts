@@ -28,7 +28,7 @@ export function createInitialSessionState(
   const currentStepId =
     initialState?.currentStepId && index.stepOrder.includes(initialState.currentStepId)
       ? initialState.currentStepId
-      : document.steps[0]?.id ?? null;
+      : (document.steps[0]?.id ?? null);
 
   return {
     currentStepId,
@@ -55,7 +55,9 @@ export function mergeSessionState(
     values: partial.values ? { ...current.values, ...structuredClone(partial.values) } : { ...current.values },
     nodes: partial.nodes ? { ...current.nodes, ...structuredClone(partial.nodes) } : { ...current.nodes },
     validation: partial.validation ? structuredClone(partial.validation) : structuredClone(current.validation),
-    submit: partial.submit ? { ...current.submit, ...structuredClone(partial.submit) } : structuredClone(current.submit),
+    submit: partial.submit
+      ? { ...current.submit, ...structuredClone(partial.submit) }
+      : structuredClone(current.submit),
     hostContextSnapshot:
       partial.hostContextSnapshot !== undefined
         ? structuredClone(partial.hostContextSnapshot)

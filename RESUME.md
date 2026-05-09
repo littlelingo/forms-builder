@@ -25,6 +25,7 @@
 
 ## What Was Just Completed
 
+- Completed Phase 0 of the App.tsx component split — reduced `apps/web/src/App.tsx` from 23,017 lines down to ~10,746 lines by extracting feature regions into `apps/web/src/features/{project,review,builder,inspector,behavior,runtime-state}/`. As the final cleanup pass (Task 7), promoted the duplicated `formatLabel` (15 copies) and `actionButtonClass` (17 copies) helpers into the new canonical `apps/web/src/lib/ui-utils.ts`, updated all consumers to import from there, and deleted the dead `DragHandleIcon` component from `App.tsx`. Pure refactor — no semantic change. All gates pass: typecheck, build:schema, build:runtime, build:web, test:runtime (21/21), format:check, and pytest (65 pass + 1 pre-existing corpus failure). Phase 1 (NodeRef/EventRef + Behavior Library + Behavior Manager decomposition) can now land in reviewable diffs against this baseline.
 - Reworked Behavior Studio `Add behavior` into an explicit `Add event` / `Add listener` creation flow:
   - [apps/web/src/App.tsx](/Users/clint/Workspace/forms-builder/apps/web/src/App.tsx) now opens Studio to a two-choice authoring path; `Add event` saves an authored event definition on the selected scope, while `Add listener` filters available sources to components that already dispatch the chosen authored event
   - event choices are selected-component-specific, so step scopes surface `step.*` events first, fields surface field/input events, and component/button scopes surface their matching component events

@@ -852,6 +852,81 @@ test("event payload listener conditions can inspect checkbox group payloads", ()
   assert.equal(engine.getTrace().filter((entry) => entry.event.type === "checkbox.education_selected").length, 1);
 });
 
+test("event payload listener conditions can inspect standard metadata", () => {
+  const document = createDocument();
+  const field = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "field-name");
+  assert.ok(field);
+
+  field.runtime = {
+    eventSources: [
+      {
+        id: "event-metadata-condition",
+        name: "field.change",
+        sourceNodeId: "field-name",
+        sourceNodeType: "field",
+      },
+    ],
+    listeners: [
+      {
+        id: "listener-metadata-condition",
+        label: "Emit only when metadata marks studio source",
+        eventName: "field.change",
+        sourceNodeId: "field-name",
+        enabled: true,
+        conditions: [
+          {
+            id: "condition-metadata",
+            enabled: true,
+            source: { kind: "event_payload", path: "metadata" },
+            operator: "contains",
+            expectedValue: '"source":"studio"',
+          },
+        ],
+        actions: [
+          {
+            id: "action-metadata-condition",
+            kind: "dispatch_event",
+            target: { nodeId: "field-name", nodeType: "field" },
+            config: {
+              eventType: "metadata.matched",
+              payload: { source: "metadata-condition" },
+            },
+            continueOnError: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  engine.dispatch({
+    ...fieldChangeEvent("field-name", "blocked"),
+    payload: {
+      fieldId: "field-name",
+      nextValue: "blocked",
+      metadata: '{"source":"runtime"}',
+    },
+  });
+  assert.equal(engine.getTrace().filter((entry) => entry.event.type === "metadata.matched").length, 0);
+
+  engine.dispatch({
+    ...fieldChangeEvent("field-name", "allowed"),
+    payload: {
+      fieldId: "field-name",
+      nextValue: "allowed",
+      metadata: '{"source":"studio"}',
+    },
+  });
+  assert.equal(engine.getTrace().filter((entry) => entry.event.type === "metadata.matched").length, 1);
+});
+
 test("set field value actions can resolve event payload references", () => {
   const document = createDocument();
   const field = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "field-name");
@@ -909,6 +984,98 @@ test("set field value actions can resolve event payload references", () => {
   });
 
   assert.equal(engine.getState().values["field-name"], "education");
+});
+
+test("visibility actions can target a parent group from a child listener", () => {
+  const document = createDocument();
+  const section = document.steps[0]?.sections[0];
+  assert.ok(section);
+
+  section.groups.push({
+    id: "group-benefits",
+    label: "Type of benefits",
+    description: null,
+    layoutHints: {},
+    rendererHints: {},
+    lineage: [],
+    sourceGroupIds: [],
+    provenanceAnchorIds: [],
+    fields: [
+      {
+        id: "field-benefit-radio",
+        stableKey: "field-benefit-radio",
+        label: "Type of benefit",
+        helpText: null,
+        semanticType: "radio",
+        required: false,
+        confidence: 1,
+        options: [],
+        validations: [],
+        layoutHints: {},
+        rendererHints: {},
+        sourcePriority: [],
+        sourceConflicts: [],
+        lineage: [],
+        sourceFieldIds: [],
+        provenanceAnchorIds: [],
+        runtime: {
+          eventSources: [
+            {
+              id: "event-benefit-radio-change",
+              type: "field.change",
+              dispatcherId: "field-benefit-radio",
+              dispatcherType: "field",
+              sourceNodeId: "field-benefit-radio",
+              sourceNodeType: "field",
+            },
+          ],
+          listeners: [
+            {
+              id: "listener-benefit-radio-hide-parent",
+              label: "Hide parent benefit group",
+              type: "field.change",
+              dispatcherId: "field-benefit-radio",
+              dispatcherType: "field",
+              eventSourceNodeId: "field-benefit-radio",
+              eventSourceNodeType: "field",
+              targetNodeId: "group-benefits",
+              targetNodeType: "group",
+              eventName: "field.change",
+              sourceNodeId: "field-benefit-radio",
+              enabled: true,
+              conditions: [],
+              actions: [
+                {
+                  id: "action-hide-benefit-group",
+                  kind: "hide_node",
+                  target: { nodeId: "group-benefits", nodeType: "group" },
+                  config: { nodeId: "group-benefits" },
+                  continueOnError: false,
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ],
+    runtime: null,
+  });
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  assert.equal(engine.getState().nodes["group-benefits"]?.visible, true);
+  assert.equal(engine.getState().nodes["field-benefit-radio"]?.visible, true);
+
+  engine.dispatch(fieldChangeEvent("field-benefit-radio", "education"));
+
+  assert.equal(engine.getState().nodes["group-benefits"]?.visible, false);
+  assert.equal(engine.getState().nodes["field-benefit-radio"]?.visible, true);
 });
 
 test("AS3-style dispatch runs capture, target, and bubble listeners with event context", () => {
