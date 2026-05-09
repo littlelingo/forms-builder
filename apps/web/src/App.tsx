@@ -83,12 +83,13 @@ import { HomeStage } from "./features/project/HomeStage";
 import { badgeToneFromProjectStatus } from "./features/project/utils/project-utils";
 import { ReviewStage } from "./features/review/ReviewStage";
 import { badgeToneFromReview, badgeToneFromStatus, overlayRects } from "./features/review/utils/review-utils";
+import { InspectorRail } from "./features/inspector";
+import type { InspectorTab } from "./features/inspector";
 
 type AppStage = "home" | "review" | "workspace";
 type ReviewPreviewMode = "overlay" | "pdf";
 type ReviewFlowMode = "new_project" | "resume_import";
 type WorkspaceLandingMode = "promoted_import" | "reopened_import";
-type InspectorTab = "properties" | "behavior" | "map";
 type BuilderFieldTypeOption = SemanticType | "action_button";
 type BehaviorPresetCategory =
   | "recommended"
@@ -1736,42 +1737,12 @@ function RemoveIcon() {
   );
 }
 
-function PropertiesIcon() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.4">
-      <path d="M3 4.5h10M3 8h10M3 11.5h6.5" />
-    </svg>
-  );
-}
-
-function LogicIcon() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.4">
-      <circle cx="4.25" cy="4.25" r="1.75" />
-      <circle cx="11.75" cy="8" r="1.75" />
-      <circle cx="4.25" cy="11.75" r="1.75" />
-      <path d="M6 4.25h3.5M4.25 6v3.75M6 11.75h3.5" />
-    </svg>
-  );
-}
-
 function EventsIcon() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.4">
       <path d="M3 4.5h6M3 8h10M3 11.5h7" />
       <circle cx="11.75" cy="4.5" r="1.25" fill="currentColor" stroke="none" />
       <circle cx="13" cy="11.5" r="1.25" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-function MapIcon() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.4">
-      <circle cx="3.5" cy="4" r="1.5" />
-      <circle cx="12.5" cy="4" r="1.5" />
-      <circle cx="8" cy="12" r="1.5" />
-      <path d="M5 4h6M4.5 5.2l2.4 5.1M11.5 5.2l-2.4 5.1" />
     </svg>
   );
 }
@@ -19139,6 +19110,250 @@ export default function App() {
                     : null;
   const behaviorStudioPosition = behaviorStudioPositionLayout();
   const behaviorStudioWorkspaceShell = behaviorStudioUsesWorkspaceShell();
+  const behaviorsContent = renderBehaviorInspectorPanel();
+  const mapContent = logicMapData ? (
+    <>
+      <div className="rounded-[1.15rem] border border-soft bg-white p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Flow map</p>
+            <h4 className="mt-2 text-lg font-semibold text-slate-950">Document logic and runtime graph</h4>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Use this as the high-level map for behavior flows, then jump into the focused behavior editor only when
+              you need to change a specific listener or interaction.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <span className="app-pill">{logicMapData.steps.length} steps</span>
+              <span className="app-pill">{logicMapData.totalConditionals} conditional behavior</span>
+              <span className="app-pill">{logicMapData.totalListeners} behavior flows</span>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setMapViewMode("graph")}
+              className={actionButtonClass(mapViewMode === "graph" ? "primary" : "secondary")}
+            >
+              Graph overview
+            </button>
+            <button
+              type="button"
+              onClick={() => setMapViewMode("summary")}
+              className={actionButtonClass(mapViewMode === "summary" ? "primary" : "secondary")}
+            >
+              Summary list
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {mapViewMode === "graph" ? (
+        renderMapGraphOverview()
+      ) : (
+        <>
+          <div className="rounded-[1.15rem] border border-soft bg-white p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Form runtime</p>
+                <p className="mt-2 text-sm text-slate-700">
+                  These listeners are global to the document and fire outside any single step or field.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  focusBehaviorGraphNode({
+                    selection: null,
+                    graphSelection: logicMapData.formListeners[0]?.graphSelection ?? null,
+                    viewport: "reset",
+                    entryContext: {
+                      source: "map",
+                      title: "Opened from Map",
+                      detail: "Form-level runtime opened from Summary list into the focused behavior workspace.",
+                    },
+                  });
+                }}
+                className={actionButtonClass("primary")}
+              >
+                Open form behavior
+              </button>
+            </div>
+            <div className="mt-4 space-y-3">
+              {logicMapData.formListeners.length ? (
+                logicMapData.formListeners.map((listener) => (
+                  <div key={listener.id} className="rounded-[1rem] border border-soft bg-slate-50 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{listener.scopeLabel}</p>
+                        <p className="mt-2 font-semibold text-slate-950">When {formatLabel(listener.eventName)}</p>
+                        <p className="mt-2 text-sm leading-6 text-slate-600">{listener.actionsSummary}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          focusBehaviorGraphNode({
+                            selection: null,
+                            graphSelection: listener.graphSelection,
+                            viewport: "reset",
+                            entryContext: {
+                              source: "map",
+                              title: "Opened from Map",
+                              detail:
+                                "Form-level runtime flow opened from Summary list into the focused behavior workspace.",
+                            },
+                          });
+                        }}
+                        className={actionButtonClass()}
+                      >
+                        Open in graph
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="app-muted-card p-4 text-sm text-slate-500">
+                  No form-level behavior yet. Use the Behavior editor when the document needs load, submit, or
+                  host-level orchestration.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {logicMapData.steps.map((step) => (
+              <div key={step.id} className="rounded-[1.15rem] border border-soft bg-white p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Step map</p>
+                    <h4 className="mt-2 text-lg font-semibold text-slate-950">{step.title}</h4>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className="app-pill">{step.sectionCount} sections</span>
+                      <span className="app-pill">{step.fieldCount} fields</span>
+                      <span className="app-pill">{step.conditionalBehavior.length} conditions</span>
+                      <span className="app-pill">{step.runtimeListeners.length} listeners</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAuthoring(step.selection)}
+                    className={actionButtonClass()}
+                  >
+                    Focus step
+                  </button>
+                </div>
+
+                <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                  <div className="rounded-[1rem] border border-soft bg-slate-50 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">State conditions</p>
+                        <p className="mt-2 text-sm text-slate-700">
+                          Visibility and requirement logic authored on fields in this step.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {step.conditionalBehavior.length ? (
+                        step.conditionalBehavior.map((rule) => (
+                          <div key={rule.id} className="rounded-[0.95rem] border border-soft bg-white p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="font-semibold text-slate-950">{rule.title}</p>
+                                <p className="mt-2 text-sm leading-6 text-slate-600">{rule.detail}</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  focusBehaviorGraphNode({
+                                    selection: rule.sourceSelection,
+                                    graphSelection: rule.graphSelection,
+                                    ruleIndex: rule.ruleIndex,
+                                    viewport: "reset",
+                                    entryContext: {
+                                      source: "map",
+                                      title: "Opened from Map",
+                                      detail: `State flow opened from Summary list for ${step.title}.`,
+                                    },
+                                  });
+                                }}
+                                className={actionButtonClass()}
+                              >
+                                Open in graph
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="app-muted-card p-4 text-sm text-slate-500">
+                          No field conditional behavior in this step yet.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[1rem] border border-soft bg-slate-50 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Interaction flows</p>
+                        <p className="mt-2 text-sm text-slate-700">
+                          Listener chains attached to the step and its descendant nodes.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {step.runtimeListeners.length ? (
+                        step.runtimeListeners.map((listener) => (
+                          <div key={listener.id} className="rounded-[0.95rem] border border-soft bg-white p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                                  {listener.scopeLabel}
+                                </p>
+                                <p className="mt-2 font-semibold text-slate-950">
+                                  When {formatLabel(listener.eventName)}
+                                </p>
+                                <p className="mt-2 text-sm leading-6 text-slate-600">{listener.actionsSummary}</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  focusBehaviorGraphNode({
+                                    selection: listener.selection,
+                                    graphSelection: listener.graphSelection,
+                                    viewport: "reset",
+                                    entryContext: {
+                                      source: "map",
+                                      title: "Opened from Map",
+                                      detail: `Interaction flow opened from Summary list for ${step.title}.`,
+                                    },
+                                  });
+                                }}
+                                className={actionButtonClass()}
+                              >
+                                Open in graph
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="app-muted-card p-4 text-sm text-slate-500">
+                          No interaction flows in this step yet.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </>
+  ) : (
+    <div className="app-muted-card p-4 text-sm text-slate-500">
+      No logic map is available until a document is loaded.
+    </div>
+  );
 
   return (
     <main className="min-h-screen">
@@ -19484,777 +19699,36 @@ export default function App() {
                   />
                 }
                 inspector={
-                  <PanelCard
-                    title="Inspector"
-                    eyebrow="Properties and behavior"
-                    aside={
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          title="Properties"
-                          aria-label="Properties"
-                          onClick={() => setInspectorTab("properties")}
-                          className={iconButtonClass(inspectorTab === "properties" ? "primary" : "secondary")}
-                        >
-                          <PropertiesIcon />
-                        </button>
-                        <button
-                          type="button"
-                          title="Behavior"
-                          aria-label="Behavior"
-                          onClick={() => {
-                            setBehaviorGraphEntryContext(null);
-                            setInspectorTab("behavior");
-                          }}
-                          className={iconButtonClass(inspectorTab === "behavior" ? "primary" : "secondary")}
-                        >
-                          <LogicIcon />
-                        </button>
-                        <button
-                          type="button"
-                          title="Map"
-                          aria-label="Map"
-                          onClick={() => setInspectorTab("map")}
-                          className={iconButtonClass(inspectorTab === "map" ? "primary" : "secondary")}
-                        >
-                          <MapIcon />
-                        </button>
-                      </div>
-                    }
-                    className="min-h-[52rem] min-w-0 overflow-hidden"
-                  >
-                    {activeDocument ? (
-                      <div className="space-y-4">
-                        <div className="app-muted-card p-4">
-                          <div className="flex items-center justify-between gap-3">
-                            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Current selection</p>
-                            <div className="flex gap-2">
-                              {isPdfBackedProject && selectedAuthoring !== null ? (
-                                <button
-                                  type="button"
-                                  onClick={() => openSourceReference(sourceReferenceOpenMode)}
-                                  disabled={!sourceReferenceCanOpen}
-                                  className={actionButtonClass(
-                                    sourceReferenceFocusHasMatches ? "primary" : "secondary",
-                                  )}
-                                >
-                                  {sourceReferenceActionLabel}
-                                </button>
-                              ) : null}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedAuthoring(null);
-                                  setBehaviorGraphEntryContext(null);
-                                  setInspectorTab("behavior");
-                                }}
-                                className={actionButtonClass(selectedAuthoring === null ? "primary" : "secondary")}
-                              >
-                                Form behavior
-                              </button>
-                              {selectedAuthoring === null && activeStep ? (
-                                <button
-                                  type="button"
-                                  onClick={() => setSelectedAuthoring({ kind: "step", stepId: activeStep.id })}
-                                  className={actionButtonClass()}
-                                >
-                                  Return to step
-                                </button>
-                              ) : null}
-                            </div>
-                          </div>
-                          <h3 className="mt-2 text-lg font-semibold text-slate-950">
-                            {selectedAuthoring === null
-                              ? activeDocument.title
-                              : selectedAuthoring?.kind === "field"
-                                ? activeBuilderField?.label
-                                : selectedAuthoring?.kind === "group"
-                                  ? activeGroup?.label
-                                  : selectedAuthoring?.kind === "section"
-                                    ? activeSection?.title
-                                    : (activeStep?.title ?? activeDocument.title)}
-                          </h3>
-                          <p className="mt-2 text-sm leading-6 text-slate-600">
-                            {selectedAuthoring === null
-                              ? "You are editing form-level runtime behavior. Switch back to a selected node any time from the preview."
-                              : "The preview is the main editing surface. Use this panel to refine the selected node."}
-                          </p>
-                        </div>
-
-                        {inspectorTab === "properties" ? (
-                          <div className="space-y-4">
-                            {selectedAuthoring?.kind === "step" && activeStep ? (
-                              <div className="rounded-[1.15rem] border border-soft bg-white p-4">
-                                <div className="mb-3 flex items-center justify-between gap-3">
-                                  <label className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                                    Step title
-                                  </label>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemoveStep(activeStep.id)}
-                                    className={actionButtonClass("danger")}
-                                  >
-                                    Remove step
-                                  </button>
-                                </div>
-                                <input
-                                  value={activeStep.title}
-                                  onChange={(event) =>
-                                    updateAuthoringDocument((document) => {
-                                      const step = document.steps.find((candidate) => candidate.id === activeStep.id);
-                                      if (step) {
-                                        step.title = event.target.value;
-                                      }
-                                    })
-                                  }
-                                  className="mt-2 w-full rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-                                />
-                                <textarea
-                                  value={activeStep.description ?? ""}
-                                  onChange={(event) =>
-                                    updateAuthoringDocument((document) => {
-                                      const step = document.steps.find((candidate) => candidate.id === activeStep.id);
-                                      if (step) {
-                                        step.description = event.target.value;
-                                      }
-                                    })
-                                  }
-                                  rows={3}
-                                  className="mt-3 w-full rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-                                />
-                              </div>
-                            ) : null}
-
-                            {selectedAuthoring?.kind === "section" && activeSection ? (
-                              <div className="rounded-[1.15rem] border border-soft bg-white p-4">
-                                <div className="mb-3 flex items-center justify-between gap-3">
-                                  <label className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                                    Section title
-                                  </label>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleRemoveSection(selectedAuthoring.stepId, selectedAuthoring.sectionId)
-                                    }
-                                    className={actionButtonClass("danger")}
-                                  >
-                                    Remove section
-                                  </button>
-                                </div>
-                                <input
-                                  value={activeSection.title}
-                                  onChange={(event) =>
-                                    updateAuthoringDocument((document) => {
-                                      const step = document.steps.find(
-                                        (candidate) => candidate.id === selectedAuthoring.stepId,
-                                      );
-                                      const section = step?.sections.find(
-                                        (candidate) => candidate.id === selectedAuthoring.sectionId,
-                                      );
-                                      if (section) {
-                                        section.title = event.target.value;
-                                      }
-                                    })
-                                  }
-                                  className="mt-2 w-full rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-                                />
-                                <textarea
-                                  value={activeSection.description ?? ""}
-                                  onChange={(event) =>
-                                    updateAuthoringDocument((document) => {
-                                      const step = document.steps.find(
-                                        (candidate) => candidate.id === selectedAuthoring.stepId,
-                                      );
-                                      const section = step?.sections.find(
-                                        (candidate) => candidate.id === selectedAuthoring.sectionId,
-                                      );
-                                      if (section) {
-                                        section.description = event.target.value;
-                                      }
-                                    })
-                                  }
-                                  rows={3}
-                                  className="mt-3 w-full rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-                                />
-                                <div className="mt-3 flex flex-wrap gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleAddGroupToSection(selectedAuthoring.stepId, selectedAuthoring.sectionId)
-                                    }
-                                    className={actionButtonClass()}
-                                  >
-                                    Add group
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAddField("section")}
-                                    className={actionButtonClass()}
-                                  >
-                                    Add field
-                                  </button>
-                                </div>
-                              </div>
-                            ) : null}
-
-                            {selectedAuthoring?.kind === "group" && activeGroup ? (
-                              <div className="rounded-[1.15rem] border border-soft bg-white p-4">
-                                <div className="mb-3 flex items-center justify-between gap-3">
-                                  <label className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                                    Group label
-                                  </label>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleRemoveGroup(
-                                        selectedAuthoring.stepId,
-                                        selectedAuthoring.sectionId,
-                                        selectedAuthoring.groupId,
-                                      )
-                                    }
-                                    className={actionButtonClass("danger")}
-                                  >
-                                    Remove group
-                                  </button>
-                                </div>
-                                <input
-                                  value={activeGroup.label}
-                                  onChange={(event) =>
-                                    updateAuthoringDocument((document) => {
-                                      const step = document.steps.find(
-                                        (candidate) => candidate.id === selectedAuthoring.stepId,
-                                      );
-                                      const section = step?.sections.find(
-                                        (candidate) => candidate.id === selectedAuthoring.sectionId,
-                                      );
-                                      const group = section?.groups.find(
-                                        (candidate) => candidate.id === selectedAuthoring.groupId,
-                                      );
-                                      if (group) {
-                                        group.label = event.target.value;
-                                      }
-                                    })
-                                  }
-                                  className="mt-2 w-full rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-                                />
-                                <textarea
-                                  value={activeGroup.description ?? ""}
-                                  onChange={(event) =>
-                                    updateAuthoringDocument((document) => {
-                                      const step = document.steps.find(
-                                        (candidate) => candidate.id === selectedAuthoring.stepId,
-                                      );
-                                      const section = step?.sections.find(
-                                        (candidate) => candidate.id === selectedAuthoring.sectionId,
-                                      );
-                                      const group = section?.groups.find(
-                                        (candidate) => candidate.id === selectedAuthoring.groupId,
-                                      );
-                                      if (group) {
-                                        group.description = event.target.value;
-                                      }
-                                    })
-                                  }
-                                  rows={3}
-                                  className="mt-3 w-full rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-                                />
-                                <div className="mt-3">
-                                  <div className="flex flex-wrap gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleAddField("group")}
-                                      className={actionButtonClass()}
-                                    >
-                                      Add field to group
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            ) : null}
-
-                            {selectedAuthoring?.kind === "field" && activeBuilderField ? (
-                              <div className="space-y-4 rounded-[1.15rem] border border-soft bg-white p-4">
-                                <div className="flex justify-end">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleRemoveField(
-                                        selectedAuthoring.stepId,
-                                        selectedAuthoring.sectionId,
-                                        selectedAuthoring.fieldId,
-                                        selectedAuthoring.groupId,
-                                      )
-                                    }
-                                    className={actionButtonClass("danger")}
-                                  >
-                                    Remove field
-                                  </button>
-                                </div>
-                                <div>
-                                  <label className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                                    Field label
-                                  </label>
-                                  <input
-                                    value={activeBuilderField.label}
-                                    onChange={(event) =>
-                                      updateSelectedField((field) => {
-                                        field.label = event.target.value;
-                                      })
-                                    }
-                                    className="mt-2 w-full rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                                    Help text
-                                  </label>
-                                  <textarea
-                                    value={activeBuilderField.helpText ?? ""}
-                                    onChange={(event) =>
-                                      updateSelectedField((field) => {
-                                        field.helpText = event.target.value;
-                                      })
-                                    }
-                                    rows={3}
-                                    className="mt-2 w-full rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-                                  />
-                                </div>
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                  <div>
-                                    <label className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                                      Field type
-                                    </label>
-                                    <select
-                                      value={
-                                        activeBuilderField.rendererHints.component === "button"
-                                          ? "action_button"
-                                          : activeBuilderField.semanticType
-                                      }
-                                      onChange={(event) =>
-                                        updateSelectedField((field) => {
-                                          if (event.target.value === "action_button") {
-                                            convertFieldToActionButton(field);
-                                            return;
-                                          }
-                                          refreshChoiceOptions(field, event.target.value as SemanticType);
-                                        })
-                                      }
-                                      className="mt-2 w-full rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-                                    >
-                                      {builderFieldTypeOptions.map((type) => (
-                                        <option key={type.value} value={type.value}>
-                                          {type.label}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                  <label className="mt-6 flex items-center gap-3 rounded-2xl border border-soft bg-slate-50 px-4 py-3">
-                                    <input
-                                      type="checkbox"
-                                      checked={activeBuilderField.required}
-                                      onChange={(event) =>
-                                        updateSelectedField((field) => {
-                                          field.required = event.target.checked;
-                                        })
-                                      }
-                                    />
-                                    <span className="text-sm text-slate-700">Required</span>
-                                  </label>
-                                </div>
-                                {activeBuilderField.rendererHints.component === "button" ? (
-                                  <p className="text-sm leading-6 text-slate-500">
-                                    Buttons are runtime components. Configure their behavior from the Behavior tab so
-                                    the runtime engine and builder preview stay in sync.
-                                  </p>
-                                ) : null}
-                                {activeBuilderField.rendererHints.component === "button" ? (
-                                  <div className="rounded-[1rem] border border-soft bg-slate-50 p-4">
-                                    <div className="flex flex-wrap items-center justify-between gap-3">
-                                      <div>
-                                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                                          Runtime behavior
-                                        </p>
-                                        <p className="mt-2 text-sm text-slate-700">
-                                          Current button behavior:{" "}
-                                          {formatLabel(getButtonBehaviorSummary(activeBuilderField).action)}
-                                        </p>
-                                      </div>
-                                      <button
-                                        type="button"
-                                        onClick={() => setInspectorTab("behavior")}
-                                        className={actionButtonClass("primary")}
-                                      >
-                                        Open Behavior
-                                      </button>
-                                    </div>
-                                  </div>
-                                ) : null}
-                                {activeBuilderField.semanticType === "radio" ||
-                                activeBuilderField.semanticType === "checkbox" ||
-                                activeBuilderField.semanticType === "select" ? (
-                                  <div className="rounded-[1rem] border border-soft bg-slate-50 p-4">
-                                    <div className="flex items-center justify-between gap-3">
-                                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Options</p>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          updateSelectedField((field) => {
-                                            field.options.push({
-                                              value: `option_${field.options.length + 1}`,
-                                              label: `Option ${field.options.length + 1}`,
-                                              orderIndex: field.options.length,
-                                              selectedByDefault: false,
-                                              evidence: [],
-                                            });
-                                          })
-                                        }
-                                        className={actionButtonClass()}
-                                      >
-                                        Add option
-                                      </button>
-                                    </div>
-                                    <div className="mt-3 space-y-2">
-                                      {activeBuilderField.options.map((option, index) => (
-                                        <div
-                                          key={`${activeBuilderField.id}-${option.value}-${index}`}
-                                          className="flex items-center gap-2"
-                                        >
-                                          <input
-                                            value={option.label}
-                                            onChange={(event) =>
-                                              updateSelectedField((field) => {
-                                                if (field.options[index]) {
-                                                  field.options[index].label = event.target.value;
-                                                  field.options[index].value = event.target.value
-                                                    .toLowerCase()
-                                                    .replaceAll(/\s+/g, "_");
-                                                }
-                                              })
-                                            }
-                                            className="flex-1 rounded-2xl border border-soft px-4 py-2 text-sm text-slate-800"
-                                          />
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              updateSelectedField((field) => {
-                                                if (field.options.length > 1) {
-                                                  field.options.splice(index, 1);
-                                                  field.options.forEach((current, currentIndex) => {
-                                                    current.orderIndex = currentIndex;
-                                                  });
-                                                }
-                                              })
-                                            }
-                                            className={actionButtonClass("danger")}
-                                          >
-                                            Remove
-                                          </button>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                ) : null}
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : inspectorTab === "map" ? (
-                          <div className="space-y-4">
-                            {logicMapData ? (
-                              <>
-                                <div className="rounded-[1.15rem] border border-soft bg-white p-4">
-                                  <div className="flex flex-wrap items-start justify-between gap-3">
-                                    <div>
-                                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Flow map</p>
-                                      <h4 className="mt-2 text-lg font-semibold text-slate-950">
-                                        Document logic and runtime graph
-                                      </h4>
-                                      <p className="mt-2 text-sm leading-6 text-slate-600">
-                                        Use this as the high-level map for behavior flows, then jump into the focused
-                                        behavior editor only when you need to change a specific listener or interaction.
-                                      </p>
-                                      <div className="mt-4 flex flex-wrap gap-2">
-                                        <span className="app-pill">{logicMapData.steps.length} steps</span>
-                                        <span className="app-pill">
-                                          {logicMapData.totalConditionals} conditional behavior
-                                        </span>
-                                        <span className="app-pill">{logicMapData.totalListeners} behavior flows</span>
-                                      </div>
-                                    </div>
-                                    <div className="flex flex-wrap gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => setMapViewMode("graph")}
-                                        className={actionButtonClass(mapViewMode === "graph" ? "primary" : "secondary")}
-                                      >
-                                        Graph overview
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setMapViewMode("summary")}
-                                        className={actionButtonClass(
-                                          mapViewMode === "summary" ? "primary" : "secondary",
-                                        )}
-                                      >
-                                        Summary list
-                                      </button>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {mapViewMode === "graph" ? (
-                                  renderMapGraphOverview()
-                                ) : (
-                                  <>
-                                    <div className="rounded-[1.15rem] border border-soft bg-white p-4">
-                                      <div className="flex items-center justify-between gap-3">
-                                        <div>
-                                          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                                            Form runtime
-                                          </p>
-                                          <p className="mt-2 text-sm text-slate-700">
-                                            These listeners are global to the document and fire outside any single step
-                                            or field.
-                                          </p>
-                                        </div>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            focusBehaviorGraphNode({
-                                              selection: null,
-                                              graphSelection: logicMapData.formListeners[0]?.graphSelection ?? null,
-                                              viewport: "reset",
-                                              entryContext: {
-                                                source: "map",
-                                                title: "Opened from Map",
-                                                detail:
-                                                  "Form-level runtime opened from Summary list into the focused behavior workspace.",
-                                              },
-                                            });
-                                          }}
-                                          className={actionButtonClass("primary")}
-                                        >
-                                          Open form behavior
-                                        </button>
-                                      </div>
-                                      <div className="mt-4 space-y-3">
-                                        {logicMapData.formListeners.length ? (
-                                          logicMapData.formListeners.map((listener) => (
-                                            <div
-                                              key={listener.id}
-                                              className="rounded-[1rem] border border-soft bg-slate-50 p-4"
-                                            >
-                                              <div className="flex items-start justify-between gap-3">
-                                                <div className="min-w-0">
-                                                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                                                    {listener.scopeLabel}
-                                                  </p>
-                                                  <p className="mt-2 font-semibold text-slate-950">
-                                                    When {formatLabel(listener.eventName)}
-                                                  </p>
-                                                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                                                    {listener.actionsSummary}
-                                                  </p>
-                                                </div>
-                                                <button
-                                                  type="button"
-                                                  onClick={() => {
-                                                    focusBehaviorGraphNode({
-                                                      selection: null,
-                                                      graphSelection: listener.graphSelection,
-                                                      viewport: "reset",
-                                                      entryContext: {
-                                                        source: "map",
-                                                        title: "Opened from Map",
-                                                        detail:
-                                                          "Form-level runtime flow opened from Summary list into the focused behavior workspace.",
-                                                      },
-                                                    });
-                                                  }}
-                                                  className={actionButtonClass()}
-                                                >
-                                                  Open in graph
-                                                </button>
-                                              </div>
-                                            </div>
-                                          ))
-                                        ) : (
-                                          <div className="app-muted-card p-4 text-sm text-slate-500">
-                                            No form-level behavior yet. Use the Behavior editor when the document needs
-                                            load, submit, or host-level orchestration.
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-
-                                    <div className="space-y-4">
-                                      {logicMapData.steps.map((step) => (
-                                        <div
-                                          key={step.id}
-                                          className="rounded-[1.15rem] border border-soft bg-white p-4"
-                                        >
-                                          <div className="flex flex-wrap items-start justify-between gap-3">
-                                            <div>
-                                              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                                                Step map
-                                              </p>
-                                              <h4 className="mt-2 text-lg font-semibold text-slate-950">
-                                                {step.title}
-                                              </h4>
-                                              <div className="mt-2 flex flex-wrap gap-2">
-                                                <span className="app-pill">{step.sectionCount} sections</span>
-                                                <span className="app-pill">{step.fieldCount} fields</span>
-                                                <span className="app-pill">
-                                                  {step.conditionalBehavior.length} conditions
-                                                </span>
-                                                <span className="app-pill">
-                                                  {step.runtimeListeners.length} listeners
-                                                </span>
-                                              </div>
-                                            </div>
-                                            <button
-                                              type="button"
-                                              onClick={() => setSelectedAuthoring(step.selection)}
-                                              className={actionButtonClass()}
-                                            >
-                                              Focus step
-                                            </button>
-                                          </div>
-
-                                          <div className="mt-4 grid gap-4 xl:grid-cols-2">
-                                            <div className="rounded-[1rem] border border-soft bg-slate-50 p-4">
-                                              <div className="flex items-center justify-between gap-3">
-                                                <div>
-                                                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                                                    State conditions
-                                                  </p>
-                                                  <p className="mt-2 text-sm text-slate-700">
-                                                    Visibility and requirement logic authored on fields in this step.
-                                                  </p>
-                                                </div>
-                                              </div>
-                                              <div className="mt-4 space-y-3">
-                                                {step.conditionalBehavior.length ? (
-                                                  step.conditionalBehavior.map((rule) => (
-                                                    <div
-                                                      key={rule.id}
-                                                      className="rounded-[0.95rem] border border-soft bg-white p-4"
-                                                    >
-                                                      <div className="flex items-start justify-between gap-3">
-                                                        <div className="min-w-0">
-                                                          <p className="font-semibold text-slate-950">{rule.title}</p>
-                                                          <p className="mt-2 text-sm leading-6 text-slate-600">
-                                                            {rule.detail}
-                                                          </p>
-                                                        </div>
-                                                        <button
-                                                          type="button"
-                                                          onClick={() => {
-                                                            focusBehaviorGraphNode({
-                                                              selection: rule.sourceSelection,
-                                                              graphSelection: rule.graphSelection,
-                                                              ruleIndex: rule.ruleIndex,
-                                                              viewport: "reset",
-                                                              entryContext: {
-                                                                source: "map",
-                                                                title: "Opened from Map",
-                                                                detail: `State flow opened from Summary list for ${step.title}.`,
-                                                              },
-                                                            });
-                                                          }}
-                                                          className={actionButtonClass()}
-                                                        >
-                                                          Open in graph
-                                                        </button>
-                                                      </div>
-                                                    </div>
-                                                  ))
-                                                ) : (
-                                                  <div className="app-muted-card p-4 text-sm text-slate-500">
-                                                    No field conditional behavior in this step yet.
-                                                  </div>
-                                                )}
-                                              </div>
-                                            </div>
-
-                                            <div className="rounded-[1rem] border border-soft bg-slate-50 p-4">
-                                              <div className="flex items-center justify-between gap-3">
-                                                <div>
-                                                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                                                    Interaction flows
-                                                  </p>
-                                                  <p className="mt-2 text-sm text-slate-700">
-                                                    Listener chains attached to the step and its descendant nodes.
-                                                  </p>
-                                                </div>
-                                              </div>
-                                              <div className="mt-4 space-y-3">
-                                                {step.runtimeListeners.length ? (
-                                                  step.runtimeListeners.map((listener) => (
-                                                    <div
-                                                      key={listener.id}
-                                                      className="rounded-[0.95rem] border border-soft bg-white p-4"
-                                                    >
-                                                      <div className="flex items-start justify-between gap-3">
-                                                        <div className="min-w-0">
-                                                          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                                                            {listener.scopeLabel}
-                                                          </p>
-                                                          <p className="mt-2 font-semibold text-slate-950">
-                                                            When {formatLabel(listener.eventName)}
-                                                          </p>
-                                                          <p className="mt-2 text-sm leading-6 text-slate-600">
-                                                            {listener.actionsSummary}
-                                                          </p>
-                                                        </div>
-                                                        <button
-                                                          type="button"
-                                                          onClick={() => {
-                                                            focusBehaviorGraphNode({
-                                                              selection: listener.selection,
-                                                              graphSelection: listener.graphSelection,
-                                                              viewport: "reset",
-                                                              entryContext: {
-                                                                source: "map",
-                                                                title: "Opened from Map",
-                                                                detail: `Interaction flow opened from Summary list for ${step.title}.`,
-                                                              },
-                                                            });
-                                                          }}
-                                                          className={actionButtonClass()}
-                                                        >
-                                                          Open in graph
-                                                        </button>
-                                                      </div>
-                                                    </div>
-                                                  ))
-                                                ) : (
-                                                  <div className="app-muted-card p-4 text-sm text-slate-500">
-                                                    No interaction flows in this step yet.
-                                                  </div>
-                                                )}
-                                              </div>
-                                            </div>
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </>
-                                )}
-                              </>
-                            ) : (
-                              <div className="app-muted-card p-4 text-sm text-slate-500">
-                                No logic map is available until a document is loaded.
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          renderBehaviorInspectorPanel()
-                        )}
-                      </div>
-                    ) : (
-                      <div className="app-muted-card p-6 text-sm text-slate-500">No project selected.</div>
-                    )}
-                  </PanelCard>
+                  <InspectorRail
+                    activeTab={inspectorTab}
+                    onTabChange={setInspectorTab}
+                    behaviorsSlot={behaviorsContent}
+                    mapSlot={<div className="space-y-4">{mapContent}</div>}
+                    activeDocument={activeDocument}
+                    isPdfBackedProject={isPdfBackedProject}
+                    selectedAuthoring={selectedAuthoring}
+                    activeStep={activeStep}
+                    activeSection={activeSection}
+                    activeGroup={activeGroup}
+                    activeBuilderField={activeBuilderField}
+                    sourceReferenceCanOpen={sourceReferenceCanOpen}
+                    sourceReferenceOpenMode={sourceReferenceOpenMode}
+                    sourceReferenceFocusHasMatches={sourceReferenceFocusHasMatches}
+                    sourceReferenceActionLabel={sourceReferenceActionLabel}
+                    onOpenSourceReference={openSourceReference}
+                    onSelectAuthoring={setSelectedAuthoring}
+                    onOpenFormBehavior={() => setBehaviorGraphEntryContext(null)}
+                    onRemoveStep={handleRemoveStep}
+                    onRemoveSection={handleRemoveSection}
+                    onRemoveGroup={handleRemoveGroup}
+                    onRemoveField={handleRemoveField}
+                    onUpdateDocument={updateAuthoringDocument}
+                    onUpdateField={updateSelectedField}
+                    onAddGroupToSection={handleAddGroupToSection}
+                    onAddField={handleAddField}
+                    onOpenBehaviorTab={() => setInspectorTab("behavior")}
+                    getButtonBehaviorSummary={getButtonBehaviorSummary}
+                  />
                 }
               />
               {behaviorStudioOpen && activeDocument && typeof document !== "undefined"
