@@ -5,3 +5,15 @@ export type { LegacyConditionalRuleEditorProps } from "./cards/LegacyConditional
 export { BehaviorGraphNode, BehaviorEdgeLabel } from "./cards/BehaviorGraphNode";
 export type { BehaviorGraphNodeProps, BehaviorEdgeLabelProps } from "./cards/BehaviorGraphNode";
 export * from "./utils/runtime-helpers";
+export { ActionEditor } from "./composer/ActionEditor";
+export type { ActionEditorProps } from "./composer/ActionEditor";
+export { BehaviorComposer } from "./composer/BehaviorComposer";
+export type { BehaviorComposerProps } from "./composer/BehaviorComposer";
+export { EventCreationForm } from "./composer/EventCreationForm";
+export type { EventCreationFormProps } from "./composer/EventCreationForm";
+export { ListenerCreationForm } from "./composer/ListenerCreationForm";
+export type { ListenerCreationFormProps } from "./composer/ListenerCreationForm";
+export { CrossItemEventPicker } from "./composer/CrossItemEventPicker";
+export type { CrossItemEventPickerProps } from "./composer/CrossItemEventPicker";
+export { CreationGuide } from "./manager/CreationGuide";
+export type { CreationGuideProps } from "./manager/CreationGuide";
