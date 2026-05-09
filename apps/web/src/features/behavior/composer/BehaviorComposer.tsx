@@ -41,6 +41,7 @@ import type {
 } from "../utils/runtime-helpers";
 import { RuntimeReactionProperties } from "../cards/RuntimeReactionProperties";
 import { ActionEditor } from "./ActionEditor";
+import { SuggestionChips } from "./SuggestionChips";
 
 function actionButtonClass(kind: "primary" | "secondary" | "danger" = "secondary"): string {
   if (kind === "primary") {
@@ -333,24 +334,16 @@ export function BehaviorComposer({
             className="mt-2 w-full rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
           />
           {triggerSuggestions.length ? (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-500">Suggested</span>
-              {triggerSuggestions.map((suggestion) => (
-                <button
-                  key={`trigger-suggest-${suggestion}`}
-                  type="button"
-                  onClick={() =>
-                    onUpdateRuntimeListener(listener.id, (current) => {
-                      current.type = suggestion;
-                      current.eventName = suggestion;
-                    })
-                  }
-                  className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-950"
-                >
-                  {suggestion}
-                </button>
-              ))}
-            </div>
+            <SuggestionChips
+              label="Suggested"
+              suggestions={triggerSuggestions}
+              onApply={(suggestion) =>
+                onUpdateRuntimeListener(listener.id, (current) => {
+                  current.type = suggestion;
+                  current.eventName = suggestion;
+                })
+              }
+            />
           ) : null}
           <p className="mt-2 text-sm text-slate-600">
             Core event types are provided by the selected dispatcher type. Custom event types stay stable and

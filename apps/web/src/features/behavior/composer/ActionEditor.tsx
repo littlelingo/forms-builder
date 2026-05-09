@@ -28,6 +28,7 @@ import type {
   RuntimePayloadReferenceOption,
   RuntimePayloadTemplate,
 } from "../utils/runtime-helpers";
+import { SuggestionChips } from "./SuggestionChips";
 
 function actionButtonClass(kind: "primary" | "secondary" | "danger" = "secondary"): string {
   if (kind === "primary") {
@@ -37,31 +38,6 @@ function actionButtonClass(kind: "primary" | "secondary" | "danger" = "secondary
     return "inline-flex h-9 items-center justify-center rounded-md border border-rose-200 bg-white px-3.5 text-sm font-medium text-rose-700 shadow-sm transition hover:bg-rose-50 disabled:pointer-events-none disabled:opacity-50";
   }
   return "inline-flex h-9 items-center justify-center rounded-md border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 disabled:pointer-events-none disabled:opacity-50";
-}
-
-function renderSuggestionChips(config: {
-  label: string;
-  suggestions: string[];
-  onApply: (value: string) => void;
-}): ReactNode {
-  if (!config.suggestions.length) {
-    return null;
-  }
-  return (
-    <div className="mt-3 flex flex-wrap items-center gap-2">
-      <span className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-500">{config.label}</span>
-      {config.suggestions.map((suggestion) => (
-        <button
-          key={`${config.label}-${suggestion}`}
-          type="button"
-          onClick={() => config.onApply(suggestion)}
-          className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-950"
-        >
-          {suggestion}
-        </button>
-      ))}
-    </div>
-  );
 }
 
 function renderRuntimePayloadTemplates(config: {
@@ -388,15 +364,16 @@ export function ActionEditor({
                 placeholder="custom.event"
                 className="mt-2 w-full rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
               />
-              {renderSuggestionChips({
-                label: "Suggested",
-                suggestions: emittedEventSuggestions,
-                onApply: (value) =>
+              <SuggestionChips
+                label="Suggested"
+                suggestions={emittedEventSuggestions}
+                onApply={(value) =>
                   onUpdateRuntimeAction(listener.id, action.id, (current) => {
                     current.config.eventType = value;
                     delete current.config.eventName;
-                  }),
-              })}
+                  })
+                }
+              />
               {emittedEventIssue ? <p className="mt-2 text-sm text-rose-600">{emittedEventIssue}</p> : null}
             </div>
             <label className="flex items-center gap-3 rounded-2xl border border-soft bg-white px-4 py-3">
@@ -662,14 +639,15 @@ export function ActionEditor({
                 placeholder="host.action"
                 className="mt-2 w-full rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
               />
-              {renderSuggestionChips({
-                label: "Suggested",
-                suggestions: hostHandlerSuggestions,
-                onApply: (value) =>
+              <SuggestionChips
+                label="Suggested"
+                suggestions={hostHandlerSuggestions}
+                onApply={(value) =>
                   onUpdateRuntimeAction(listener.id, action.id, (current) => {
                     current.config.handlerKey = value;
-                  }),
-              })}
+                  })
+                }
+              />
               {hostHandlerIssue ? <p className="mt-2 text-sm text-rose-600">{hostHandlerIssue}</p> : null}
             </div>
             <div className="rounded-[0.95rem] border border-soft bg-slate-50 p-4">

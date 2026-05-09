@@ -9,6 +9,8 @@ export { ActionEditor } from "./composer/ActionEditor";
 export type { ActionEditorProps } from "./composer/ActionEditor";
 export { BehaviorComposer } from "./composer/BehaviorComposer";
 export type { BehaviorComposerProps } from "./composer/BehaviorComposer";
+export { SuggestionChips } from "./composer/SuggestionChips";
+export type { SuggestionChipsProps } from "./composer/SuggestionChips";
 export { EventCreationForm } from "./composer/EventCreationForm";
 export type { EventCreationFormProps } from "./composer/EventCreationForm";
 export { ListenerCreationForm } from "./composer/ListenerCreationForm";
