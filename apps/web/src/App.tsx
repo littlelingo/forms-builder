@@ -1,6 +1,5 @@
 import type { CSSProperties, ChangeEvent, DragEvent, MouseEvent, PointerEvent, ReactNode } from "react";
 import { Fragment, startTransition, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 
 import { createRuntimeEngine } from "@form-builder/runtime";
 import type { RuntimeDispatchReport, RuntimeTraceEntry } from "@form-builder/runtime";
@@ -88,7 +87,10 @@ import type { InspectorTab } from "./features/inspector";
 import {
   ActionEditor,
   BehaviorComposer,
+  BehaviorInspectorPanel,
   BehaviorManager,
+  BehaviorQuickToolbar,
+  BehaviorStudioModal,
   BehaviorWorkspace,
   CreationGuide,
   CrossItemEventPicker,
@@ -486,24 +488,6 @@ function RemoveIcon() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7">
       <path d="M4.25 4.25l7.5 7.5M11.75 4.25l-7.5 7.5" />
-    </svg>
-  );
-}
-
-function EventsIcon() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.4">
-      <path d="M3 4.5h6M3 8h10M3 11.5h7" />
-      <circle cx="11.75" cy="4.5" r="1.25" fill="currentColor" stroke="none" />
-      <circle cx="13" cy="11.5" r="1.25" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-function PlayIcon() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.4">
-      <path d="M5.25 3.25v9.5L12 8z" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -8020,7 +8004,20 @@ export default function App() {
         onDrop={handleDropTarget}
         onSelect={setSelectedAuthoring}
         behaviorToolbar={
-          isSelected ? renderBehaviorQuickToolbar({ compact: true, stopPropagation: true, label: "Behavior" }) : null
+          isSelected ? (
+            <BehaviorQuickToolbar
+              compact
+              stopPropagation
+              label="Behavior"
+              activeDocument={activeDocument}
+              activeRuntimeScope={activeRuntimeScope}
+              onOpenBehaviorStudioAddBehavior={openBehaviorStudioAddBehavior}
+              onSetBehaviorStudioMode={setBehaviorStudioMode}
+              onSetBehaviorFocusTarget={setBehaviorFocusTarget}
+              onOpenBehaviorStudio={openBehaviorStudio}
+              onCreateBehaviorStudioAnchor={createBehaviorStudioAnchor}
+            />
+          ) : null
         }
         dispatchKeyBadge={isSelected ? renderDispatchKeyBadge(field.dispatchKey) : null}
         fieldPreview={
@@ -8312,156 +8309,6 @@ export default function App() {
       return activeSection?.title ?? "Current section";
     }
     return activeStep?.title ?? "Current step";
-  }
-
-  function renderBehaviorQuickToolbar(options?: { compact?: boolean; stopPropagation?: boolean; label?: string }) {
-    if (!activeDocument) {
-      return null;
-    }
-    const canCreateFlow = Boolean(activeRuntimeScope);
-    const isCompact = options?.compact ?? false;
-    const toolButtonClass = `group relative inline-flex ${isCompact ? "h-8 w-8" : "h-9 w-9"} items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:pointer-events-none disabled:opacity-45`;
-    const tooltipClass =
-      "pointer-events-none absolute left-1/2 top-full z-10 mt-2 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-950 px-2 py-1 text-[0.68rem] font-semibold text-white opacity-0 shadow-lg transition group-hover:opacity-100 group-focus-visible:opacity-100";
-    const runToolbarAction = (
-      event: MouseEvent<HTMLButtonElement>,
-      action: (anchor: BehaviorStudioAnchor | null) => void,
-    ) => {
-      if (options?.stopPropagation) {
-        event.stopPropagation();
-      }
-      action(createBehaviorStudioAnchor(event.currentTarget));
-    };
-    const openRuntimeLab = (anchor: BehaviorStudioAnchor | null) => {
-      setBehaviorStudioMode("test");
-      setBehaviorFocusTarget(null);
-      openBehaviorStudio("studio", "test", anchor);
-    };
-
-    return (
-      <div
-        data-behavior-toolbar-anchor
-        className={`${isCompact ? "inline-flex" : "flex"} rounded-full border border-blue-100 bg-white/92 px-2 py-1.5 shadow-[0_10px_24px_rgba(37,99,235,0.12)] backdrop-blur`}
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="px-1.5 text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-blue-700">
-            {options?.label ?? "Behavior"}
-          </span>
-          <div className="flex items-center gap-1.5" role="toolbar" aria-label="Behavior quick actions">
-            <button
-              type="button"
-              title={canCreateFlow ? "Add behavior" : "Select a behavior-capable scope"}
-              aria-label={canCreateFlow ? "Add behavior" : "Select a behavior-capable scope"}
-              disabled={!canCreateFlow}
-              onClick={(event) => runToolbarAction(event, openBehaviorStudioAddBehavior)}
-              className={toolButtonClass}
-            >
-              <EventsIcon />
-              <span className={tooltipClass}>Add behavior</span>
-            </button>
-            <button
-              type="button"
-              title="Test selected behavior"
-              aria-label="Test selected behavior"
-              onClick={(event) => runToolbarAction(event, openRuntimeLab)}
-              className={toolButtonClass}
-            >
-              <PlayIcon />
-              <span className={tooltipClass}>Test</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  function renderBehaviorInspectorPanel() {
-    const conditionalGroups =
-      selectedAuthoring?.kind === "field" && activeBuilderField
-        ? buildLegacyConditionalRuleGroups(legacyFieldConditionals(activeBuilderField))
-        : [];
-    const scopeListeners = activeRuntimeScope?.listeners ?? [];
-    const scopeEvents = activeRuntimeScope?.eventSources ?? [];
-    const currentScopeTitle =
-      selectedAuthoring === null
-        ? "Form behavior"
-        : (activeRuntimeScope?.label ?? activeBuilderField?.label ?? activeStep?.title ?? "Current selection");
-    const hasInlineBehaviorToolbar =
-      selectedAuthoring?.kind === "step" ||
-      selectedAuthoring?.kind === "section" ||
-      selectedAuthoring?.kind === "group" ||
-      selectedAuthoring?.kind === "field";
-
-    return (
-      <div className="space-y-4">
-        {!hasInlineBehaviorToolbar ? (
-          <div className="rounded-[1.15rem] border border-soft bg-white p-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Scope behavior</p>
-                <h4 className="mt-2 text-lg font-semibold text-slate-950">{currentScopeTitle}</h4>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Form-level behavior opens from here. Selected steps and elements use inline preview controls.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => openBehaviorStudio("studio")}
-                className={actionButtonClass("primary")}
-              >
-                Open studio
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        <div className="rounded-[1.15rem] border border-soft bg-white p-4">
-          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">At a glance</p>
-          <h4 className="mt-2 text-lg font-semibold text-slate-950">{currentScopeTitle}</h4>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {conditionalGroups.length ? <span className="app-pill">{conditionalGroups.length} bundles</span> : null}
-            {scopeEvents.length ? <span className="app-pill">{scopeEvents.length} events</span> : null}
-            {scopeListeners.length ? <span className="app-pill">{scopeListeners.length} listeners</span> : null}
-            {activeRuntimeScope ? <span className="app-pill">{activeRuntimeScope.label}</span> : null}
-            <span className="app-pill">{currentBehaviorSelectionSummary()}</span>
-          </div>
-          {hasInlineBehaviorToolbar ? (
-            <div className="mt-3 rounded-[0.95rem] border border-dashed border-slate-200 bg-slate-50 p-3 text-sm leading-6 text-slate-600">
-              Use the behavior toolbar on the selected card to add or test behavior. This rail is status only.
-            </div>
-          ) : null}
-          <div className="mt-3 grid gap-3">
-            <div className="rounded-[0.95rem] border border-soft bg-slate-50 p-3">
-              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Events</p>
-              <p className="mt-2 font-semibold text-slate-950">
-                {scopeEvents.length ? `${scopeEvents.length} saved` : "None yet"}
-              </p>
-              <p className="mt-1 text-sm leading-6 text-slate-600">
-                Events define what this component can dispatch for listeners.
-              </p>
-            </div>
-            <div className="rounded-[0.95rem] border border-soft bg-slate-50 p-3">
-              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Conditions</p>
-              <p className="mt-2 font-semibold text-slate-950">
-                {conditionalGroups.length ? `${conditionalGroups.length} available` : "None yet"}
-              </p>
-              <p className="mt-1 text-sm leading-6 text-slate-600">
-                State logic belongs in the studio-managed conditions list, not inside the rail.
-              </p>
-            </div>
-            <div className="rounded-[0.95rem] border border-soft bg-slate-50 p-3">
-              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Flows</p>
-              <p className="mt-2 font-semibold text-slate-950">
-                {scopeListeners.length ? `${scopeListeners.length} available` : "None yet"}
-              </p>
-              <p className="mt-1 text-sm leading-6 text-slate-600">
-                Trigger and action-chain work now lives in the studio and advanced workspace.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
   }
 
   function renderBehaviorCreationGuide() {
@@ -8907,332 +8754,6 @@ export default function App() {
     );
   }
 
-  function renderBehaviorStudioTestPanel() {
-    const selectedRuleIndex =
-      selectedBehaviorNode?.kind === "rule" && selectedAuthoring?.kind === "field" && activeBuilderField
-        ? legacyFieldConditionals(activeBuilderField).findIndex((rule) => rule.ruleId === selectedBehaviorNode.ruleId)
-        : -1;
-    const selectedRule =
-      selectedRuleIndex >= 0 && activeBuilderField
-        ? legacyFieldConditionals(activeBuilderField)[selectedRuleIndex]
-        : null;
-    const selectedListenerIndex =
-      selectedBehaviorNode?.kind === "listener" && activeRuntimeScope
-        ? activeRuntimeScope.listeners.findIndex((listener) => listener.id === selectedBehaviorNode.listenerId)
-        : -1;
-    const selectedListener =
-      selectedListenerIndex >= 0 && activeRuntimeScope ? activeRuntimeScope.listeners[selectedListenerIndex] : null;
-    const selectedBehaviorSummary = currentBehaviorSelectionSummary(selectedRule, selectedListener);
-    const authoredRuntimeTraceEntries = runtimeTraceEntries.filter(isAuthoredRuntimeEvidenceEntry);
-    const selectedAuthoredTraceEvidence =
-      authoredRuntimeTraceEntries.find((entry) => getRuntimeTraceEntryKey(entry) === selectedRuntimeEvidenceKey) ??
-      authoredRuntimeTraceEntries[0] ??
-      null;
-    const resolveRuntimeEvidenceNodeLabel = (nodeId: unknown, fallbackType?: string | null) => {
-      if (typeof nodeId === "string" && nodeId) {
-        return runtimeNodeLabelById.get(nodeId) ?? nodeId;
-      }
-      if (fallbackType === "form") {
-        return activeDocument ? `Form · ${activeDocument.title}` : "Form";
-      }
-      return "Unknown node";
-    };
-    const selectedStructuredTraceEvidence = selectedAuthoredTraceEvidence
-      ? buildStructuredRuntimeTraceEvidence(selectedAuthoredTraceEvidence, resolveRuntimeEvidenceNodeLabel)
-      : null;
-    const selectedListenerSource = selectedListener ? resolveListenerTestSource(selectedListener) : null;
-    const selectedListenerDispatcher = selectedListener?.dispatcherId
-      ? (runtimeEventSourceCandidateById.get(selectedListener.dispatcherId) ?? null)
-      : selectedListenerSource;
-    const selectedListenerTarget = selectedListener?.targetNodeId
-      ? (runtimeEventSourceCandidateById.get(selectedListener.targetNodeId) ?? null)
-      : activeRuntimeTarget;
-    const selectedListenerSourceField =
-      selectedListenerSource &&
-      activeDocument &&
-      (selectedListenerSource.nodeType === "field" || selectedListenerSource.nodeType === "component")
-        ? findAuthoringFieldById(activeDocument, selectedListenerSource.id)
-        : null;
-    const selectedListenerReport =
-      selectedListener && lastDispatchReport
-        ? (lastDispatchReport.listeners.find((entry) => entry.listenerId === selectedListener.id) ?? null)
-        : null;
-    const selectedReportStateDiff = lastDispatchReport
-      ? [
-          lastDispatchReport.stateDiff.currentStepChanged ? "current step" : null,
-          lastDispatchReport.stateDiff.valuesChanged.length
-            ? `${lastDispatchReport.stateDiff.valuesChanged.length} value${lastDispatchReport.stateDiff.valuesChanged.length === 1 ? "" : "s"}`
-            : null,
-          lastDispatchReport.stateDiff.nodesChanged.length
-            ? `${lastDispatchReport.stateDiff.nodesChanged.length} node${lastDispatchReport.stateDiff.nodesChanged.length === 1 ? "" : "s"}`
-            : null,
-          lastDispatchReport.stateDiff.validationChanged ? "validation" : null,
-          lastDispatchReport.stateDiff.submitChanged ? "submit" : null,
-        ].filter((entry): entry is string => Boolean(entry))
-      : [];
-
-    return (
-      <div className="mx-auto max-w-3xl space-y-3">
-        <div className="rounded-[0.95rem] border border-soft bg-white p-3">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-[0.66rem] font-semibold uppercase tracking-[0.18em] text-slate-500">Simulator</p>
-              <h4 className="mt-1 truncate text-base font-semibold text-slate-950">{selectedBehaviorSummary}</h4>
-              <p className="mt-1 text-xs leading-5 text-slate-600">
-                Run the selected behavior without leaving the anchored authoring context.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              <span className="app-pill">Submit {runtimeSessionState?.submit.status ?? "idle"}</span>
-              <span className="app-pill">
-                {runtimeSessionState?.validation.valid === false ? "Validation blocked" : "Validation ready"}
-              </span>
-            </div>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => handleTestSelectedRule(selectedRule)}
-              disabled={!selectedRule}
-              className={actionButtonClass(selectedRule ? "primary" : "secondary")}
-            >
-              Test behavior
-            </button>
-            <button
-              type="button"
-              onClick={() => handleRunGuidedListenerTest(selectedListener)}
-              disabled={!selectedListener}
-              className={actionButtonClass(selectedListener ? "primary" : "secondary")}
-            >
-              Run behavior test
-            </button>
-            <button
-              type="button"
-              onClick={handleRunCurrentRuntimeStep}
-              disabled={!activeStep}
-              className={actionButtonClass()}
-            >
-              Run current step
-            </button>
-            <button type="button" onClick={handleResetRuntimeSession} className={actionButtonClass("secondary")}>
-              Reset
-            </button>
-          </div>
-        </div>
-
-        {selectedListener ? (
-          <div className="rounded-[0.95rem] border border-blue-200 bg-white p-3">
-            <div className="grid gap-3">
-              <div className="grid gap-2 sm:grid-cols-3">
-                <div className="rounded-[0.85rem] border border-soft bg-slate-50 px-3 py-2">
-                  <p className="text-[0.62rem] uppercase tracking-[0.16em] text-slate-500">Given source</p>
-                  <p className="mt-1 truncate text-sm font-semibold text-slate-950">
-                    {selectedListenerSource ? selectedListenerSource.label : "No source"}
-                  </p>
-                  <p className="mt-1 truncate text-xs text-slate-500">
-                    {selectedListenerSource ? formatDispatchKey(selectedListenerSource.dispatchKey) : "Choose a source"}
-                  </p>
-                </div>
-                <div className="rounded-[0.85rem] border border-soft bg-slate-50 px-3 py-2">
-                  <p className="text-[0.62rem] uppercase tracking-[0.16em] text-slate-500">Observed at</p>
-                  <p className="mt-1 truncate text-sm font-semibold text-slate-950">
-                    {selectedListenerDispatcher ? selectedListenerDispatcher.label : "Dispatcher"}
-                  </p>
-                  <p className="mt-1 truncate text-xs text-slate-500">
-                    {selectedListenerDispatcher
-                      ? formatDispatchKey(selectedListenerDispatcher.dispatchKey)
-                      : "Nearest dispatcher"}
-                  </p>
-                </div>
-                <div className="rounded-[0.85rem] border border-soft bg-slate-50 px-3 py-2">
-                  <p className="text-[0.62rem] uppercase tracking-[0.16em] text-slate-500">Then target</p>
-                  <p className="mt-1 truncate text-sm font-semibold text-slate-950">
-                    {selectedListenerTarget
-                      ? selectedListenerTarget.label
-                      : (activeRuntimeTarget?.label ?? "Current item")}
-                  </p>
-                  <p className="mt-1 truncate text-xs text-slate-500">
-                    {formatDispatchKey(selectedListenerTarget?.dispatchKey ?? activeRuntimeTarget?.dispatchKey)}
-                  </p>
-                </div>
-              </div>
-
-              <div className="rounded-[0.85rem] border border-soft bg-slate-50 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="text-[0.62rem] uppercase tracking-[0.16em] text-slate-500">When event dispatches</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-950">
-                      {getRuntimeListenerEventType(selectedListener)}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleRunGuidedListenerTest(selectedListener)}
-                    className={actionButtonClass("primary")}
-                  >
-                    Run behavior test
-                  </button>
-                </div>
-                <div className="mt-3">
-                  {renderGuidedListenerValueControl(selectedListener, selectedListenerSourceField)}
-                </div>
-              </div>
-
-              <div className="rounded-[0.85rem] border border-soft bg-slate-50 p-3">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <p className="text-[0.62rem] uppercase tracking-[0.16em] text-slate-500">Then report</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-950">
-                      {selectedListenerReport
-                        ? selectedListenerReport.matched
-                          ? "Behavior matched and actions ran"
-                          : `Behavior skipped: ${formatLabel(selectedListenerReport.skippedReason ?? "conditions_failed")}`
-                        : "Run the behavior test to see match evidence"}
-                    </p>
-                  </div>
-                  {lastDispatchReport ? (
-                    <span className="app-pill">{lastDispatchReport.traceEntries.length} runtime events</span>
-                  ) : null}
-                </div>
-                {selectedListenerReport ? (
-                  <div className="mt-3 grid gap-2">
-                    {selectedListenerReport.conditions.length ? (
-                      selectedListenerReport.conditions.map((condition) => (
-                        <div
-                          key={`listener-report-condition-${condition.conditionId}`}
-                          className="flex flex-wrap items-center justify-between gap-2 rounded-[0.75rem] border border-soft bg-white px-3 py-2"
-                        >
-                          <span className="text-xs font-semibold text-slate-700">
-                            {condition.label ?? "Condition"} {condition.passed ? "passed" : "failed"}
-                          </span>
-                          <span className="max-w-full truncate text-xs text-slate-500">
-                            actual {formatRuntimeDiagnosticValue(condition.actualValue)} · expected{" "}
-                            {formatRuntimeDiagnosticValue(condition.expectedValue)}
-                          </span>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="rounded-[0.75rem] border border-soft bg-white px-3 py-2 text-xs text-slate-500">
-                        No conditions on this behavior.
-                      </div>
-                    )}
-                    {selectedListenerReport.actions.length ? (
-                      <div className="flex flex-wrap gap-1.5">
-                        {selectedListenerReport.actions.map((action) => (
-                          <span key={`listener-report-action-${action.actionId}`} className="app-pill">
-                            {formatLabel(action.kind)} · {action.status}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                    <div className="flex flex-wrap gap-1.5">
-                      {(selectedReportStateDiff.length ? selectedReportStateDiff : ["no state changes"]).map(
-                        (entry) => (
-                          <span key={`listener-report-diff-${entry}`} className="app-pill">
-                            {entry}
-                          </span>
-                        ),
-                      )}
-                    </div>
-                    {lastDispatchReport?.emittedEvents.length ? (
-                      <div className="rounded-[0.75rem] border border-soft bg-white px-3 py-2 text-xs text-slate-500">
-                        Emitted{" "}
-                        {lastDispatchReport.emittedEvents
-                          .slice(0, 4)
-                          .map((event) => event.type)
-                          .join(", ")}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        <div className="grid gap-2 sm:grid-cols-3">
-          <div className="rounded-[0.85rem] border border-soft bg-white p-3">
-            <p className="text-[0.62rem] uppercase tracking-[0.16em] text-slate-500">Runtime step</p>
-            <p className="mt-1 truncate text-sm font-semibold text-slate-950">
-              {runtimeActiveStep?.title ?? activeStep?.title ?? "No active step"}
-            </p>
-          </div>
-          <div className="rounded-[0.85rem] border border-soft bg-white p-3">
-            <p className="text-[0.62rem] uppercase tracking-[0.16em] text-slate-500">Latest event</p>
-            <p className="mt-1 truncate text-sm font-semibold text-slate-950">
-              {runtimeTraceEntries[0]?.event.type ?? "No runtime events"}
-            </p>
-          </div>
-          <div className="rounded-[0.85rem] border border-soft bg-white p-3">
-            <p className="text-[0.62rem] uppercase tracking-[0.16em] text-slate-500">Authored effects</p>
-            <p className="mt-1 text-sm font-semibold text-slate-950">{authoredRuntimeTraceEntries.length}</p>
-          </div>
-        </div>
-
-        <div className="rounded-[0.95rem] border border-blue-200 bg-blue-50/60 p-3">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-[0.66rem] font-semibold uppercase tracking-[0.18em] text-blue-700">
-                Latest runtime effect
-              </p>
-              <h5 className="mt-1 text-sm font-semibold text-slate-950">
-                {selectedStructuredTraceEvidence?.heading ?? "No authored runtime evidence yet"}
-              </h5>
-              <p className="mt-1 text-xs leading-5 text-slate-700">
-                {selectedStructuredTraceEvidence?.summary ??
-                  "Run a selected behavior to inspect dispatched events and host actions here."}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSelectedRuntimeEvidenceKey(null)}
-              disabled={!authoredRuntimeTraceEntries.length}
-              className={actionButtonClass("secondary")}
-            >
-              Show latest
-            </button>
-          </div>
-          {selectedStructuredTraceEvidence ? (
-            <div className="mt-3 grid gap-2">
-              {selectedStructuredTraceEvidence.payloadEntries.slice(0, 4).map((entry) => (
-                <div
-                  key={`studio-test-payload-${entry.key}`}
-                  className="flex items-start justify-between gap-3 rounded-[0.8rem] border border-blue-100 bg-white px-3 py-2"
-                >
-                  <span className="text-xs font-semibold text-slate-700">{entry.key}</span>
-                  <span className="max-w-[62%] truncate text-right text-xs text-slate-600">{entry.value}</span>
-                </div>
-              ))}
-              {selectedStructuredTraceEvidence.payloadEntries.length > 4 ? (
-                <span className="text-xs text-slate-500">
-                  {selectedStructuredTraceEvidence.payloadEntries.length - 4} more payload fields available in Runtime
-                  lab.
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-
-        <div className="sticky bottom-0 -mx-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-[#f5f7fb]/95 px-3 py-2 backdrop-blur">
-          <span className="text-xs text-slate-600">Need raw traces, host loop, or session JSON?</span>
-          <button
-            type="button"
-            onClick={() => {
-              setBehaviorStudioAnchor(null);
-              setBehaviorStudioCreating(false);
-              setBehaviorFocusTarget(null);
-              setBehaviorStudioMode("test");
-              setBehaviorStudioView("advanced");
-            }}
-            className={actionButtonClass("secondary")}
-          >
-            Open runtime lab
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   function handleBehaviorGraphPointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (!event.isPrimary) {
       return;
@@ -9496,7 +9017,18 @@ export default function App() {
                     : null;
   const behaviorStudioPosition = behaviorStudioPositionLayout();
   const behaviorStudioWorkspaceShell = behaviorStudioUsesWorkspaceShell();
-  const behaviorsContent = renderBehaviorInspectorPanel();
+  const behaviorsContent = (
+    <BehaviorInspectorPanel
+      selectedAuthoring={selectedAuthoring}
+      activeBuilderField={activeBuilderField}
+      activeRuntimeScope={activeRuntimeScope}
+      activeStep={activeStep}
+      buildLegacyConditionalRuleGroups={buildLegacyConditionalRuleGroups}
+      legacyFieldConditionals={legacyFieldConditionals}
+      currentBehaviorSelectionSummary={currentBehaviorSelectionSummary}
+      onOpenBehaviorStudio={openBehaviorStudio}
+    />
+  );
   const mapContent = logicMapData ? (
     <>
       <div className="rounded-[1.15rem] border border-soft bg-white p-4">
@@ -10090,7 +9622,18 @@ export default function App() {
                         continueOnError: false,
                       })
                     }
-                    renderBehaviorToolbar={renderBehaviorQuickToolbar}
+                    renderBehaviorToolbar={(opts) => (
+                      <BehaviorQuickToolbar
+                        {...opts}
+                        activeDocument={activeDocument}
+                        activeRuntimeScope={activeRuntimeScope}
+                        onOpenBehaviorStudioAddBehavior={openBehaviorStudioAddBehavior}
+                        onSetBehaviorStudioMode={setBehaviorStudioMode}
+                        onSetBehaviorFocusTarget={setBehaviorFocusTarget}
+                        onOpenBehaviorStudio={openBehaviorStudio}
+                        onCreateBehaviorStudioAnchor={createBehaviorStudioAnchor}
+                      />
+                    )}
                     renderDispatchKeyBadge={renderDispatchKeyBadge}
                     renderBuilderFieldCard={renderBuilderFieldCard}
                   />
@@ -10128,333 +9671,222 @@ export default function App() {
                   />
                 }
               />
-              {behaviorStudioOpen && activeDocument && typeof document !== "undefined"
-                ? createPortal(
-                    <div
-                      className="fixed inset-0 z-[55] flex items-center justify-center overflow-hidden overscroll-contain bg-slate-950/28 p-2 pt-3 sm:p-4"
-                      onMouseDown={(event) => {
-                        if (event.target === event.currentTarget) {
-                          closeBehaviorStudio();
+              {behaviorStudioOpen && activeDocument && typeof document !== "undefined" ? (
+                <BehaviorStudioModal
+                  behaviorStudioDialogRef={behaviorStudioDialogRef}
+                  behaviorStudioMode={behaviorStudioMode}
+                  behaviorStudioWorkspaceShell={behaviorStudioWorkspaceShell}
+                  behaviorStudioPosition={behaviorStudioPosition}
+                  currentBehaviorSelectionSummary={currentBehaviorSelectionSummary}
+                  bodyContent={
+                    behaviorStudioMode === "manage" ? (
+                      <BehaviorManager
+                        selectedAuthoring={selectedAuthoring}
+                        activeBuilderField={activeBuilderField}
+                        activeRuntimeScope={activeRuntimeScope}
+                        activeStep={activeStep}
+                        logicMapData={logicMapData}
+                        runtimeEventSourceCandidates={runtimeEventSourceCandidates}
+                        runtimeNodeLabelById={runtimeNodeLabelById}
+                        behaviorStudioManagerQuery={behaviorStudioManagerQuery}
+                        behaviorStudioManagerMode={behaviorStudioManagerMode}
+                        behaviorIndexStepFilter={behaviorIndexStepFilter}
+                        behaviorIndexScopeFilter={behaviorIndexScopeFilter}
+                        behaviorIndexTriggerFilter={behaviorIndexTriggerFilter}
+                        behaviorIndexEffectFilter={behaviorIndexEffectFilter}
+                        behaviorIndexStatusFilter={behaviorIndexStatusFilter}
+                        behaviorIndexObjectView={behaviorIndexObjectView}
+                        expandedBehaviorIndexObjectKey={expandedBehaviorIndexObjectKey}
+                        conditionalGroups={
+                          selectedAuthoring?.kind === "field" && activeBuilderField
+                            ? buildLegacyConditionalRuleGroups(legacyFieldConditionals(activeBuilderField))
+                            : []
                         }
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Escape") {
-                          closeBehaviorStudio();
-                        }
-                      }}
-                    >
-                      <div
-                        ref={behaviorStudioDialogRef}
-                        role="dialog"
-                        aria-modal="true"
-                        aria-labelledby="behavior-studio-title"
-                        tabIndex={-1}
-                        style={behaviorStudioPosition.dialogStyle}
-                        className={`relative flex w-full flex-col overflow-hidden rounded-[1.15rem] border border-soft bg-[#f5f7fb] shadow-[0_24px_64px_rgba(15,23,42,0.24)] outline-none ${
-                          behaviorStudioMode === "graph"
-                            ? "h-[min(86dvh,47.5rem)] max-w-[70rem]"
-                            : behaviorStudioWorkspaceShell
-                              ? behaviorStudioMode === "test"
-                                ? "h-[min(82dvh,42rem)] max-w-[60rem]"
-                                : "h-[min(84dvh,46rem)] max-w-[70rem]"
-                              : "h-[min(78dvh,39rem)] max-w-[56rem]"
-                        }`}
-                      >
-                        {behaviorStudioPosition.anchored && behaviorStudioPosition.arrowStyle ? (
-                          <span
-                            aria-hidden="true"
-                            style={behaviorStudioPosition.arrowStyle}
-                            className={`pointer-events-none absolute z-10 h-3 w-3 -translate-x-1/2 rotate-45 border-slate-200 ${
-                              behaviorStudioPosition.placement === "below"
-                                ? "-top-1.5 border-l border-t bg-white/96"
-                                : "-bottom-1.5 border-b border-r bg-[#f5f7fb]"
-                            }`}
-                          />
-                        ) : null}
-                        <div className="shrink-0 border-b border-slate-200 bg-white/96 px-3 py-2.5 backdrop-blur sm:px-4">
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div className="min-w-0 flex-1">
-                              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                                Behavior studio
-                              </p>
-                              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
-                                <h3 id="behavior-studio-title" className="text-lg font-semibold text-slate-950">
-                                  {behaviorStudioMode === "event"
-                                    ? "Event"
-                                    : behaviorStudioMode === "listener"
-                                      ? "Listener"
-                                      : behaviorStudioMode === "action"
-                                        ? "Action"
-                                        : behaviorStudioMode === "create"
-                                          ? "Behavior editor"
-                                          : behaviorStudioMode === "manage"
-                                            ? "Behavior Manager"
-                                            : behaviorStudioMode === "test"
-                                              ? "Test"
-                                              : "Graph view"}
-                                </h3>
-                                <span className="app-pill max-w-[22rem] truncate">
-                                  {currentBehaviorSelectionSummary()}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="flex flex-wrap gap-1.5">
-                              <button
-                                type="button"
-                                onClick={openBehaviorStudioEventSection}
-                                className={actionButtonClass(behaviorStudioMode === "event" ? "primary" : "secondary")}
-                              >
-                                Event
-                              </button>
-                              <button
-                                type="button"
-                                onClick={openBehaviorStudioListenerSection}
-                                className={actionButtonClass(
-                                  behaviorStudioMode === "listener" ? "primary" : "secondary",
-                                )}
-                              >
-                                Listener
-                              </button>
-                              <button
-                                type="button"
-                                onClick={openBehaviorStudioActionSection}
-                                className={actionButtonClass(behaviorStudioMode === "action" ? "primary" : "secondary")}
-                              >
-                                Action
-                              </button>
-                              <button
-                                type="button"
-                                onClick={openBehaviorStudioTestSection}
-                                className={actionButtonClass(behaviorStudioMode === "test" ? "primary" : "secondary")}
-                              >
-                                Test
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setBehaviorStudioCreating(false);
-                                  setBehaviorFocusTarget(null);
-                                  setBehaviorStudioManagerMode("all");
-                                  setBehaviorStudioMode("manage");
-                                  setBehaviorStudioView("studio");
-                                }}
-                                className={actionButtonClass(behaviorStudioMode === "manage" ? "primary" : "secondary")}
-                              >
-                                Manage
-                              </button>
-                              <button
-                                type="button"
-                                aria-label="Close behavior studio"
-                                onClick={closeBehaviorStudio}
-                                className={iconButtonClass()}
-                              >
-                                ×
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4">
-                          {behaviorStudioMode === "manage" ? (
-                            <BehaviorManager
-                              selectedAuthoring={selectedAuthoring}
-                              activeBuilderField={activeBuilderField}
-                              activeRuntimeScope={activeRuntimeScope}
-                              activeStep={activeStep}
-                              logicMapData={logicMapData}
-                              runtimeEventSourceCandidates={runtimeEventSourceCandidates}
-                              runtimeNodeLabelById={runtimeNodeLabelById}
-                              behaviorStudioManagerQuery={behaviorStudioManagerQuery}
-                              behaviorStudioManagerMode={behaviorStudioManagerMode}
-                              behaviorIndexStepFilter={behaviorIndexStepFilter}
-                              behaviorIndexScopeFilter={behaviorIndexScopeFilter}
-                              behaviorIndexTriggerFilter={behaviorIndexTriggerFilter}
-                              behaviorIndexEffectFilter={behaviorIndexEffectFilter}
-                              behaviorIndexStatusFilter={behaviorIndexStatusFilter}
-                              behaviorIndexObjectView={behaviorIndexObjectView}
-                              expandedBehaviorIndexObjectKey={expandedBehaviorIndexObjectKey}
-                              conditionalGroups={
-                                selectedAuthoring?.kind === "field" && activeBuilderField
-                                  ? buildLegacyConditionalRuleGroups(legacyFieldConditionals(activeBuilderField))
-                                  : []
-                              }
-                              currentBehaviorSelectionSummary={currentBehaviorSelectionSummary}
-                              onOpenBehaviorStudioAddBehavior={openBehaviorStudioAddBehavior}
-                              onOpenBehaviorStudioListenerSection={openBehaviorStudioListenerSection}
-                              onOpenBehaviorStudio={openBehaviorStudio}
-                              onOpenGraphInspectorSurface={openGraphInspectorSurface}
-                              onOpenRuntimeEventEditorForSelection={openRuntimeEventEditorForSelection}
-                              onOpenBehaviorNodeInStudio={openBehaviorNodeInStudio}
-                              onSetBehaviorStudioManagerQuery={setBehaviorStudioManagerQuery}
-                              onSetBehaviorStudioManagerMode={setBehaviorStudioManagerMode}
-                              onSetBehaviorStudioMode={setBehaviorStudioMode}
-                              onSetBehaviorStudioView={setBehaviorStudioView}
-                              onSetBehaviorStudioOpen={setBehaviorStudioOpen}
-                              onSetBehaviorStudioCreating={setBehaviorStudioCreating}
-                              onSetBehaviorStudioAnchor={setBehaviorStudioAnchor}
-                              onSetBehaviorFocusTarget={setBehaviorFocusTarget}
-                              onSetInspectorTab={setInspectorTab}
-                              onSetSelectedAuthoring={setSelectedAuthoring}
-                              onSetSelectedBehaviorNode={setSelectedBehaviorNode}
-                              onSetEditingRuleIndex={setEditingRuleIndex}
-                              onSetExpandedBehaviorIndexObjectKey={setExpandedBehaviorIndexObjectKey}
-                              onSetBehaviorIndexStepFilter={setBehaviorIndexStepFilter}
-                              onSetBehaviorIndexScopeFilter={setBehaviorIndexScopeFilter}
-                              onSetBehaviorIndexTriggerFilter={setBehaviorIndexTriggerFilter}
-                              onSetBehaviorIndexEffectFilter={setBehaviorIndexEffectFilter}
-                              onSetBehaviorIndexStatusFilter={setBehaviorIndexStatusFilter}
-                              onSetBehaviorIndexObjectView={setBehaviorIndexObjectView}
-                              onToggleLegacyConditionalRuleForSelection={toggleLegacyConditionalRuleForSelection}
-                              onDuplicateLegacyConditionalRuleForSelection={duplicateLegacyConditionalRuleForSelection}
-                              onRemoveLegacyConditionalRuleForSelection={removeLegacyConditionalRuleForSelection}
-                              onToggleRuntimeListenerForSelection={toggleRuntimeListenerForSelection}
-                              onDuplicateRuntimeListenerForSelection={duplicateRuntimeListenerForSelection}
-                              onRemoveRuntimeListenerForSelection={removeRuntimeListenerForSelection}
-                              onDuplicateRuntimeEventSourceForSelection={duplicateRuntimeEventSourceForSelection}
-                              onRemoveRuntimeEventSourceForSelection={removeRuntimeEventSourceForSelection}
-                              onHandleTestSelectedRule={handleTestSelectedRule}
-                              onHandleTestSelectedChain={handleTestSelectedChain}
-                            />
-                          ) : behaviorStudioMode === "event" ? (
-                            renderBehaviorEventAuthoringStudio()
-                          ) : behaviorStudioMode === "listener" ? (
-                            renderBehaviorListenerAuthoringStudio()
-                          ) : behaviorStudioMode === "action" ? (
-                            renderBehaviorActionStudio()
-                          ) : behaviorStudioMode === "create" ? (
-                            renderBehaviorStudioSurface()
-                          ) : behaviorStudioMode === "test" ? (
-                            <EventFlowStudio
-                              eventFlowSourceId={eventFlowSourceId}
-                              eventFlowEventType={eventFlowEventType}
-                              activeRuntimeTarget={activeRuntimeTarget}
-                              activeRuntimeScope={activeRuntimeScope}
-                              activeDocument={activeDocument}
-                              runtimeEventSourceCandidates={runtimeEventSourceCandidates}
-                              runtimeEventSourceCandidateById={runtimeEventSourceCandidateById}
-                              runtimeNodeLabelById={runtimeNodeLabelById}
-                              selectedBehaviorNode={selectedBehaviorNode}
-                              lastDispatchReport={lastDispatchReport}
-                              logicMapData={logicMapData}
-                              eventFlowOptionsForSource={eventFlowOptionsForSource}
-                              eventFlowPayloadRawValue={eventFlowPayloadRawValue}
-                              defaultBehaviorTriggerName={defaultBehaviorTriggerName}
-                              onRunEventFlowDispatch={runEventFlowDispatch}
-                              onSaveEventFlowEvent={saveEventFlowEvent}
-                              onAddEventFlowPayloadCondition={addEventFlowPayloadCondition}
-                              onOpenBehaviorStudioListenerSection={openBehaviorStudioListenerSection}
-                              onOpenRuntimeEventEditorForSelection={openRuntimeEventEditorForSelection}
-                              onSetEventFlowSourceId={setEventFlowSourceId}
-                              onSetEventFlowEventType={setEventFlowEventType}
-                              onSetEventFlowPayloadValues={setEventFlowPayloadValues}
-                              onSetSelectedBehaviorNode={setSelectedBehaviorNode}
-                              onSetLastDispatchReport={setLastDispatchReport}
-                              onSetSelectedAuthoring={setSelectedAuthoring}
-                              onSetBehaviorStudioCreating={setBehaviorStudioCreating}
-                              onSetBehaviorStudioManagerMode={setBehaviorStudioManagerMode}
-                              onSetBehaviorStudioMode={setBehaviorStudioMode}
-                              onSetBehaviorEventType={setBehaviorEventType}
-                              onSetBehaviorEventBubbles={setBehaviorEventBubbles}
-                              onSetBehaviorEventDescription={setBehaviorEventDescription}
-                              onSetBehaviorEventPayloadFields={setBehaviorEventPayloadFields}
-                              onSetBehaviorEventMetadataExample={setBehaviorEventMetadataExample}
-                              onSetBehaviorCreationPath={setBehaviorCreationPath}
-                            />
-                          ) : (
-                            <BehaviorWorkspace
-                              selectedAuthoring={selectedAuthoring}
-                              activeBuilderField={activeBuilderField}
-                              activeRuntimeScope={activeRuntimeScope}
-                              activeRuntimeTarget={activeRuntimeTarget}
-                              activeDocument={activeDocument}
-                              activeStep={activeStep}
-                              activeSection={activeSection}
-                              activeGroup={activeGroup}
-                              logicMapData={logicMapData}
-                              runtimeNodeLabelById={runtimeNodeLabelById}
-                              runtimeTraceEntries={runtimeTraceEntries}
-                              runtimeSessionState={runtimeSessionState}
-                              runtimeSubmitPreview={runtimeSubmitPreview}
-                              runtimeActiveStep={runtimeActiveStep}
-                              behaviorGraphFilter={behaviorGraphFilter}
-                              behaviorGraphMode={behaviorGraphMode}
-                              behaviorGraphDensity={behaviorGraphDensity}
-                              behaviorGraphZoom={behaviorGraphZoom}
-                              behaviorGraphOffset={behaviorGraphOffset}
-                              behaviorGraphEntryContext={behaviorGraphEntryContext}
-                              behaviorWorkspaceMode={behaviorWorkspaceMode}
-                              documentBehaviorClusterFocus={documentBehaviorClusterFocus}
-                              documentBehaviorTrailFamilies={documentBehaviorTrailFamilies}
-                              documentBehaviorCanvasRelevantOnly={documentBehaviorCanvasRelevantOnly}
-                              documentBehaviorCanvasDensity={documentBehaviorCanvasDensity}
-                              documentBehaviorSurfaceMode={documentBehaviorSurfaceMode}
-                              documentBehaviorPinnedLaneIds={documentBehaviorPinnedLaneIds}
-                              expandedDocumentBehaviorTarget={expandedDocumentBehaviorTarget}
-                              documentBehaviorGraphZoom={documentBehaviorGraphZoom}
-                              documentBehaviorGraphOffset={documentBehaviorGraphOffset}
-                              selectedBehaviorNode={selectedBehaviorNode}
-                              selectedRuntimeEvidenceKey={selectedRuntimeEvidenceKey}
-                              simulatorSectionRef={simulatorSectionRef}
-                              runtimeSessionInputRef={runtimeSessionInputRef}
-                              builderFieldOptions={builderFieldOptions}
-                              buildLegacyConditionalRuleGroups={buildLegacyConditionalRuleGroups}
-                              currentBehaviorSelectionSummary={currentBehaviorSelectionSummary}
-                              onFocusBehaviorGraphNode={focusBehaviorGraphNode}
-                              onResetBehaviorGraphViewport={resetBehaviorGraphViewport}
-                              onResetDocumentBehaviorGraphViewport={resetDocumentBehaviorGraphViewport}
-                              onOpenBehaviorBehaviorManager={openBehaviorBehaviorManager}
-                              onOpenBehaviorNodeInStudio={openBehaviorNodeInStudio}
-                              onOpenBehaviorObjectInBehaviorManager={openBehaviorObjectInBehaviorManager}
-                              onOpenBehaviorStudioAddBehavior={openBehaviorStudioAddBehavior}
-                              onOpenBehaviorStudioReactToAnotherItem={openBehaviorStudioReactToAnotherItem}
-                              onCloseBehaviorStudio={closeBehaviorStudio}
-                              onHandleTestSelectedRule={handleTestSelectedRule}
-                              onHandleTestSelectedChain={handleTestSelectedChain}
-                              onHandleResetRuntimeSession={handleResetRuntimeSession}
-                              onHandlePopulateRequiredRuntimeValues={handlePopulateRequiredRuntimeValues}
-                              onHandleRunCurrentRuntimeStep={handleRunCurrentRuntimeStep}
-                              onHandleRunRuntimeSubmit={handleRunRuntimeSubmit}
-                              onHandleExportRuntimeSession={handleExportRuntimeSession}
-                              onHandleMockSubmitSuccess={handleMockSubmitSuccess}
-                              onHandleMockSubmitError={handleMockSubmitError}
-                              onHandleBehaviorGraphPointerDown={handleBehaviorGraphPointerDown}
-                              onHandleBehaviorGraphPointerMove={handleBehaviorGraphPointerMove}
-                              onHandleBehaviorGraphPointerEnd={handleBehaviorGraphPointerEnd}
-                              onHandleBehaviorGraphViewportKeyDown={handleBehaviorGraphViewportKeyDown}
-                              onHandleDocumentBehaviorGraphPointerDown={handleDocumentBehaviorGraphPointerDown}
-                              onHandleDocumentBehaviorGraphPointerMove={handleDocumentBehaviorGraphPointerMove}
-                              onHandleDocumentBehaviorGraphPointerEnd={handleDocumentBehaviorGraphPointerEnd}
-                              onHandleDocumentBehaviorGraphViewportKeyDown={handleDocumentBehaviorGraphViewportKeyDown}
-                              onSetBehaviorGraphFilter={setBehaviorGraphFilter}
-                              onSetBehaviorGraphMode={setBehaviorGraphMode}
-                              onSetBehaviorGraphDensity={setBehaviorGraphDensity}
-                              onSetBehaviorGraphZoom={setBehaviorGraphZoom}
-                              onSetBehaviorGraphOffset={setBehaviorGraphOffset}
-                              onSetBehaviorGraphEntryContext={setBehaviorGraphEntryContext}
-                              onSetBehaviorWorkspaceMode={setBehaviorWorkspaceMode}
-                              onSetBehaviorStudioMode={setBehaviorStudioMode}
-                              onSetBehaviorStudioView={setBehaviorStudioView}
-                              onSetDocumentBehaviorClusterFocus={setDocumentBehaviorClusterFocus}
-                              onSetDocumentBehaviorTrailFamilies={setDocumentBehaviorTrailFamilies}
-                              onSetDocumentBehaviorCanvasRelevantOnly={setDocumentBehaviorCanvasRelevantOnly}
-                              onSetDocumentBehaviorCanvasDensity={setDocumentBehaviorCanvasDensity}
-                              onSetDocumentBehaviorSurfaceMode={setDocumentBehaviorSurfaceMode}
-                              onSetDocumentBehaviorPinnedLaneIds={setDocumentBehaviorPinnedLaneIds}
-                              onSetExpandedDocumentBehaviorTarget={setExpandedDocumentBehaviorTarget}
-                              onSetDocumentBehaviorGraphZoom={setDocumentBehaviorGraphZoom}
-                              onSetDocumentBehaviorGraphOffset={setDocumentBehaviorGraphOffset}
-                              onSetSelectedAuthoring={setSelectedAuthoring}
-                              onSetSelectedBehaviorNode={setSelectedBehaviorNode}
-                              onSetEditingRuleIndex={setEditingRuleIndex}
-                              onSetInspectorTab={setInspectorTab}
-                              onSetSelectedRuntimeEvidenceKey={setSelectedRuntimeEvidenceKey}
-                            />
-                          )}
-                        </div>
-                      </div>
-                    </div>,
-                    document.body,
-                  )
-                : null}
+                        currentBehaviorSelectionSummary={currentBehaviorSelectionSummary}
+                        onOpenBehaviorStudioAddBehavior={openBehaviorStudioAddBehavior}
+                        onOpenBehaviorStudioListenerSection={openBehaviorStudioListenerSection}
+                        onOpenBehaviorStudio={openBehaviorStudio}
+                        onOpenGraphInspectorSurface={openGraphInspectorSurface}
+                        onOpenRuntimeEventEditorForSelection={openRuntimeEventEditorForSelection}
+                        onOpenBehaviorNodeInStudio={openBehaviorNodeInStudio}
+                        onSetBehaviorStudioManagerQuery={setBehaviorStudioManagerQuery}
+                        onSetBehaviorStudioManagerMode={setBehaviorStudioManagerMode}
+                        onSetBehaviorStudioMode={setBehaviorStudioMode}
+                        onSetBehaviorStudioView={setBehaviorStudioView}
+                        onSetBehaviorStudioOpen={setBehaviorStudioOpen}
+                        onSetBehaviorStudioCreating={setBehaviorStudioCreating}
+                        onSetBehaviorStudioAnchor={setBehaviorStudioAnchor}
+                        onSetBehaviorFocusTarget={setBehaviorFocusTarget}
+                        onSetInspectorTab={setInspectorTab}
+                        onSetSelectedAuthoring={setSelectedAuthoring}
+                        onSetSelectedBehaviorNode={setSelectedBehaviorNode}
+                        onSetEditingRuleIndex={setEditingRuleIndex}
+                        onSetExpandedBehaviorIndexObjectKey={setExpandedBehaviorIndexObjectKey}
+                        onSetBehaviorIndexStepFilter={setBehaviorIndexStepFilter}
+                        onSetBehaviorIndexScopeFilter={setBehaviorIndexScopeFilter}
+                        onSetBehaviorIndexTriggerFilter={setBehaviorIndexTriggerFilter}
+                        onSetBehaviorIndexEffectFilter={setBehaviorIndexEffectFilter}
+                        onSetBehaviorIndexStatusFilter={setBehaviorIndexStatusFilter}
+                        onSetBehaviorIndexObjectView={setBehaviorIndexObjectView}
+                        onToggleLegacyConditionalRuleForSelection={toggleLegacyConditionalRuleForSelection}
+                        onDuplicateLegacyConditionalRuleForSelection={duplicateLegacyConditionalRuleForSelection}
+                        onRemoveLegacyConditionalRuleForSelection={removeLegacyConditionalRuleForSelection}
+                        onToggleRuntimeListenerForSelection={toggleRuntimeListenerForSelection}
+                        onDuplicateRuntimeListenerForSelection={duplicateRuntimeListenerForSelection}
+                        onRemoveRuntimeListenerForSelection={removeRuntimeListenerForSelection}
+                        onDuplicateRuntimeEventSourceForSelection={duplicateRuntimeEventSourceForSelection}
+                        onRemoveRuntimeEventSourceForSelection={removeRuntimeEventSourceForSelection}
+                        onHandleTestSelectedRule={handleTestSelectedRule}
+                        onHandleTestSelectedChain={handleTestSelectedChain}
+                      />
+                    ) : behaviorStudioMode === "event" ? (
+                      renderBehaviorEventAuthoringStudio()
+                    ) : behaviorStudioMode === "listener" ? (
+                      renderBehaviorListenerAuthoringStudio()
+                    ) : behaviorStudioMode === "action" ? (
+                      renderBehaviorActionStudio()
+                    ) : behaviorStudioMode === "create" ? (
+                      renderBehaviorStudioSurface()
+                    ) : behaviorStudioMode === "test" ? (
+                      <EventFlowStudio
+                        eventFlowSourceId={eventFlowSourceId}
+                        eventFlowEventType={eventFlowEventType}
+                        activeRuntimeTarget={activeRuntimeTarget}
+                        activeRuntimeScope={activeRuntimeScope}
+                        activeDocument={activeDocument}
+                        runtimeEventSourceCandidates={runtimeEventSourceCandidates}
+                        runtimeEventSourceCandidateById={runtimeEventSourceCandidateById}
+                        runtimeNodeLabelById={runtimeNodeLabelById}
+                        selectedBehaviorNode={selectedBehaviorNode}
+                        lastDispatchReport={lastDispatchReport}
+                        logicMapData={logicMapData}
+                        eventFlowOptionsForSource={eventFlowOptionsForSource}
+                        eventFlowPayloadRawValue={eventFlowPayloadRawValue}
+                        defaultBehaviorTriggerName={defaultBehaviorTriggerName}
+                        onRunEventFlowDispatch={runEventFlowDispatch}
+                        onSaveEventFlowEvent={saveEventFlowEvent}
+                        onAddEventFlowPayloadCondition={addEventFlowPayloadCondition}
+                        onOpenBehaviorStudioListenerSection={openBehaviorStudioListenerSection}
+                        onOpenRuntimeEventEditorForSelection={openRuntimeEventEditorForSelection}
+                        onSetEventFlowSourceId={setEventFlowSourceId}
+                        onSetEventFlowEventType={setEventFlowEventType}
+                        onSetEventFlowPayloadValues={setEventFlowPayloadValues}
+                        onSetSelectedBehaviorNode={setSelectedBehaviorNode}
+                        onSetLastDispatchReport={setLastDispatchReport}
+                        onSetSelectedAuthoring={setSelectedAuthoring}
+                        onSetBehaviorStudioCreating={setBehaviorStudioCreating}
+                        onSetBehaviorStudioManagerMode={setBehaviorStudioManagerMode}
+                        onSetBehaviorStudioMode={setBehaviorStudioMode}
+                        onSetBehaviorEventType={setBehaviorEventType}
+                        onSetBehaviorEventBubbles={setBehaviorEventBubbles}
+                        onSetBehaviorEventDescription={setBehaviorEventDescription}
+                        onSetBehaviorEventPayloadFields={setBehaviorEventPayloadFields}
+                        onSetBehaviorEventMetadataExample={setBehaviorEventMetadataExample}
+                        onSetBehaviorCreationPath={setBehaviorCreationPath}
+                      />
+                    ) : (
+                      <BehaviorWorkspace
+                        selectedAuthoring={selectedAuthoring}
+                        activeBuilderField={activeBuilderField}
+                        activeRuntimeScope={activeRuntimeScope}
+                        activeRuntimeTarget={activeRuntimeTarget}
+                        activeDocument={activeDocument}
+                        activeStep={activeStep}
+                        activeSection={activeSection}
+                        activeGroup={activeGroup}
+                        logicMapData={logicMapData}
+                        runtimeNodeLabelById={runtimeNodeLabelById}
+                        runtimeTraceEntries={runtimeTraceEntries}
+                        runtimeSessionState={runtimeSessionState}
+                        runtimeSubmitPreview={runtimeSubmitPreview}
+                        runtimeActiveStep={runtimeActiveStep}
+                        behaviorGraphFilter={behaviorGraphFilter}
+                        behaviorGraphMode={behaviorGraphMode}
+                        behaviorGraphDensity={behaviorGraphDensity}
+                        behaviorGraphZoom={behaviorGraphZoom}
+                        behaviorGraphOffset={behaviorGraphOffset}
+                        behaviorGraphEntryContext={behaviorGraphEntryContext}
+                        behaviorWorkspaceMode={behaviorWorkspaceMode}
+                        documentBehaviorClusterFocus={documentBehaviorClusterFocus}
+                        documentBehaviorTrailFamilies={documentBehaviorTrailFamilies}
+                        documentBehaviorCanvasRelevantOnly={documentBehaviorCanvasRelevantOnly}
+                        documentBehaviorCanvasDensity={documentBehaviorCanvasDensity}
+                        documentBehaviorSurfaceMode={documentBehaviorSurfaceMode}
+                        documentBehaviorPinnedLaneIds={documentBehaviorPinnedLaneIds}
+                        expandedDocumentBehaviorTarget={expandedDocumentBehaviorTarget}
+                        documentBehaviorGraphZoom={documentBehaviorGraphZoom}
+                        documentBehaviorGraphOffset={documentBehaviorGraphOffset}
+                        selectedBehaviorNode={selectedBehaviorNode}
+                        selectedRuntimeEvidenceKey={selectedRuntimeEvidenceKey}
+                        simulatorSectionRef={simulatorSectionRef}
+                        runtimeSessionInputRef={runtimeSessionInputRef}
+                        builderFieldOptions={builderFieldOptions}
+                        buildLegacyConditionalRuleGroups={buildLegacyConditionalRuleGroups}
+                        currentBehaviorSelectionSummary={currentBehaviorSelectionSummary}
+                        onFocusBehaviorGraphNode={focusBehaviorGraphNode}
+                        onResetBehaviorGraphViewport={resetBehaviorGraphViewport}
+                        onResetDocumentBehaviorGraphViewport={resetDocumentBehaviorGraphViewport}
+                        onOpenBehaviorBehaviorManager={openBehaviorBehaviorManager}
+                        onOpenBehaviorNodeInStudio={openBehaviorNodeInStudio}
+                        onOpenBehaviorObjectInBehaviorManager={openBehaviorObjectInBehaviorManager}
+                        onOpenBehaviorStudioAddBehavior={openBehaviorStudioAddBehavior}
+                        onOpenBehaviorStudioReactToAnotherItem={openBehaviorStudioReactToAnotherItem}
+                        onCloseBehaviorStudio={closeBehaviorStudio}
+                        onHandleTestSelectedRule={handleTestSelectedRule}
+                        onHandleTestSelectedChain={handleTestSelectedChain}
+                        onHandleResetRuntimeSession={handleResetRuntimeSession}
+                        onHandlePopulateRequiredRuntimeValues={handlePopulateRequiredRuntimeValues}
+                        onHandleRunCurrentRuntimeStep={handleRunCurrentRuntimeStep}
+                        onHandleRunRuntimeSubmit={handleRunRuntimeSubmit}
+                        onHandleExportRuntimeSession={handleExportRuntimeSession}
+                        onHandleMockSubmitSuccess={handleMockSubmitSuccess}
+                        onHandleMockSubmitError={handleMockSubmitError}
+                        onHandleBehaviorGraphPointerDown={handleBehaviorGraphPointerDown}
+                        onHandleBehaviorGraphPointerMove={handleBehaviorGraphPointerMove}
+                        onHandleBehaviorGraphPointerEnd={handleBehaviorGraphPointerEnd}
+                        onHandleBehaviorGraphViewportKeyDown={handleBehaviorGraphViewportKeyDown}
+                        onHandleDocumentBehaviorGraphPointerDown={handleDocumentBehaviorGraphPointerDown}
+                        onHandleDocumentBehaviorGraphPointerMove={handleDocumentBehaviorGraphPointerMove}
+                        onHandleDocumentBehaviorGraphPointerEnd={handleDocumentBehaviorGraphPointerEnd}
+                        onHandleDocumentBehaviorGraphViewportKeyDown={handleDocumentBehaviorGraphViewportKeyDown}
+                        onSetBehaviorGraphFilter={setBehaviorGraphFilter}
+                        onSetBehaviorGraphMode={setBehaviorGraphMode}
+                        onSetBehaviorGraphDensity={setBehaviorGraphDensity}
+                        onSetBehaviorGraphZoom={setBehaviorGraphZoom}
+                        onSetBehaviorGraphOffset={setBehaviorGraphOffset}
+                        onSetBehaviorGraphEntryContext={setBehaviorGraphEntryContext}
+                        onSetBehaviorWorkspaceMode={setBehaviorWorkspaceMode}
+                        onSetBehaviorStudioMode={setBehaviorStudioMode}
+                        onSetBehaviorStudioView={setBehaviorStudioView}
+                        onSetDocumentBehaviorClusterFocus={setDocumentBehaviorClusterFocus}
+                        onSetDocumentBehaviorTrailFamilies={setDocumentBehaviorTrailFamilies}
+                        onSetDocumentBehaviorCanvasRelevantOnly={setDocumentBehaviorCanvasRelevantOnly}
+                        onSetDocumentBehaviorCanvasDensity={setDocumentBehaviorCanvasDensity}
+                        onSetDocumentBehaviorSurfaceMode={setDocumentBehaviorSurfaceMode}
+                        onSetDocumentBehaviorPinnedLaneIds={setDocumentBehaviorPinnedLaneIds}
+                        onSetExpandedDocumentBehaviorTarget={setExpandedDocumentBehaviorTarget}
+                        onSetDocumentBehaviorGraphZoom={setDocumentBehaviorGraphZoom}
+                        onSetDocumentBehaviorGraphOffset={setDocumentBehaviorGraphOffset}
+                        onSetSelectedAuthoring={setSelectedAuthoring}
+                        onSetSelectedBehaviorNode={setSelectedBehaviorNode}
+                        onSetEditingRuleIndex={setEditingRuleIndex}
+                        onSetInspectorTab={setInspectorTab}
+                        onSetSelectedRuntimeEvidenceKey={setSelectedRuntimeEvidenceKey}
+                      />
+                    )
+                  }
+                  onOpenBehaviorStudioEventSection={openBehaviorStudioEventSection}
+                  onOpenBehaviorStudioListenerSection={openBehaviorStudioListenerSection}
+                  onOpenBehaviorStudioActionSection={openBehaviorStudioActionSection}
+                  onOpenBehaviorStudioTestSection={openBehaviorStudioTestSection}
+                  onSetBehaviorStudioCreating={setBehaviorStudioCreating}
+                  onSetBehaviorFocusTarget={setBehaviorFocusTarget}
+                  onSetBehaviorStudioManagerMode={setBehaviorStudioManagerMode}
+                  onSetBehaviorStudioMode={setBehaviorStudioMode}
+                  onSetBehaviorStudioView={setBehaviorStudioView}
+                  onCloseBehaviorStudio={closeBehaviorStudio}
+                />
+              ) : null}
               {sourceDrawerOpen && sourceContextDraft ? (
                 <div className="fixed inset-0 z-50 bg-slate-950/35 p-4 backdrop-blur-sm">
                   <div className="mx-auto flex h-full max-w-[92rem] flex-col overflow-hidden rounded-[1.5rem] border border-soft bg-white shadow-[0_32px_90px_rgba(15,23,42,0.28)]">
