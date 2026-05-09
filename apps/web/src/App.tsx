@@ -78,9 +78,8 @@ import { BuilderStage, PreviewCanvas, StepStrip } from "./features/builder";
 import { BuilderFieldCard } from "./features/builder/cards/BuilderFieldCard";
 import { DragHandle, DropMarker, EmptyDropZone } from "./features/builder/dnd/drag-handles";
 import { dropTargetKey, isCompatibleDropTarget, summarizeAuthoringStep } from "./features/builder/utils/builder-utils";
-import { actionButtonClass, formatLabel } from "./lib/ui-utils";
-import { HomeStage } from "./features/project/HomeStage";
-import { badgeToneFromProjectStatus } from "./features/project/utils/project-utils";
+import { actionButtonClass, formatLabel, iconButtonClass } from "./lib/ui-utils";
+import { HomeStage, badgeToneFromProjectStatus } from "./features/project";
 import { ReviewStage } from "./features/review/ReviewStage";
 import { badgeToneFromReview, badgeToneFromStatus, overlayRects } from "./features/review/utils/review-utils";
 import { InspectorRail } from "./features/inspector";
@@ -404,16 +403,6 @@ function subtleButtonClass(active: boolean): string {
   return active
     ? "inline-flex h-8 items-center rounded-md border border-blue-200 bg-blue-50 px-3 text-sm font-medium text-blue-700"
     : "inline-flex h-8 items-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-950";
-}
-
-function iconButtonClass(kind: "secondary" | "danger" | "primary" = "secondary"): string {
-  if (kind === "primary") {
-    return "inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-200 bg-white text-sm font-medium text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50";
-  }
-  if (kind === "danger") {
-    return "inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 bg-white text-sm font-medium text-rose-700 shadow-sm transition hover:bg-rose-50";
-  }
-  return "inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-sm font-medium text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950";
 }
 
 function PageIcon() {

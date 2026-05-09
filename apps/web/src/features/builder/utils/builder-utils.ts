@@ -7,19 +7,9 @@ import type {
 } from "@form-builder/schema";
 
 import type { AuthoringSelection, DragPayload, DropTarget } from "../../../lib/authoring-utils";
-import { actionButtonClass, formatLabel } from "../../../lib/ui-utils";
+import { actionButtonClass, formatLabel, iconButtonClass } from "../../../lib/ui-utils";
 
-export { actionButtonClass, formatLabel };
-
-export function iconButtonClass(kind: "secondary" | "danger" | "primary" = "secondary"): string {
-  if (kind === "primary") {
-    return "inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-200 bg-white text-sm font-medium text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50";
-  }
-  if (kind === "danger") {
-    return "inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 bg-white text-sm font-medium text-rose-700 shadow-sm transition hover:bg-rose-50";
-  }
-  return "inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-sm font-medium text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950";
-}
+export { actionButtonClass, formatLabel, iconButtonClass };
 
 export type BuilderFieldTypeOption = SemanticType | "action_button";
 
