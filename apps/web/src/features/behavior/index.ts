@@ -43,9 +43,10 @@ export {
   summariseListener,
   listenerTriggerPill,
   countListenersReferencingNode,
+  findListenersReferencingNode,
   computeBrokenRefs,
 } from "./stack/runtime-stack-helpers";
-export type { BrokenRefEntry } from "./stack/runtime-stack-helpers";
+export type { BrokenRefEntry, ReferencingListenerInfo } from "./stack/runtime-stack-helpers";
 export { SYSTEM_LIBRARY, getSystemEntry } from "./library/system-library";
 export { validateParams, applyEntryToListener, defaultParamsForEntry } from "./library/library-helpers";
 export type { LibraryParamValidationResult } from "./library/library-helpers";

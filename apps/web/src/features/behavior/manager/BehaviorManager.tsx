@@ -90,7 +90,6 @@ export interface BehaviorManagerProps {
 type ManagerFilterState = {
   provenance: "all" | "extraction" | "library" | "manual";
   safetyClass: "all" | "safe" | "destructive" | "host";
-  enabled: "all" | "enabled" | "disabled";
   brokenRefsOnly: boolean;
 };
 
@@ -180,7 +179,6 @@ export function BehaviorManager({
   const [managerFilters, setManagerFilters] = useState<ManagerFilterState>({
     provenance: "all",
     safetyClass: "all",
-    enabled: "all",
     brokenRefsOnly: false,
   });
   const scopeListeners = activeRuntimeScope?.listeners ?? [];
@@ -406,7 +404,6 @@ export function BehaviorManager({
       (managerFilters.provenance === "manual" && item.provenance == null) ||
       item.provenance === managerFilters.provenance;
     const safetyMatch = managerFilters.safetyClass === "all" || item.worstSafetyClass === managerFilters.safetyClass;
-    const enabledMatch = managerFilters.enabled === "all" || item.status === managerFilters.enabled;
     const brokenMatch = !managerFilters.brokenRefsOnly || item.hasBrokenRef;
     return (
       queryMatch &&
@@ -418,7 +415,6 @@ export function BehaviorManager({
       objectViewMatch &&
       provenanceMatch &&
       safetyMatch &&
-      enabledMatch &&
       brokenMatch
     );
   });
@@ -995,6 +991,11 @@ export function BehaviorManager({
                   <option value="host">Host</option>
                   <option value="destructive">Destructive</option>
                 </select>
+                {managerFilters.safetyClass !== "all" && (
+                  <span className="mt-1 block text-xs normal-case tracking-normal text-slate-500">
+                    Filters listener actions only — rules and events not shown.
+                  </span>
+                )}
               </label>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -1007,13 +1008,10 @@ export function BehaviorManager({
               </button>
               {managerFilters.provenance !== "all" ||
               managerFilters.safetyClass !== "all" ||
-              managerFilters.enabled !== "all" ||
               managerFilters.brokenRefsOnly ? (
                 <button
                   type="button"
-                  onClick={() =>
-                    setManagerFilters({ provenance: "all", safetyClass: "all", enabled: "all", brokenRefsOnly: false })
-                  }
+                  onClick={() => setManagerFilters({ provenance: "all", safetyClass: "all", brokenRefsOnly: false })}
                   className={actionButtonClass("secondary")}
                 >
                   Clear extra filters

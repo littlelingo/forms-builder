@@ -95,6 +95,7 @@ import {
   BehaviorInspectorPanel,
   BehaviorManager,
   countListenersReferencingNode,
+  findListenersReferencingNode,
   computeBrokenRefs,
   BehaviorQuickToolbar,
   BehaviorStudioModal,
@@ -1665,6 +1666,100 @@ function buildLibraryRegistry(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Pre-flight delete modal
+// ---------------------------------------------------------------------------
+
+function PreFlightDeleteModal({
+  preFlightDelete,
+  onClose,
+}: {
+  preFlightDelete: {
+    nodeId: string;
+    nodeLabel: string;
+    referenceCount: number;
+    referencingListeners: { listenerId: string; label: string; scopeLabel: string }[];
+    onConfirm: () => void;
+  };
+  onClose: () => void;
+}) {
+  const cancelRef = useRef<HTMLButtonElement | null>(null);
+
+  // ESC to close + focus restoration
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    // Initial focus on Cancel button
+    cancelRef.current?.focus();
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      previouslyFocused?.focus?.();
+    };
+  }, [onClose]);
+
+  const { nodeLabel, referenceCount, referencingListeners, onConfirm } = preFlightDelete;
+  const listToShow = referencingListeners.slice(0, 5);
+  const overflow = referencingListeners.length - listToShow.length;
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/40 p-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="preflight-delete-title"
+        className="relative flex w-full max-w-[26rem] flex-col overflow-hidden rounded-[1.15rem] border border-slate-200 bg-[#f5f7fb] shadow-[0_24px_64px_rgba(15,23,42,0.24)]"
+      >
+        <div className="shrink-0 border-b border-slate-200 bg-white/96 px-4 py-3 backdrop-blur">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">Confirm delete</p>
+              <h3 id="preflight-delete-title" className="mt-0.5 text-lg font-semibold text-slate-950">
+                {nodeLabel}
+              </h3>
+            </div>
+            <button type="button" aria-label="Cancel delete" onClick={onClose} className={iconButtonClass()}>
+              ×
+            </button>
+          </div>
+        </div>
+        <div className="space-y-4 px-4 py-4">
+          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800">
+            <strong>
+              {referenceCount} behavior{referenceCount === 1 ? "" : "s"}
+            </strong>{" "}
+            reference this node. Deleting it will leave those behaviors with broken references (highlighted with a
+            warning pill). You can fix or remove them after deletion.
+            <ul className="mt-2 space-y-1 text-sm">
+              {listToShow.map((info) => (
+                <li key={info.listenerId} className="flex gap-2">
+                  <span className="text-red-600">{info.scopeLabel}</span>
+                  <span>· {info.label}</span>
+                </li>
+              ))}
+              {overflow > 0 && <li className="text-red-600">+ {overflow} more</li>}
+            </ul>
+          </div>
+          <p className="text-sm text-slate-600">
+            The &quot;Re-point to&quot; option (substituting a replacement node in all referencing behaviors) is
+            deferred to a future release.
+          </p>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-slate-200 px-4 py-3">
+          <button ref={cancelRef} type="button" onClick={onClose} className={actionButtonClass("secondary")}>
+            Cancel
+          </button>
+          <button type="button" onClick={onConfirm} className={actionButtonClass("danger")}>
+            Delete + leave broken refs
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const jsonInputRef = useRef<HTMLInputElement | null>(null);
@@ -1841,6 +1936,7 @@ export default function App() {
     nodeId: string;
     nodeLabel: string;
     referenceCount: number;
+    referencingListeners: { listenerId: string; label: string; scopeLabel: string }[];
     onConfirm: () => void;
   } | null>(null);
 
@@ -7601,7 +7697,8 @@ export default function App() {
       deleteFn();
       return;
     }
-    const refCount = countListenersReferencingNode(activeDocument, nodeId);
+    const referencingListeners = findListenersReferencingNode(activeDocument, nodeId);
+    const refCount = referencingListeners.length;
     if (refCount === 0) {
       recordTombstone(nodeId, nodeLabel);
       deleteFn();
@@ -7610,6 +7707,7 @@ export default function App() {
         nodeId,
         nodeLabel,
         referenceCount: refCount,
+        referencingListeners,
         onConfirm: () => {
           recordTombstone(nodeId, nodeLabel);
           deleteFn();
@@ -11261,56 +11359,7 @@ export default function App() {
 
       {/* Pre-flight delete modal — shown when the node being deleted has referencing behaviors */}
       {preFlightDelete !== null ? (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/40 p-4">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="preflight-delete-title"
-            className="relative flex w-full max-w-[26rem] flex-col overflow-hidden rounded-[1.15rem] border border-slate-200 bg-[#f5f7fb] shadow-[0_24px_64px_rgba(15,23,42,0.24)]"
-          >
-            <div className="shrink-0 border-b border-slate-200 bg-white/96 px-4 py-3 backdrop-blur">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                    Confirm delete
-                  </p>
-                  <h3 id="preflight-delete-title" className="mt-0.5 text-lg font-semibold text-slate-950">
-                    {preFlightDelete.nodeLabel}
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  aria-label="Cancel delete"
-                  onClick={() => setPreFlightDelete(null)}
-                  className={iconButtonClass()}
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-            <div className="px-4 py-4 space-y-4">
-              <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2.5 text-sm text-red-800">
-                <strong>
-                  {preFlightDelete.referenceCount} behavior{preFlightDelete.referenceCount === 1 ? "" : "s"}
-                </strong>{" "}
-                reference this node. Deleting it will leave those behaviors with broken references (highlighted with a
-                warning pill). You can fix or remove them after deletion.
-              </div>
-              <p className="text-sm text-slate-600">
-                The &quot;Re-point to&quot; option (substituting a replacement node in all referencing behaviors) is
-                deferred to a future release.
-              </p>
-            </div>
-            <div className="flex justify-end gap-2 border-t border-slate-200 px-4 py-3">
-              <button type="button" onClick={() => setPreFlightDelete(null)} className={actionButtonClass("secondary")}>
-                Cancel
-              </button>
-              <button type="button" onClick={preFlightDelete.onConfirm} className={actionButtonClass("danger")}>
-                Delete + leave broken refs
-              </button>
-            </div>
-          </div>
-        </div>
+        <PreFlightDeleteModal preFlightDelete={preFlightDelete} onClose={() => setPreFlightDelete(null)} />
       ) : null}
     </main>
   );
