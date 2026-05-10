@@ -1,9 +1,11 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 
-import type { AuthoringDocument, RuntimeListenerDefinition } from "@form-builder/schema";
+import type { AuthoringDocument, RuntimeEventTypeDefinition, RuntimeListenerDefinition } from "@form-builder/schema";
 
 import type { BrokenRefEntry } from "../stack/runtime-stack-helpers";
 import { BehaviorStackList } from "../index";
+import { EventReverseIndexPanel } from "./EventReverseIndexPanel";
+import { computeEventReverseIndex, filterReverseIndexByNode } from "./reverse-index-helpers";
 
 export interface BehaviorInspectorPanelProps {
   document: AuthoringDocument;
@@ -25,6 +27,12 @@ export interface BehaviorInspectorPanelProps {
   onOpenInAdvancedStudio?: () => void;
   /** Broken refs keyed by listener id, computed by parent. */
   brokenRefsByListenerId?: Record<string, BrokenRefEntry[]>;
+  /** Phase 2D-2: project-scope event catalog feeds cross-form events into the reverse index. */
+  projectEvents?: RuntimeEventTypeDefinition[];
+  /** Phase 2D-2: when set, scopes the reverse index to events touching this node id. */
+  reverseIndexNodeId?: string | null;
+  /** Phase 2D-2: handoff to manager · by-event layout filtered to the event type. */
+  onOpenManagerByEvent?: (eventType: string) => void;
 }
 
 export function BehaviorInspectorPanel({
@@ -43,7 +51,15 @@ export function BehaviorInspectorPanel({
   composer,
   onOpenInAdvancedStudio,
   brokenRefsByListenerId,
+  projectEvents,
+  reverseIndexNodeId,
+  onOpenManagerByEvent,
 }: BehaviorInspectorPanelProps) {
+  const reverseIndexEntries = useMemo(() => {
+    const all = computeEventReverseIndex(document, projectEvents ?? []);
+    return reverseIndexNodeId ? filterReverseIndexByNode(all, reverseIndexNodeId) : all;
+  }, [document, projectEvents, reverseIndexNodeId]);
+
   return (
     <div className="space-y-4">
       <BehaviorStackList
@@ -79,6 +95,12 @@ export function BehaviorInspectorPanel({
           Used by {externalReferenceCount} behavior{externalReferenceCount === 1 ? "" : "s"} elsewhere
         </div>
       ) : null}
+
+      <EventReverseIndexPanel
+        entries={reverseIndexEntries}
+        onOpenInManager={onOpenManagerByEvent}
+        onSelectListener={onSelectListener}
+      />
     </div>
   );
 }

@@ -1,4 +1,6 @@
-import type { RuntimeListenerDefinition } from "@form-builder/schema";
+import { useState } from "react";
+
+import type { RuntimeEventTypeDefinition, RuntimeListenerDefinition } from "@form-builder/schema";
 import {
   createListenerGraphSelection,
   formatRuntimeSourceCandidateLabel,
@@ -15,6 +17,7 @@ import type {
   RuntimeEventSourceCandidate,
 } from "../utils/runtime-helpers";
 import { actionButtonClass, formatLabel } from "../../../lib/ui-utils";
+import { ProjectEventPicker, type ProjectEventPickerEntry } from "./ProjectEventPicker";
 
 function uniqueRuntimeEventTypes(values: Array<string | undefined>): string[] {
   const seen = new Set<string>();
@@ -60,6 +63,10 @@ export interface ListenerCreationFormProps {
   onSetBehaviorStudioMode: (mode: BehaviorStudioMode) => void;
   onSetBehaviorStudioCreating: (creating: boolean) => void;
   onCreateAuthoredEventBehaviorListener: (source: RuntimeEventSourceCandidate, eventType: string) => void;
+  /** Phase 2D-3: project-scope events available across all forms in this project. */
+  projectEvents?: RuntimeEventTypeDefinition[];
+  /** Phase 2D-3: called when the author picks a project-scope event as the trigger. */
+  onPickProjectEvent?: (entry: ProjectEventPickerEntry) => void;
 }
 
 export function ListenerCreationForm({
@@ -85,7 +92,10 @@ export function ListenerCreationForm({
   onSetBehaviorStudioMode,
   onSetBehaviorStudioCreating,
   onCreateAuthoredEventBehaviorListener,
+  projectEvents = [],
+  onPickProjectEvent,
 }: ListenerCreationFormProps) {
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   if (!activeRuntimeTarget) {
     return (
       <div className="app-muted-card mt-3 p-4 text-sm text-slate-500">
@@ -248,6 +258,15 @@ export function ListenerCreationForm({
             ))}
             {!eventTypes.length ? <option value="">No authored events</option> : null}
           </select>
+          {onPickProjectEvent ? (
+            <button
+              type="button"
+              onClick={() => setProjectPickerOpen(true)}
+              className="mt-1 text-xs text-blue-600 underline-offset-2 hover:underline"
+            >
+              Pick from project events ({projectEvents.length})
+            </button>
+          ) : null}
         </div>
         <div>
           <label
@@ -371,6 +390,18 @@ export function ListenerCreationForm({
           Apply listener
         </button>
       </div>
+
+      {onPickProjectEvent ? (
+        <ProjectEventPicker
+          open={projectPickerOpen}
+          projectEvents={projectEvents}
+          onCancel={() => setProjectPickerOpen(false)}
+          onPick={(picked) => {
+            setProjectPickerOpen(false);
+            onPickProjectEvent(picked);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

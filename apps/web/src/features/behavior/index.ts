@@ -17,6 +17,8 @@ export { ListenerCreationForm } from "./composer/ListenerCreationForm";
 export type { ListenerCreationFormProps } from "./composer/ListenerCreationForm";
 export { CrossItemEventPicker } from "./composer/CrossItemEventPicker";
 export type { CrossItemEventPickerProps } from "./composer/CrossItemEventPicker";
+export { ProjectEventPicker } from "./composer/ProjectEventPicker";
+export type { ProjectEventPickerProps, ProjectEventPickerEntry } from "./composer/ProjectEventPicker";
 export { CreationGuide } from "./manager/CreationGuide";
 export type { CreationGuideProps } from "./manager/CreationGuide";
 export { BehaviorManager } from "./manager/BehaviorManager";
@@ -31,8 +33,19 @@ export { BehaviorInspectorPanel } from "./inspector/BehaviorInspectorPanel";
 export type { BehaviorInspectorPanelProps } from "./inspector/BehaviorInspectorPanel";
 export { BehaviorQuickToolbar } from "./inspector/BehaviorQuickToolbar";
 export type { BehaviorQuickToolbarProps } from "./inspector/BehaviorQuickToolbar";
+export { EventReverseIndexPanel } from "./inspector/EventReverseIndexPanel";
+export type { EventReverseIndexPanelProps } from "./inspector/EventReverseIndexPanel";
+export { computeEventReverseIndex, filterReverseIndexByNode } from "./inspector/reverse-index-helpers";
+export type {
+  EventReverseIndexEntry,
+  EventReverseIndexScope,
+  ReverseIndexConsumedEntry,
+  ReverseIndexRaisedEntry,
+} from "./inspector/reverse-index-helpers";
 export { SimulatorPanel } from "./test/SimulatorPanel";
 export type { SimulatorPanelProps } from "./test/SimulatorPanel";
+export { PreviewTestRecorder } from "./test/PreviewTestRecorder";
+export type { PreviewTestRecorderProps } from "./test/PreviewTestRecorder";
 export { BehaviorStudioModal } from "./BehaviorStudioModal";
 export type { BehaviorStudioModalProps } from "./BehaviorStudioModal";
 export { BehaviorStackList } from "./stack/BehaviorStackList";

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import type { BehaviorLibraryEntry, BehaviorLibraryParameter } from "@form-builder/schema";
+import type { BehaviorLibraryEntry, BehaviorLibraryParameter, RuntimeEventTypeDefinition } from "@form-builder/schema";
 
 import { actionButtonClass, iconButtonClass } from "../../../lib/ui-utils";
 import { defaultParamsForEntry, validateParams } from "./library-helpers";
+import { ProjectEventPicker } from "../composer/ProjectEventPicker";
 
 export interface ApplyParametersDialogProps {
   isOpen: boolean;
@@ -13,9 +14,18 @@ export interface ApplyParametersDialogProps {
   onClose: () => void;
   /** Apply with the validated params. */
   onApply: (entry: BehaviorLibraryEntry, params: Record<string, unknown>) => void;
+  /** Phase 2D-3: project-scope events for the eventRef picker. */
+  projectEvents?: RuntimeEventTypeDefinition[];
 }
 
-export function ApplyParametersDialog({ isOpen, entry, initialParams, onClose, onApply }: ApplyParametersDialogProps) {
+export function ApplyParametersDialog({
+  isOpen,
+  entry,
+  initialParams,
+  onClose,
+  onApply,
+  projectEvents = [],
+}: ApplyParametersDialogProps) {
   const [params, setParams] = useState<Record<string, unknown>>({});
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -100,6 +110,7 @@ export function ApplyParametersDialog({ isOpen, entry, initialParams, onClose, o
                   value={params[param.key]}
                   error={errorMap[param.key]}
                   onChange={(val) => handleParamChange(param.key, val)}
+                  projectEvents={projectEvents}
                 />
               ))}
             </div>
@@ -131,6 +142,7 @@ interface ParameterFieldProps {
   value: unknown;
   error: string | undefined;
   onChange: (value: unknown) => void;
+  projectEvents?: RuntimeEventTypeDefinition[];
 }
 
 const inputClass =
@@ -139,8 +151,9 @@ const inputClass =
 const errorInputClass =
   "h-9 w-full rounded-md border border-rose-300 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-rose-400 focus:ring-2 focus:ring-rose-100";
 
-function ParameterField({ param, value, error, onChange }: ParameterFieldProps) {
+function ParameterField({ param, value, error, onChange, projectEvents = [] }: ParameterFieldProps) {
   const id = `param-${param.key}`;
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   return (
     <div>
@@ -186,8 +199,26 @@ function ParameterField({ param, value, error, onChange }: ParameterFieldProps) 
             </option>
           ))}
         </select>
+      ) : param.type === "eventRef" ? (
+        <div className="flex gap-2">
+          <input
+            id={id}
+            type="text"
+            value={value == null ? "" : String(value)}
+            placeholder="Event name"
+            onChange={(e) => onChange(e.target.value)}
+            className={error ? errorInputClass : inputClass}
+          />
+          <button
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            className="shrink-0 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Pick…
+          </button>
+        </div>
       ) : (
-        // string | nodeRef | eventRef | fieldKey | list → text input
+        // string | nodeRef | fieldKey | list → text input
         <input
           id={id}
           type="text"
@@ -195,13 +226,11 @@ function ParameterField({ param, value, error, onChange }: ParameterFieldProps) 
           placeholder={
             param.type === "nodeRef"
               ? "Node ID"
-              : param.type === "eventRef"
-                ? "Event name"
-                : param.type === "fieldKey"
-                  ? "Field key"
-                  : param.type === "list"
-                    ? "Comma-separated values"
-                    : undefined
+              : param.type === "fieldKey"
+                ? "Field key"
+                : param.type === "list"
+                  ? "Comma-separated values"
+                  : undefined
           }
           onChange={(e) => onChange(e.target.value)}
           className={error ? errorInputClass : inputClass}
@@ -209,6 +238,18 @@ function ParameterField({ param, value, error, onChange }: ParameterFieldProps) 
       )}
 
       {error && <p className="mt-1 text-xs text-rose-600">{error}</p>}
+
+      {param.type === "eventRef" ? (
+        <ProjectEventPicker
+          open={pickerOpen}
+          projectEvents={projectEvents}
+          onCancel={() => setPickerOpen(false)}
+          onPick={(picked) => {
+            onChange(picked.type);
+            setPickerOpen(false);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
