@@ -31,6 +31,8 @@ RuntimeHostBindingDirection = Literal["inbound", "outbound", "bidirectional"]
 RuntimePayloadMode = Literal["key_value", "json"]
 RuntimeValueType = Literal["string", "number", "boolean", "object", "array", "unknown"]
 RuntimeConditionOperator = Literal["equals", "not_equals", "contains", "exists"]
+BehaviorProvenance = Literal["extraction", "library", "manual"]
+BehaviorSafetyClass = Literal["safe", "destructive", "host"]
 
 
 class RuntimePayloadField(CamelModel):
@@ -93,6 +95,26 @@ class RuntimeEventTypeDefinition(CamelModel):
 RuntimeEventDefinition = RuntimeEventTypeDefinition
 
 
+class NodeRef(CamelModel):
+    id: str
+
+
+class EventRef(CamelModel):
+    id: str
+
+
+class BehaviorLibraryRef(CamelModel):
+    id: str
+    revision: int
+    params: dict[str, object] = Field(default_factory=dict)
+    detached: bool = False
+
+
+class BehaviorListenerTiming(CamelModel):
+    debounce_ms: int | None = None
+    throttle_ms: int | None = None
+
+
 class RuntimeListenerDefinition(CamelModel):
     id: str
     label: str | None = None
@@ -107,6 +129,12 @@ class RuntimeListenerDefinition(CamelModel):
     wiring_mode: RuntimeListenerWiringMode = "local"
     use_capture: bool = False
     priority: int = 0
+    source: NodeRef | None = None
+    target: NodeRef | None = None
+    event_ref: EventRef | None = None
+    library_ref: BehaviorLibraryRef | None = None
+    timing: BehaviorListenerTiming | None = None
+    provenance: BehaviorProvenance | None = None
     event_name: str
     source_node_id: str | None = None
     enabled: bool = True
@@ -208,6 +236,7 @@ class RuntimeEventEnvelope(CamelModel):
 
 class RuntimeDocumentBehavior(CamelModel):
     version: Literal["1.0"] = "1.0"
+    migration_version: Literal["phase-1"] | None = None
     form_events: list[RuntimeEventDefinition] = Field(default_factory=list)
     form_listeners: list[RuntimeListenerDefinition] = Field(default_factory=list)
     host_bindings: list[RuntimeHostBinding] = Field(default_factory=list)
