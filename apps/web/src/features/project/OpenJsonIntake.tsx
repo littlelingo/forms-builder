@@ -70,7 +70,7 @@ export function OpenJsonIntake({ conversions, isImportingJson, onOpenJson, onRes
               </button>
             ))
           ) : (
-            <div className="app-muted-card p-4 text-sm text-slate-500">
+            <div className="app-muted-card p-4 text-sm text-slate-600">
               No imports in the queue. Use `New` to start from a PDF.
             </div>
           )}
