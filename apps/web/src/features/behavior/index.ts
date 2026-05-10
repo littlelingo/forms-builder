@@ -40,3 +40,4 @@ export type { BehaviorStackListProps } from "./stack/BehaviorStackList";
 export { BehaviorStackRow } from "./stack/BehaviorStackRow";
 export type { BehaviorStackRowProps } from "./stack/BehaviorStackRow";
 export { summariseListener, listenerTriggerPill, countListenersReferencingNode } from "./stack/runtime-stack-helpers";
+export { SYSTEM_LIBRARY, getSystemEntry } from "./library/system-library";

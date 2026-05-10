@@ -1,0 +1,43 @@
+{
+  "id": "lib_required_if",
+  "name": "Required if",
+  "description": "Mark a target node required when a source field's value equals a specific value",
+  "category": "validation",
+  "scope": "system",
+  "revision": 1,
+  "icon": "asterisk",
+  "bindsTo": [],
+  "parameters": [
+    { "key": "sourceField", "type": "fieldKey", "label": "Source field", "required": true },
+    { "key": "matchValue", "type": "string", "label": "Value to match", "required": true },
+    { "key": "targetNode", "type": "nodeRef", "label": "Node to mark required/optional", "required": true }
+  ],
+  "template": {
+    "eventName": "field.change",
+    "enabled": true,
+    "conditions": [
+      {
+        "id": "cond-value-match",
+        "enabled": true,
+        "source": { "kind": "field_value", "fieldId": "{{sourceField}}" },
+        "operator": "equals",
+        "expectedValue": "{{matchValue}}"
+      }
+    ],
+    "actions": [
+      {
+        "id": "action-mark-required",
+        "kind": "mark_required",
+        "target": { "nodeId": "{{targetNode}}" },
+        "config": {},
+        "continueOnError": false
+      }
+    ]
+  },
+  "i18n": {
+    "en": {
+      "name": "Required if",
+      "description": "Mark a target node required when a source field's value equals a specific value"
+    }
+  }
+}

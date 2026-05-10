@@ -1,0 +1,43 @@
+{
+  "id": "lib_show_if",
+  "name": "Show if",
+  "description": "Show a target node when a source field's value equals a specific value",
+  "category": "visibility",
+  "scope": "system",
+  "revision": 1,
+  "icon": "eye",
+  "bindsTo": [],
+  "parameters": [
+    { "key": "sourceField", "type": "fieldKey", "label": "Source field", "required": true },
+    { "key": "matchValue", "type": "string", "label": "Value to match", "required": true },
+    { "key": "targetNode", "type": "nodeRef", "label": "Node to show/hide", "required": true }
+  ],
+  "template": {
+    "eventName": "field.change",
+    "enabled": true,
+    "conditions": [
+      {
+        "id": "cond-value-match",
+        "enabled": true,
+        "source": { "kind": "field_value", "fieldId": "{{sourceField}}" },
+        "operator": "equals",
+        "expectedValue": "{{matchValue}}"
+      }
+    ],
+    "actions": [
+      {
+        "id": "action-show",
+        "kind": "show_node",
+        "target": { "nodeId": "{{targetNode}}" },
+        "config": {},
+        "continueOnError": false
+      }
+    ]
+  },
+  "i18n": {
+    "en": {
+      "name": "Show if",
+      "description": "Show a target node when a source field's value equals a specific value"
+    }
+  }
+}
