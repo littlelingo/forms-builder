@@ -80,6 +80,19 @@ export interface RuntimeDispatchReport {
   stateDiff: RuntimeStateDiff;
 }
 
+export interface NodeDescriptor {
+  id: string;
+  dispatchKey?: string;
+  labelHint?: string;
+  broken?: boolean;
+  lastSeenLabel?: string;
+}
+
+export interface NodeTombstoneMap {
+  /** Returns last-seen metadata for a node id no longer in the live index. */
+  get(id: string): { lastSeenLabel?: string } | undefined;
+}
+
 export interface RuntimeEngine {
   mount(document: AuthoringDocument, options?: RuntimeEngineMountOptions): RuntimeSessionState;
   unmount(): void;

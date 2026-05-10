@@ -9,4 +9,6 @@ export type {
   RuntimeActionDiagnostic,
   RuntimeStateDiff,
   RuntimeTraceEntry,
+  NodeDescriptor,
+  NodeTombstoneMap,
 } from "./types";

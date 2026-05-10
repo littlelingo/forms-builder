@@ -12,6 +12,8 @@ import type {
 import { runtimeActionSafetyClass } from "@form-builder/schema";
 
 import { createRuntimeEngine } from "./engine";
+import { createRuntimeDocumentIndex } from "./document-index";
+import type { NodeTombstoneMap } from "./types";
 
 function createHostContext(): RuntimeHostContext {
   return {
@@ -1577,4 +1579,37 @@ test("dispatchWithReport explains skipped listeners when conditions fail", () =>
     report.emittedEvents.some((event) => event.type === "report.should_not_emit"),
     false,
   );
+});
+
+test("resolveNodeDescriptor returns id + dispatchKey + labelHint for live nodes", () => {
+  const document = createDocument();
+  const field = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "field-name");
+  assert.ok(field);
+  field.dispatchKey = "p1.zip";
+  field.label = "ZIP";
+  const index = createRuntimeDocumentIndex(document);
+  const descriptor = index.resolveNodeDescriptor("field-name");
+  assert.equal(descriptor.id, "field-name");
+  assert.equal(descriptor.dispatchKey, "p1.zip");
+  assert.equal(descriptor.labelHint, "ZIP");
+  assert.equal(descriptor.broken, undefined);
+});
+
+test("resolveNodeDescriptor marks broken when id missing from index", () => {
+  const document = createDocument();
+  const index = createRuntimeDocumentIndex(document);
+  const descriptor = index.resolveNodeDescriptor("ghost-id");
+  assert.equal(descriptor.id, "ghost-id");
+  assert.equal(descriptor.broken, true);
+});
+
+test("resolveNodeDescriptor returns lastSeenLabel from tombstone map when id missing", () => {
+  const document = createDocument();
+  const index = createRuntimeDocumentIndex(document);
+  const tombstones: NodeTombstoneMap = {
+    get: (id) => (id === "deleted-1" ? { lastSeenLabel: "Old Field" } : undefined),
+  };
+  const descriptor = index.resolveNodeDescriptor("deleted-1", tombstones);
+  assert.equal(descriptor.broken, true);
+  assert.equal(descriptor.lastSeenLabel, "Old Field");
 });
