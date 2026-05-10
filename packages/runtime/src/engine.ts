@@ -18,6 +18,7 @@ import { createRuntimeDocumentIndex, type IndexedRuntimeListener, type RuntimeDo
 import { RuntimeEventBus } from "./event-bus";
 import { createInitialSessionState, mergeSessionState } from "./session-state";
 import type {
+  BehaviorExecutedEvent,
   BehaviorLibraryRegistry,
   CreateRuntimeEngineOptions,
   RuntimeActionDiagnostic,
@@ -28,6 +29,7 @@ import type {
   RuntimeListenerDiagnostic,
   RuntimeStateDiff,
   RuntimeTraceEntry,
+  TelemetrySink,
 } from "./types";
 import { applyTemplateTokens, stableStringify } from "./template-tokens";
 import { validateRuntimeDocument } from "./validation";
@@ -66,6 +68,7 @@ interface RuntimeDispatchReportDraft {
 
 export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): RuntimeEngine {
   const libraryRegistry: BehaviorLibraryRegistry | undefined = options?.libraryRegistry;
+  const telemetrySink: TelemetrySink | undefined = options?.telemetrySink;
   // Per-engine-instance cache: avoids re-materialising the same (entry + params) pair.
   const materialisedCache = new Map<string, RuntimeListenerDefinition>();
 
@@ -783,24 +786,46 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
         }
         // Use the materialised listener's actions (may differ from raw when libraryRef is set).
         const resolvedListener = materialisedListener(listenerInvocation.listener.listener) ?? listenerInvocation.listener.listener;
-        for (const action of resolvedListener.actions) {
-          const actionDiagnostic: RuntimeActionDiagnostic = {
-            actionId: action.id,
-            label: action.label ?? null,
-            kind: action.kind,
-            target: structuredClone(action.target ?? null),
-            config: structuredClone(action.config),
-            status: "executed",
-          };
-          listenerDiagnostic.actions.push(actionDiagnostic);
-          try {
-            executeAction(action, listenerInvocation.event, report);
-          } catch (error) {
-            actionDiagnostic.status = "error";
-            actionDiagnostic.errorMessage = error instanceof Error ? error.message : "Runtime action failed.";
-            throw error;
+        const listenerStart = performance.now();
+        let listenerError: BehaviorExecutedEvent["error"] | undefined;
+        try {
+          for (const action of resolvedListener.actions) {
+            const actionDiagnostic: RuntimeActionDiagnostic = {
+              actionId: action.id,
+              label: action.label ?? null,
+              kind: action.kind,
+              target: structuredClone(action.target ?? null),
+              config: structuredClone(action.config),
+              status: "executed",
+            };
+            listenerDiagnostic.actions.push(actionDiagnostic);
+            try {
+              executeAction(action, listenerInvocation.event, report);
+            } catch (error) {
+              actionDiagnostic.status = "error";
+              actionDiagnostic.errorMessage = error instanceof Error ? error.message : "Runtime action failed.";
+              throw error;
+            }
           }
+        } catch (err) {
+          listenerError = {
+            message: err instanceof Error ? err.message : String(err),
+            actionId: resolvedListener.actions.find((a) => {
+              const diag = listenerDiagnostic.actions.find((d) => d.actionId === a.id);
+              return diag?.status === "error";
+            })?.id,
+          };
+          telemetrySink?.({
+            listenerId: listenerInvocation.listener.listener.id,
+            durationMs: performance.now() - listenerStart,
+            error: listenerError,
+          });
+          throw err;
         }
+        telemetrySink?.({
+          listenerId: listenerInvocation.listener.listener.id,
+          durationMs: performance.now() - listenerStart,
+        });
       }
     }
 

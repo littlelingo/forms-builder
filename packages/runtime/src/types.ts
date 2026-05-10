@@ -16,8 +16,19 @@ export interface BehaviorLibraryRegistry {
   resolve(id: string, revision: number): BehaviorLibraryEntry | undefined;
 }
 
+export interface BehaviorExecutedEvent {
+  listenerId: string;
+  durationMs: number;
+  /** Phase 3 branches; no-op in Phase 1A */
+  branchTaken?: string;
+  error?: { message: string; actionId?: string };
+}
+
+export type TelemetrySink = (event: BehaviorExecutedEvent) => void;
+
 export interface CreateRuntimeEngineOptions {
   libraryRegistry?: BehaviorLibraryRegistry;
+  telemetrySink?: TelemetrySink;
 }
 
 export interface RuntimeEngineMountOptions {

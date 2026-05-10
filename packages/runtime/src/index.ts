@@ -1,6 +1,7 @@
 export { createRuntimeEngine } from "./engine";
 export { applyTemplateTokens } from "./template-tokens";
 export type {
+  BehaviorExecutedEvent,
   BehaviorLibraryRegistry,
   CreateRuntimeEngineOptions,
   RuntimeEngine,
@@ -14,4 +15,5 @@ export type {
   RuntimeTraceEntry,
   NodeDescriptor,
   NodeTombstoneMap,
+  TelemetrySink,
 } from "./types";

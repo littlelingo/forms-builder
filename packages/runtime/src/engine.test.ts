@@ -14,7 +14,7 @@ import { runtimeActionSafetyClass } from "@form-builder/schema";
 import { createRuntimeEngine } from "./engine";
 import { applyTemplateTokens } from "./template-tokens";
 import { createRuntimeDocumentIndex } from "./document-index";
-import type { BehaviorLibraryRegistry, NodeTombstoneMap } from "./types";
+import type { BehaviorExecutedEvent, BehaviorLibraryRegistry, NodeTombstoneMap } from "./types";
 
 function createHostContext(): RuntimeHostContext {
   return {
@@ -2137,4 +2137,158 @@ test("applyTemplateTokens substitutes tokens into nested template structures", (
     { x: 1, y: "two", z: true },
   );
   assert.deepEqual(result, { a: 1, b: ["two", "raw"], c: { d: true } });
+});
+
+// ── Telemetry sink tests ───────────────────────────────────────────────────
+
+test("telemetry sink receives behavior.executed for every fired listener", () => {
+  const document = createDocument();
+  const events: BehaviorExecutedEvent[] = [];
+
+  // Add two form-level listeners that both fire on field.change
+  document.runtime!.formListeners.push(
+    {
+      id: "telemetry-listener-a",
+      label: "Telemetry A",
+      eventName: "field.change",
+      enabled: true,
+      conditions: [],
+      actions: [
+        {
+          id: "action-telem-a",
+          kind: "set_field_value",
+          config: { fieldId: "field-name", value: "a" },
+          continueOnError: false,
+        },
+      ],
+    },
+    {
+      id: "telemetry-listener-b",
+      label: "Telemetry B",
+      eventName: "field.change",
+      enabled: true,
+      conditions: [],
+      actions: [
+        {
+          id: "action-telem-b",
+          kind: "set_field_value",
+          config: { fieldId: "field-name", value: "b" },
+          continueOnError: false,
+        },
+      ],
+    },
+  );
+
+  const engine = createRuntimeEngine({ telemetrySink: (e) => events.push(e) });
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  engine.dispatch(fieldChangeEvent("field-name", "hello"));
+
+  // Both form-level listeners should have fired → 2 telemetry events
+  assert.equal(events.length, 2, "expected 2 telemetry events, one per listener");
+  const listenerIds = events.map((e) => e.listenerId).sort();
+  assert.deepEqual(listenerIds, ["telemetry-listener-a", "telemetry-listener-b"]);
+});
+
+test("telemetry event includes durationMs >= 0", () => {
+  const document = createDocument();
+  const events: BehaviorExecutedEvent[] = [];
+
+  document.runtime!.formListeners.push({
+    id: "telemetry-duration-listener",
+    label: "Duration test",
+    eventName: "field.change",
+    enabled: true,
+    conditions: [],
+    actions: [
+      {
+        id: "action-duration",
+        kind: "set_field_value",
+        config: { fieldId: "field-name", value: "measured" },
+        continueOnError: false,
+      },
+    ],
+  });
+
+  const engine = createRuntimeEngine({ telemetrySink: (e) => events.push(e) });
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  engine.dispatch(fieldChangeEvent("field-name", "trigger"));
+
+  assert.ok(events.length >= 1, "expected at least one telemetry event");
+  const evt = events.find((e) => e.listenerId === "telemetry-duration-listener");
+  assert.ok(evt, "expected telemetry event for telemetry-duration-listener");
+  assert.equal(typeof evt.durationMs, "number", "durationMs should be a number");
+  assert.ok(isFinite(evt.durationMs), "durationMs should be finite");
+  assert.ok(evt.durationMs >= 0, "durationMs should be >= 0");
+});
+
+test("telemetry event includes error when an action throws and chain halts", () => {
+  const document = createDocument();
+  const events: BehaviorExecutedEvent[] = [];
+
+  // Use a circular-reference value in config to force structuredClone to throw
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const circular: any = {};
+  circular.self = circular;
+
+  document.runtime!.formListeners.push({
+    id: "telemetry-error-listener",
+    label: "Error test",
+    eventName: "field.change",
+    enabled: true,
+    conditions: [],
+    actions: [
+      {
+        id: "action-throws",
+        kind: "set_field_value",
+        // circular will cause structuredClone to throw inside executeAction
+        config: { fieldId: "field-name", value: circular } as Record<string, unknown>,
+        continueOnError: false,
+      },
+    ],
+  });
+
+  const engine = createRuntimeEngine({ telemetrySink: (e) => events.push(e) });
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  // The engine should throw because continueOnError is false
+  assert.throws(() => engine.dispatch(fieldChangeEvent("field-name", "trigger")));
+
+  // Exactly one telemetry event should have been emitted despite the throw
+  const telemetryEvt = events.find((e) => e.listenerId === "telemetry-error-listener");
+  assert.ok(telemetryEvt, "expected telemetry event to be emitted even on error");
+  assert.ok(telemetryEvt.error, "expected error field to be set");
+  assert.equal(typeof telemetryEvt.error.message, "string", "error.message should be a string");
+  assert.ok(telemetryEvt.error.message.length > 0, "error.message should be non-empty");
+});
+
+test("default engine without telemetrySink does not crash", () => {
+  const document = createDocument();
+  const engine = createRuntimeEngine(); // no telemetrySink
+
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  // Dispatching an event that fires a listener should not throw even without a sink
+  assert.doesNotThrow(() => engine.dispatch(clickEvent("button-next")));
 });
