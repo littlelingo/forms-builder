@@ -962,21 +962,31 @@ export function BehaviorManager({
                   {status === "all" ? "Any status" : formatLabel(status)}
                 </button>
               ))}
-              {(["all", "impacts", "started"] as const).map((view) => (
-                <button
-                  key={`behavior-view-${view}`}
-                  type="button"
-                  onClick={() => onSetBehaviorIndexObjectView(view)}
-                  className={actionButtonClass(behaviorIndexObjectView === view ? "primary" : "secondary")}
-                  disabled={view !== "all" && !behaviorIndexFieldId}
-                >
-                  {view === "all"
+              {(["all", "impacts", "started"] as const).map((view) => {
+                const fieldLabel = activeBuilderField?.label?.trim() || activeBuilderField?.id || "this field";
+                const label =
+                  view === "all"
                     ? "All objects"
                     : view === "impacts"
-                      ? "Impacts this field"
-                      : "Started from this field"}
-                </button>
-              ))}
+                      ? activeBuilderField
+                        ? `Impacts ${fieldLabel}`
+                        : "Impacts this field"
+                      : activeBuilderField
+                        ? `Started from ${fieldLabel}`
+                        : "Started from this field";
+                return (
+                  <button
+                    key={`behavior-view-${view}`}
+                    type="button"
+                    onClick={() => onSetBehaviorIndexObjectView(view)}
+                    className={actionButtonClass(behaviorIndexObjectView === view ? "primary" : "secondary")}
+                    disabled={view !== "all" && !behaviorIndexFieldId}
+                    title={view === "all" ? "Show every behavior in this form" : `Filter to behaviors that ${view === "impacts" ? "act on" : "fire from"} the currently selected field`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
               {(["table", "by_event", "map"] as const).map((layout) => (
                 <button
                   key={`behavior-layout-${layout}`}

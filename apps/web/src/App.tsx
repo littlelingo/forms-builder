@@ -86,6 +86,7 @@ import { BuilderFieldCard } from "./features/builder/cards/BuilderFieldCard";
 import { DragHandle, DropMarker, EmptyDropZone } from "./features/builder/dnd/drag-handles";
 import { dropTargetKey, isCompatibleDropTarget, summarizeAuthoringStep } from "./features/builder/utils/builder-utils";
 import { actionButtonClass, formatLabel, iconButtonClass } from "./lib/ui-utils";
+import { ConfirmDialog, type ConfirmDialogState } from "./lib/ConfirmDialog";
 import { HomeStage, badgeToneFromProjectStatus } from "./features/project";
 import { ReviewStage } from "./features/review/ReviewStage";
 import { badgeToneFromReview, badgeToneFromStatus, overlayRects } from "./features/review/utils/review-utils";
@@ -1969,6 +1970,8 @@ export default function App() {
     referencingListeners: { listenerId: string; label: string; scopeLabel: string }[];
     onConfirm: () => void;
   } | null>(null);
+
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -5216,17 +5219,29 @@ export default function App() {
   }
 
   function removeLegacyConditionalRuleForSelection(selection: AuthoringSelection, ruleId: string) {
-    updateAuthoringDocument((document) => {
-      const field = getSelectionContext(document, selection).field;
-      if (!field) {
-        return;
-      }
-      (field as LegacyRuleField).conditionals = legacyFieldConditionals(field).filter((rule) => rule.ruleId !== ruleId);
-    }, selection);
-    setEditingRuleIndex(null);
-    setExpandedBehaviorIndexObjectKey((current) => (current === `rule:${ruleId}` ? null : current));
-    setSelectedBehaviorNode((current) => (current?.kind === "rule" && current.ruleId === ruleId ? null : current));
-    setMessage("Condition flow deleted.");
+    setConfirmDialog({
+      title: "Delete condition rule",
+      message: "Permanently delete this condition rule? Any field visibility/required state it drives will reset.",
+      confirmLabel: "Delete rule",
+      destructive: true,
+      onConfirm: () => {
+        updateAuthoringDocument((document) => {
+          const field = getSelectionContext(document, selection).field;
+          if (!field) {
+            return;
+          }
+          (field as LegacyRuleField).conditionals = legacyFieldConditionals(field).filter(
+            (rule) => rule.ruleId !== ruleId,
+          );
+        }, selection);
+        setEditingRuleIndex(null);
+        setExpandedBehaviorIndexObjectKey((current) => (current === `rule:${ruleId}` ? null : current));
+        setSelectedBehaviorNode((current) =>
+          current?.kind === "rule" && current.ruleId === ruleId ? null : current,
+        );
+        setMessage("Condition rule deleted.");
+      },
+    });
   }
 
   function toggleRuntimeListenerForSelection(selection: AuthoringSelection | null, listenerId: string) {
@@ -5287,18 +5302,50 @@ export default function App() {
   }
 
   function removeRuntimeListenerForSelection(selection: AuthoringSelection | null, listenerId: string) {
-    updateAuthoringDocument((document) => {
-      const listeners = mutableRuntimeListenersForSelection(document, selection);
-      const listenerIndex = listeners?.findIndex((candidate) => candidate.id === listenerId) ?? -1;
-      if (listeners && listenerIndex >= 0) {
-        listeners.splice(listenerIndex, 1);
+    const listenerLabel = (() => {
+      if (!activeDocument) return "this behavior";
+      let listeners: readonly RuntimeListenerDefinition[] | null = null;
+      if (selection === null) {
+        listeners = activeDocument.runtime?.formListeners ?? null;
+      } else {
+        const context = getSelectionContext(activeDocument, selection);
+        const node =
+          selection.kind === "step"
+            ? context.step
+            : selection.kind === "section"
+              ? context.section
+              : selection.kind === "group"
+                ? context.group
+                : selection.kind === "field"
+                  ? context.field
+                  : null;
+        listeners = node?.runtime?.listeners ?? null;
       }
-    }, selection);
-    setExpandedBehaviorIndexObjectKey((current) => (current === `flow:${listenerId}` ? null : current));
-    setSelectedBehaviorNode((current) =>
-      current?.kind === "listener" && current.listenerId === listenerId ? null : current,
-    );
-    setMessage("Flow deleted.");
+      const listener = listeners?.find((candidate) => candidate.id === listenerId);
+      if (!listener) return "this behavior";
+      return listener.label?.trim() || listener.eventName || listener.id;
+    })();
+    setConfirmDialog({
+      title: "Delete behavior",
+      message: `Permanently delete "${listenerLabel}"? Other behaviors that dispatch into this listener will not run.`,
+      detail: "This cannot be undone. You can re-create the behavior afterwards from the Behavior Library if needed.",
+      confirmLabel: "Delete behavior",
+      destructive: true,
+      onConfirm: () => {
+        updateAuthoringDocument((document) => {
+          const listeners = mutableRuntimeListenersForSelection(document, selection);
+          const listenerIndex = listeners?.findIndex((candidate) => candidate.id === listenerId) ?? -1;
+          if (listeners && listenerIndex >= 0) {
+            listeners.splice(listenerIndex, 1);
+          }
+        }, selection);
+        setExpandedBehaviorIndexObjectKey((current) => (current === `flow:${listenerId}` ? null : current));
+        setSelectedBehaviorNode((current) =>
+          current?.kind === "listener" && current.listenerId === listenerId ? null : current,
+        );
+        setMessage("Behavior deleted.");
+      },
+    });
   }
 
   function addRuntimeActionToListener(listenerId: string, kind: RuntimeActionKind = "dispatch_event") {
@@ -6348,7 +6395,8 @@ export default function App() {
     setBehaviorIndexTriggerFilter("all");
     setBehaviorIndexEffectFilter("all");
     setBehaviorIndexStatusFilter("all");
-    setBehaviorIndexObjectView("all");
+    const incomingSelection = "selection" in options ? options.selection : selectedAuthoring;
+    setBehaviorIndexObjectView(incomingSelection?.kind === "field" ? "impacts" : "all");
     setExpandedBehaviorIndexObjectKey(options.objectKey ?? null);
     setBehaviorStudioAnchor(null);
     setBehaviorStudioMode("manage");
@@ -11426,8 +11474,21 @@ export default function App() {
         projectEntries={projectLibrary}
         onDeleteProjectEntry={(entryId) => {
           if (!activeProjectDetail) return;
-          void deleteProjectLibraryEntry(activeProjectDetail.project.id, entryId).then(() => {
-            setProjectLibrary((prev) => prev.filter((e) => e.id !== entryId));
+          const entry = projectLibrary.find((candidate) => candidate.id === entryId);
+          const entryLabel = entry?.name ?? entry?.id ?? "this library entry";
+          setConfirmDialog({
+            title: "Delete library entry",
+            message: `Remove "${entryLabel}" from the project library?`,
+            detail:
+              "Listeners that already reference this entry stay in place but will surface a broken-library-ref pill. You can re-import the entry later from the System library if it shipped originally.",
+            confirmLabel: "Delete entry",
+            destructive: true,
+            onConfirm: () => {
+              void deleteProjectLibraryEntry(activeProjectDetail.project.id, entryId).then(() => {
+                setProjectLibrary((prev) => prev.filter((e) => e.id !== entryId));
+                setMessage("Library entry deleted.");
+              });
+            },
           });
         }}
       />
@@ -11575,6 +11636,11 @@ export default function App() {
       {/* Pre-flight delete modal — shown when the node being deleted has referencing behaviors */}
       {preFlightDelete !== null ? (
         <PreFlightDeleteModal preFlightDelete={preFlightDelete} onClose={() => setPreFlightDelete(null)} />
+      ) : null}
+
+      {/* Generic confirm dialog — destructive operations (behavior delete, library delete) */}
+      {confirmDialog !== null ? (
+        <ConfirmDialog state={confirmDialog} onClose={() => setConfirmDialog(null)} />
       ) : null}
     </main>
   );
