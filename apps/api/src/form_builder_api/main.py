@@ -18,6 +18,7 @@ from form_builder_api.models.authoring import (
     AuthoringDocument,
     AuthoringProjectDetail,
     AuthoringProjectRecord,
+    BehaviorLibraryEntry,
     ProjectPatch,
     ProjectRevision,
 )
@@ -27,6 +28,11 @@ from form_builder_api.services.authoring import (
     build_authoring_project_from_document,
 )
 from form_builder_api.services.conversion_pipeline import ingest_conversion
+from form_builder_api.services.library import (
+    delete_project_library_entry,
+    list_project_library,
+    save_project_library_entry,
+)
 from form_builder_api.services.preview import build_render_preview
 from form_builder_api.services.sample_library import list_sample_pdfs, load_sample_pdf
 from form_builder_api.services.source_preview import render_conversion_page_png
@@ -228,6 +234,27 @@ def get_project_revisions(project_id: str) -> list[ProjectRevision]:
     if repository.get_project(project_id) is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return repository.list_project_revisions(project_id)
+
+
+@app.get("/projects/{project_id}/library", response_model=list[BehaviorLibraryEntry])
+def get_project_library(project_id: str) -> list[BehaviorLibraryEntry]:
+    return list_project_library(project_id)
+
+
+@app.post("/projects/{project_id}/library", response_model=BehaviorLibraryEntry)
+def post_project_library_entry(project_id: str, entry: BehaviorLibraryEntry) -> BehaviorLibraryEntry:
+    return save_project_library_entry(project_id, entry)
+
+
+@app.delete("/projects/{project_id}/library/{entry_id}")
+def delete_project_library_entry_route(project_id: str, entry_id: str) -> dict:
+    deleted = delete_project_library_entry(project_id, entry_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Library entry {entry_id!r} not found in project {project_id!r}.",
+        )
+    return {"deleted": True}
 
 
 @app.post("/forms", response_model=FormRecord)
