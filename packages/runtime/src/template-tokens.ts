@@ -36,18 +36,17 @@ export function applyTemplateTokens(template: unknown, params: Record<string, un
 }
 
 /**
- * Stable JSON stringify: sorts object keys so that param objects with the
- * same entries but different insertion order produce the same cache key.
+ * Stable JSON stringify: recursively sorts object keys so that param objects with the
+ * same entries but different insertion order (including nested objects) produce the same
+ * cache key.
  */
 export function stableStringify(value: unknown): string {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    const sorted = Object.keys(value as Record<string, unknown>)
-      .sort()
-      .reduce<Record<string, unknown>>((acc, key) => {
-        acc[key] = (value as Record<string, unknown>)[key];
-        return acc;
-      }, {});
-    return JSON.stringify(sorted);
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
   }
-  return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(",")}}`;
 }

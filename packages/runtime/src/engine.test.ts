@@ -13,7 +13,7 @@ import { runtimeActionSafetyClass } from "@form-builder/schema";
 
 import { createRuntimeEngine } from "./engine";
 import { resolveRuntimeToken } from "./tokens";
-import { applyTemplateTokens } from "./template-tokens";
+import { applyTemplateTokens, stableStringify } from "./template-tokens";
 import { createRuntimeDocumentIndex } from "./document-index";
 import type { BehaviorExecutedEvent, BehaviorLibraryRegistry, NodeTombstoneMap } from "./types";
 
@@ -2331,4 +2331,107 @@ test("resolveRuntimeToken handles $now and $uuid roots without paths", () => {
   const uuid = resolveRuntimeToken("$uuid", {});
   assert.equal(uuid.ok, true);
   assert.match(String(uuid.ok && uuid.value), /[a-f0-9-]+/i);
+});
+
+// ── Regression: library cache cross-talk (#1) ─────────────────────────────────
+
+test("two listeners with identical libraryRef+params each surface their own id and label in the dispatch report", () => {
+  // Both listeners reference the same library entry with the same params.
+  // Before the fix, the cache stored the full materialised listener (including envelope fields)
+  // so the second listener would incorrectly report the first listener's id/label.
+  const document = createDocument();
+
+  const registry: BehaviorLibraryRegistry = {
+    resolve(id, _revision) {
+      if (id !== "lib-shared") return undefined;
+      return {
+        id: "lib-shared",
+        name: "Shared pattern",
+        description: "Fires on any field.change",
+        category: "validation",
+        scope: "system",
+        revision: 1,
+        parameters: [],
+        bindsTo: [],
+        template: {
+          type: "field.change",
+          eventName: "field.change",
+          enabled: true,
+          conditions: [],
+          actions: [
+            {
+              id: "action-shared",
+              kind: "dispatch_event",
+              config: { eventType: "shared.fired", payload: {} },
+              continueOnError: false,
+            },
+          ],
+        },
+      };
+    },
+  };
+
+  // Two listeners: same libraryRef+params, different envelope fields.
+  const listenerA: RuntimeListenerDefinition = {
+    id: "listener-cache-a",
+    label: "Cache Listener A",
+    type: "field.change",
+    eventName: "field.change",
+    enabled: true,
+    conditions: [],
+    actions: [],
+    libraryRef: { id: "lib-shared", revision: 1, params: {} },
+  };
+  const listenerB: RuntimeListenerDefinition = {
+    id: "listener-cache-b",
+    label: "Cache Listener B",
+    type: "field.change",
+    eventName: "field.change",
+    enabled: false, // disabled — diagnostic should report its own enabled=false
+    conditions: [],
+    actions: [],
+    libraryRef: { id: "lib-shared", revision: 1, params: {} },
+  };
+  document.runtime!.formListeners.push(listenerA, listenerB);
+
+  const engine = createRuntimeEngine({ libraryRegistry: registry });
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const report = engine.dispatchWithReport(fieldChangeEvent("field-name", "value"));
+
+  const diagA = report.listeners.find((l) => l.listenerId === "listener-cache-a");
+  const diagB = report.listeners.find((l) => l.listenerId === "listener-cache-b");
+
+  assert.ok(diagA, "listener-cache-a should appear in report");
+  assert.ok(diagB, "listener-cache-b should appear in report");
+
+  // Each diagnostic must carry its own envelope fields, not the other listener's.
+  assert.equal(diagA.listenerId, "listener-cache-a", "diagA must have its own id");
+  assert.equal(diagA.label, "Cache Listener A", "diagA must have its own label");
+  assert.equal(diagA.enabled, true, "diagA must report its own enabled=true");
+  assert.equal(diagA.matched, true, "diagA should match");
+
+  assert.equal(diagB.listenerId, "listener-cache-b", "diagB must have its own id");
+  assert.equal(diagB.label, "Cache Listener B", "diagB must have its own label");
+  assert.equal(diagB.enabled, false, "diagB must report its own enabled=false");
+  assert.equal(diagB.matched, false, "diagB should not match because it is disabled");
+  assert.equal(diagB.skippedReason, "disabled", "diagB skippedReason should be 'disabled'");
+});
+
+// ── Regression: stableStringify recursive (#3) ───────────────────────────────
+
+test("stableStringify produces identical output for nested objects regardless of key insertion order", () => {
+  const a = stableStringify({ z: { b: 2, a: 1 }, a: [{ y: "y", x: "x" }] });
+  const b = stableStringify({ a: [{ x: "x", y: "y" }], z: { a: 1, b: 2 } });
+
+  assert.equal(a, b, "nested objects with different key insertion order should produce the same stable string");
+
+  // Sanity-check: different values must NOT be equal.
+  const c = stableStringify({ z: { b: 9, a: 1 }, a: [] });
+  assert.notEqual(a, c, "structurally different objects should produce different strings");
 });

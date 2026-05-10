@@ -69,8 +69,10 @@ interface RuntimeDispatchReportDraft {
 export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): RuntimeEngine {
   const libraryRegistry: BehaviorLibraryRegistry | undefined = options?.libraryRegistry;
   const telemetrySink: TelemetrySink | undefined = options?.telemetrySink;
-  // Per-engine-instance cache: avoids re-materialising the same (entry + params) pair.
-  const materialisedCache = new Map<string, RuntimeListenerDefinition>();
+  // Per-engine-instance cache: stores only the substituted template (raw unknown), not the full
+  // listener envelope. Two listeners sharing the same libraryRef+params share the template but
+  // each gets its own envelope fields (id, label, enabled, …) merged at read time.
+  const templateCache = new Map<string, unknown>();
 
   const eventBus = new RuntimeEventBus();
   let document: AuthoringDocument | null = null;
@@ -293,20 +295,18 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
     if (!entry) {
       return null; // broken ref
     }
-    const cacheKey = `${entry.id}::${entry.revision}::${stableStringify(ref.params)}`;
-    let cached = materialisedCache.get(cacheKey);
-    if (!cached) {
-      const materialisedRaw = applyTemplateTokens(entry.template, ref.params);
-      cached = {
-        ...listener,
-        ...(materialisedRaw as object),
-        // These must always come from the listener envelope, not the template.
-        id: listener.id,
-        libraryRef: listener.libraryRef,
-      };
-      materialisedCache.set(cacheKey, cached);
+    const templateCacheKey = `${entry.id}::${entry.revision}::${stableStringify(ref.params)}`;
+    let materialisedRaw = templateCache.get(templateCacheKey);
+    if (!materialisedRaw) {
+      materialisedRaw = applyTemplateTokens(entry.template, ref.params);
+      templateCache.set(templateCacheKey, materialisedRaw);
     }
-    return cached;
+    return {
+      ...listener,
+      ...(materialisedRaw as Partial<RuntimeListenerDefinition>),
+      id: listener.id,
+      libraryRef: listener.libraryRef,
+    } as RuntimeListenerDefinition;
   };
 
   const evaluateListenerDiagnostic = (
@@ -373,8 +373,9 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
 
     const typeMatches = type === event.type;
 
-    // Source-node filter: prefer listener.source?.id, fall back to eventSourceNodeId.
-    const sourceFilterId = listener.source?.id ?? listener.eventSourceNodeId ?? null;
+    // Source-node filter: only active when listener.source?.id is explicitly set (new-shape).
+    // Legacy eventSourceNodeId remains pure metadata until Phase 1B migration promotes it.
+    const sourceFilterId = listener.source?.id ?? null;
     const eventTargetNodeId = event.target?.nodeId ?? null;
     const sourceMismatch = sourceFilterId !== null && sourceFilterId !== eventTargetNodeId;
 
