@@ -4454,21 +4454,70 @@ export default function App() {
     setLastDispatchReport(null);
   }
 
+  /**
+   * Phase 3 preview-safe dispatch. Tries the synchronous engine path first.
+   * If a matched listener contains async-only action kinds (wait /
+   * host_call_await) the engine throws an explicit "use dispatchAsync"
+   * error — we catch it and fall back to dispatchAsync as fire-and-forget,
+   * updating the preview state when the chain resolves. This keeps simple
+   * sync listeners unaffected while letting authored async chains run
+   * without crashing the preview.
+   */
+  function safeDispatch(event: RuntimeEventEnvelope): RuntimeSessionState | null {
+    try {
+      return runtimeEngineRef.current.dispatch(event);
+    } catch (err) {
+      if (err instanceof Error && /dispatchAsync/.test(err.message)) {
+        void runtimeEngineRef.current.dispatchAsync(event).then(
+          (nextState) => {
+            runtimeSessionRef.current = nextState;
+            setRuntimeSessionState(nextState);
+          },
+          (reason) => {
+            // Surface async-dispatch failures in the toast so authors notice — the
+            // dispatch report listener-level diagnostics carry the action-specific cause.
+            setErrorMessage(reason instanceof Error ? reason.message : String(reason));
+          },
+        );
+        return null;
+      }
+      throw err;
+    }
+  }
+
   function dispatchRuntimeEvent(event: RuntimeEventEnvelope) {
     if (previewTestRecordingOn) {
-      const report = runtimeEngineRef.current.dispatchWithReport(event);
-      runtimeSessionRef.current = report.stateAfter;
-      setRuntimeSessionState(report.stateAfter);
-      setLastDispatchReport(report);
-      setPreviewTestReports((prev) => [
-        ...prev,
-        { id: crypto.randomUUID(), timestamp: new Date().toISOString(), report },
-      ]);
-      return;
+      try {
+        const report = runtimeEngineRef.current.dispatchWithReport(event);
+        runtimeSessionRef.current = report.stateAfter;
+        setRuntimeSessionState(report.stateAfter);
+        setLastDispatchReport(report);
+        setPreviewTestReports((prev) => [
+          ...prev,
+          { id: crypto.randomUUID(), timestamp: new Date().toISOString(), report },
+        ]);
+        return;
+      } catch (err) {
+        if (err instanceof Error && /dispatchAsync/.test(err.message)) {
+          void runtimeEngineRef.current.dispatchWithReportAsync(event).then((report) => {
+            runtimeSessionRef.current = report.stateAfter;
+            setRuntimeSessionState(report.stateAfter);
+            setLastDispatchReport(report);
+            setPreviewTestReports((prev) => [
+              ...prev,
+              { id: crypto.randomUUID(), timestamp: new Date().toISOString(), report },
+            ]);
+          });
+          return;
+        }
+        throw err;
+      }
     }
-    const nextState = runtimeEngineRef.current.dispatch(event);
-    runtimeSessionRef.current = nextState;
-    setRuntimeSessionState(nextState);
+    const nextState = safeDispatch(event);
+    if (nextState) {
+      runtimeSessionRef.current = nextState;
+      setRuntimeSessionState(nextState);
+    }
     setLastDispatchReport(null);
   }
 
@@ -4500,21 +4549,9 @@ export default function App() {
       changedOption: fieldFirstOptionValue(field) || null,
     };
 
-    let nextState = runtimeEngineRef.current.dispatch({
-      type: "field.change",
-      version: "1.0",
-      target,
-      source: target,
-      bubbles: true,
-      payload: fieldPayload,
-      correlationId,
-      timestamp,
-    });
-
-    const typedEventName = runtimeFieldChangedEventName(field);
-    if (typedEventName !== "field.change") {
-      nextState = runtimeEngineRef.current.dispatch({
-        type: typedEventName,
+    let nextState =
+      safeDispatch({
+        type: "field.change",
         version: "1.0",
         target,
         source: target,
@@ -4522,7 +4559,21 @@ export default function App() {
         payload: fieldPayload,
         correlationId,
         timestamp,
-      });
+      }) ?? runtimeEngineRef.current.getState();
+
+    const typedEventName = runtimeFieldChangedEventName(field);
+    if (typedEventName !== "field.change") {
+      nextState =
+        safeDispatch({
+          type: typedEventName,
+          version: "1.0",
+          target,
+          source: target,
+          bubbles: true,
+          payload: fieldPayload,
+          correlationId,
+          timestamp,
+        }) ?? runtimeEngineRef.current.getState();
     }
 
     if (shouldRevalidate) {

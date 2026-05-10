@@ -1423,40 +1423,41 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
       mounted = true;
       trace.length = 0;
 
+      const tryRouteOrFallbackAsync = (envelope: RuntimeEventEnvelope, inbound: boolean) => {
+        try {
+          routeEvent(envelope, true, inbound);
+        } catch (err) {
+          // Phase 3: a matched listener uses wait / host_call_await — sync
+          // routeEvent refused. Fall back to routeEventAsync as
+          // fire-and-forget so mount() can still return the initial state.
+          if (err instanceof Error && /dispatchAsync/.test(err.message)) {
+            void routeEventAsync(envelope, true, inbound);
+            return;
+          }
+          throw err;
+        }
+      };
+
       if (options?.emitLoadEvent !== false) {
-        routeEvent(
+        tryRouteOrFallbackAsync(
           buildEvent(
             "form.load",
-            {
-              stepId: state.currentStepId,
-            },
+            { stepId: state.currentStepId },
             "outbound",
-            {
-              nodeId: document.id,
-              nodeType: "form",
-            },
+            { nodeId: document.id, nodeType: "form" },
           ),
-          true,
           false,
         );
       }
 
       if (state.currentStepId) {
-        routeEvent(
+        tryRouteOrFallbackAsync(
           buildEvent(
             "step.enter",
-            {
-              stepId: state.currentStepId,
-              previousStepId: null,
-              reason: "mount",
-            },
+            { stepId: state.currentStepId, previousStepId: null, reason: "mount" },
             "internal",
-            {
-              nodeId: state.currentStepId,
-              nodeType: "step",
-            },
+            { nodeId: state.currentStepId, nodeType: "step" },
           ),
-          true,
           false,
         );
       }
