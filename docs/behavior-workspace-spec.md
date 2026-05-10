@@ -516,6 +516,19 @@ The Behavior Studio modal is no longer the primary edit/add path for the inspect
 
 The legacy modal stays available via the "Open in advanced studio" link and is still used by other surfaces (graph workspace, behavior toolbar). Phase 1C-3 ships the Library system; Phase 1C-4 adds Manager Table view + safety badges + a11y axe gate.
 
+### Phase 1C-3 — Library system (shipped 2026-05)
+
+The behavior library is now first-class. Both system entries (shipped with the platform) and project entries (per-project, persisted under `data/projects/<id>/library/<slug>.json`) flow through a single picker → apply-parameters dialog → materialised listener pipeline. The new architecture:
+
+- **System library**: 5 shipped entries cover validation (`match-pattern`), visibility (`show-if`, `required-if`), data flow (`set-from-payload`), and host integration (`host-call-fire`). Each is a JSON file under `apps/web/src/features/behavior/library/system-entries/`. Loaded via `SYSTEM_LIBRARY` const + `getSystemEntry(id)` helper.
+- **Project library backend**: `apps/api/src/form_builder_api/services/library.py` exposes `list_project_library`, `save_project_library_entry`, `delete_project_library_entry`. REST endpoints: `GET/POST/DELETE /projects/{id}/library[/{entry_id}]`. Idempotent saves bump revision when an entry id already exists with an older revision.
+- **Frontend client**: `listProjectLibrary`, `saveProjectLibraryEntry`, `deleteProjectLibraryEntry` in `apps/web/src/lib/api.ts`. `applyEntryToListener`, `validateParams`, `defaultParamsForEntry` in `features/behavior/library/library-helpers.ts`.
+- **UI surfaces**: `LibraryPicker` overlay (searchable, category- and scope-filtered, optional `bindsToFilter`), `ApplyParametersDialog` (typed inputs + validation), `LibraryPage` modal accessed via a "Library" header button.
+- **Stack integration**: `BehaviorStackList` exposes "+ Blank" (renamed from "+ Add behavior") and "+ From library" buttons. `BehaviorStackRow` exposes a hollow-star "Save to library" affordance on non-library-linked rows; library-linked rows keep the read-only filled-star badge.
+- **Save-from-existing flow** captures a snapshot copy: name + description + category prompts, then writes to project library without auto-linking the source listener.
+
+Phase 1C-4 ships the Manager Table view, broken-ref UI, safety badges, and axe a11y gate.
+
 ## Non-Goals For The First Pass
 
 - shipping the final graph renderer for every advanced case in one slice

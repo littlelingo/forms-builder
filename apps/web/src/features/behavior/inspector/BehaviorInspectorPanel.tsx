@@ -13,6 +13,10 @@ export interface BehaviorInspectorPanelProps {
   onToggleListenerEnabled: (listenerId: string, enabled: boolean) => void;
   onReorderListener: (listenerId: string, fromIndex: number, toIndex: number) => void;
   onAddBehavior: () => void;
+  /** Opens the library picker to add a behavior from the library. */
+  onAddFromLibrary?: () => void;
+  /** Called when the user wants to save a listener to the library. */
+  onSaveToLibrary?: (listenerId: string) => void;
   externalReferenceCount: number;
   editingListenerId?: string | null;
   composer?: ReactNode;
@@ -29,6 +33,8 @@ export function BehaviorInspectorPanel({
   onToggleListenerEnabled,
   onReorderListener,
   onAddBehavior,
+  onAddFromLibrary,
+  onSaveToLibrary,
   externalReferenceCount,
   editingListenerId,
   composer,
@@ -45,6 +51,8 @@ export function BehaviorInspectorPanel({
         onToggleListenerEnabled={onToggleListenerEnabled}
         onReorderListener={onReorderListener}
         onAddBehavior={onAddBehavior}
+        onAddFromLibrary={onAddFromLibrary}
+        onSaveToLibrary={onSaveToLibrary}
         editingListenerId={editingListenerId}
         composer={composer}
       />

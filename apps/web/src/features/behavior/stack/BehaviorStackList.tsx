@@ -18,6 +18,10 @@ export interface BehaviorStackListProps {
   onToggleListenerEnabled?: (listenerId: string, enabled: boolean) => void;
   onReorderListener: (listenerId: string, fromIndex: number, toIndex: number) => void;
   onAddBehavior?: () => void;
+  /** Opens the library picker to add a behavior from library. */
+  onAddFromLibrary?: () => void;
+  /** Called when the user wants to save a listener to the library. */
+  onSaveToLibrary?: (listenerId: string) => void;
   /** Listener id currently being edited inline; matching row renders the `composer` slot in place. */
   editingListenerId?: string | null;
   /** Composer node mounted in place of the editing row, or in place of the empty state when editingListenerId === "__new__". */
@@ -33,6 +37,8 @@ export function BehaviorStackList({
   onToggleListenerEnabled,
   onReorderListener,
   onAddBehavior,
+  onAddFromLibrary,
+  onSaveToLibrary,
   editingListenerId,
   composer,
 }: BehaviorStackListProps) {
@@ -73,23 +79,36 @@ export function BehaviorStackList({
         <span className="text-xs uppercase tracking-[0.16em] text-slate-500">
           Behaviors {listeners.length ? `· ${listeners.length}` : ""}
         </span>
-        {onAddBehavior ? (
-          <button
-            type="button"
-            className={actionButtonClass("primary")}
-            style={{ height: "1.75rem", padding: "0 0.6rem", fontSize: "0.78rem" }}
-            onClick={onAddBehavior}
-          >
-            + Add behavior
-          </button>
-        ) : null}
+        <div className="flex items-center gap-1.5">
+          {onAddFromLibrary ? (
+            <button
+              type="button"
+              className={actionButtonClass("secondary")}
+              style={{ height: "1.75rem", padding: "0 0.6rem", fontSize: "0.78rem" }}
+              onClick={onAddFromLibrary}
+              title="Add behavior from library"
+            >
+              + From library
+            </button>
+          ) : null}
+          {onAddBehavior ? (
+            <button
+              type="button"
+              className={actionButtonClass("primary")}
+              style={{ height: "1.75rem", padding: "0 0.6rem", fontSize: "0.78rem" }}
+              onClick={onAddBehavior}
+            >
+              + Blank
+            </button>
+          ) : null}
+        </div>
       </div>
       {listeners.length === 0 ? (
         editingListenerId === "__new__" && composer != null ? (
           composer
         ) : (
           <p className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-3 text-center text-sm text-slate-600">
-            No behaviors yet. Click <strong>+ Add behavior</strong> to get started.
+            No behaviors yet. Click <strong>+ Blank</strong> or <strong>+ From library</strong> to get started.
           </p>
         )
       ) : (
@@ -124,6 +143,7 @@ export function BehaviorStackList({
                   onSelect={onSelectListener}
                   onEdit={onEditListener}
                   onToggleEnabled={onToggleListenerEnabled}
+                  onSaveToLibrary={onSaveToLibrary}
                 />
               </div>
             );

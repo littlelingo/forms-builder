@@ -1,0 +1,34 @@
+{
+  "id": "lib_set_from_payload",
+  "name": "Set from payload",
+  "description": "Copy a source field's change-event value into a target field",
+  "category": "data",
+  "scope": "system",
+  "revision": 1,
+  "icon": "arrow-right",
+  "bindsTo": [],
+  "parameters": [
+    { "key": "sourceField", "type": "fieldKey", "label": "Source field (fires change)", "required": true },
+    { "key": "targetField", "type": "fieldKey", "label": "Target field to write", "required": true }
+  ],
+  "template": {
+    "eventName": "field.change",
+    "enabled": true,
+    "conditions": [],
+    "actions": [
+      {
+        "id": "action-set-value",
+        "kind": "set_field_value",
+        "target": { "nodeId": "{{targetField}}" },
+        "config": { "value": { "$runtime": "current.event.payload.value" } },
+        "continueOnError": false
+      }
+    ]
+  },
+  "i18n": {
+    "en": {
+      "name": "Set from payload",
+      "description": "Copy a source field's change-event value into a target field"
+    }
+  }
+}

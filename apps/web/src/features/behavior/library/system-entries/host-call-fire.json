@@ -1,0 +1,35 @@
+{
+  "id": "lib_host_call_fire",
+  "name": "Host call (fire-and-forget)",
+  "description": "Invoke a host-registered handler when an event fires; passes the event payload as the request body",
+  "category": "host",
+  "scope": "system",
+  "revision": 1,
+  "icon": "bolt",
+  "bindsTo": [],
+  "parameters": [
+    { "key": "trigger", "type": "eventRef", "label": "Triggering event", "required": true },
+    { "key": "handlerKey", "type": "string", "label": "Host handler key", "required": true }
+  ],
+  "template": {
+    "eventName": "{{trigger}}",
+    "enabled": true,
+    "conditions": [],
+    "actions": [
+      {
+        "id": "action-host-call",
+        "kind": "host_action",
+        "config": {
+          "handlerKey": "{{handlerKey}}"
+        },
+        "continueOnError": true
+      }
+    ]
+  },
+  "i18n": {
+    "en": {
+      "name": "Host call (fire-and-forget)",
+      "description": "Invoke a host-registered handler when an event fires; passes the event payload as the request body"
+    }
+  }
+}

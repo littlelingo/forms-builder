@@ -2,7 +2,7 @@ import type { CSSProperties, ChangeEvent, DragEvent, MouseEvent, PointerEvent, R
 import { Fragment, startTransition, useEffect, useMemo, useRef, useState } from "react";
 
 import { createRuntimeEngine } from "@form-builder/runtime";
-import type { RuntimeDispatchReport, RuntimeTraceEntry } from "@form-builder/runtime";
+import type { BehaviorLibraryRegistry, RuntimeDispatchReport, RuntimeTraceEntry } from "@form-builder/runtime";
 import type {
   AuthoringDocument,
   AuthoringField,
@@ -11,6 +11,7 @@ import type {
   AuthoringProjectRecord,
   AuthoringSection,
   AuthoringStep,
+  BehaviorLibraryEntry,
   FieldNode,
   GroupNode,
   PageNode,
@@ -45,17 +46,20 @@ import { PanelCard, StatusBadge } from "@form-builder/ui";
 import {
   clearConversions,
   deleteConversion,
+  deleteProjectLibraryEntry,
   getConversionPagePreviewUrl,
   getConversionSourceUrl,
   getProject,
   importProjectDocument,
   listConversions,
+  listProjectLibrary,
   listProjectRevisions,
   listProjects,
   patchConversionReviewStatus,
   patchProject,
   promoteConversion,
   saveProjectDocument,
+  saveProjectLibraryEntry,
   uploadConversion,
 } from "./lib/api";
 import {
@@ -86,6 +90,7 @@ import { InspectorRail } from "./features/inspector";
 import type { InspectorTab } from "./features/inspector";
 import {
   ActionEditor,
+  ApplyParametersDialog,
   BehaviorComposer,
   BehaviorInspectorPanel,
   BehaviorManager,
@@ -98,9 +103,13 @@ import {
   EventCreationForm,
   EventFlowStudio,
   LegacyConditionalRuleEditor,
+  LibraryPage,
+  LibraryPicker,
   ListenerCreationForm,
   MapGraphOverview,
   RuntimeReactionProperties,
+  SYSTEM_LIBRARY,
+  applyEntryToListener,
   behaviorPresetCategoryLabels,
   builtInRuntimeEventNames,
   buildStructuredRuntimeTraceEvidence,
@@ -1641,11 +1650,32 @@ function StageShell({
   );
 }
 
+function buildLibraryRegistry(
+  systemEntries: BehaviorLibraryEntry[],
+  projectEntries: BehaviorLibraryEntry[],
+): BehaviorLibraryRegistry {
+  return {
+    resolve(id: string, revision: number) {
+      const all: BehaviorLibraryEntry[] = [...systemEntries, ...projectEntries];
+      return (
+        all.find((entry) => entry.id === id && entry.revision === revision) ?? all.find((entry) => entry.id === id)
+      );
+    },
+  };
+}
+
 export default function App() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const jsonInputRef = useRef<HTMLInputElement | null>(null);
   const runtimeSessionInputRef = useRef<HTMLInputElement | null>(null);
-  const runtimeEngineRef = useRef(createRuntimeEngine());
+  const libraryRegistryRef = useRef<BehaviorLibraryRegistry>(buildLibraryRegistry(SYSTEM_LIBRARY, []));
+  const runtimeEngineRef = useRef(
+    createRuntimeEngine({
+      libraryRegistry: {
+        resolve: (id, revision) => libraryRegistryRef.current.resolve(id, revision),
+      },
+    }),
+  );
   const runtimeSessionRef = useRef<RuntimeSessionState | null>(null);
   const pendingBehaviorFocusRef = useRef<string | null>(null);
   const behaviorStudioDialogRef = useRef<HTMLDivElement | null>(null);
@@ -1786,6 +1816,20 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [runtimeSessionState, setRuntimeSessionState] = useState<RuntimeSessionState | null>(null);
 
+  // Library system state
+  const [projectLibrary, setProjectLibrary] = useState<BehaviorLibraryEntry[]>([]);
+  useEffect(() => {
+    libraryRegistryRef.current = buildLibraryRegistry(SYSTEM_LIBRARY, projectLibrary);
+  }, [projectLibrary]);
+  const [libraryPickerOpen, setLibraryPickerOpen] = useState(false);
+  const [libraryPageOpen, setLibraryPageOpen] = useState(false);
+  const [pendingLibraryEntry, setPendingLibraryEntry] = useState<BehaviorLibraryEntry | null>(null);
+  const [savingFromExistingListenerId, setSavingFromExistingListenerId] = useState<string | null>(null);
+  const [saveToLibraryName, setSaveToLibraryName] = useState("");
+  const [saveToLibraryDescription, setSaveToLibraryDescription] = useState("");
+  const [saveToLibraryCategory, setSaveToLibraryCategory] = useState("custom");
+  const [isSavingLibraryEntry, setIsSavingLibraryEntry] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -1889,6 +1933,17 @@ export default function App() {
     return () => {
       cancelled = true;
     };
+  }, [activeProjectId]);
+
+  // Fetch project library when a project is opened
+  useEffect(() => {
+    if (!activeProjectId) {
+      setProjectLibrary([]);
+      return;
+    }
+    listProjectLibrary(activeProjectId)
+      .then(setProjectLibrary)
+      .catch(() => setProjectLibrary([]));
   }, [activeProjectId]);
 
   const activeConversion =
@@ -9158,6 +9213,13 @@ export default function App() {
         setSelectedBehaviorListenerId(newListener.id);
         setBehaviorStudioOpen(false);
       }}
+      onAddFromLibrary={() => setLibraryPickerOpen(true)}
+      onSaveToLibrary={(listenerId) => {
+        setSavingFromExistingListenerId(listenerId);
+        setSaveToLibraryName("");
+        setSaveToLibraryDescription("");
+        setSaveToLibraryCategory("custom");
+      }}
       externalReferenceCount={externalReferenceCount}
       editingListenerId={editingListenerId}
       composer={inlineComposerNode}
@@ -9503,6 +9565,14 @@ export default function App() {
                   className={actionButtonClass()}
                 >
                   Simulator
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLibraryPageOpen(true)}
+                  disabled={!activeDocument}
+                  className={actionButtonClass()}
+                >
+                  Library
                 </button>
                 <button
                   type="button"
@@ -10914,6 +10984,199 @@ export default function App() {
           </div>
         ) : null}
       </div>
+
+      {/* Library picker */}
+      <LibraryPicker
+        isOpen={libraryPickerOpen}
+        onClose={() => setLibraryPickerOpen(false)}
+        systemEntries={SYSTEM_LIBRARY}
+        projectEntries={projectLibrary}
+        bindsToFilter={activeRuntimeScope ? [activeRuntimeScope.scopeKind] : undefined}
+        onSelectEntry={(entry) => {
+          setLibraryPickerOpen(false);
+          setPendingLibraryEntry(entry);
+        }}
+      />
+
+      {/* Apply parameters dialog */}
+      <ApplyParametersDialog
+        isOpen={pendingLibraryEntry !== null}
+        entry={pendingLibraryEntry}
+        onClose={() => setPendingLibraryEntry(null)}
+        onApply={(entry, params) => {
+          const partial = applyEntryToListener(entry, params);
+          const newListener: RuntimeListenerDefinition = {
+            id: crypto.randomUUID(),
+            label: entry.name,
+            enabled: true,
+            provenance: "library",
+            libraryRef: { id: entry.id, revision: entry.revision, params, detached: false },
+            // Apply template fields
+            type: (partial as RuntimeListenerDefinition).type ?? "",
+            eventName: (partial as RuntimeListenerDefinition).eventName ?? "",
+            conditions: (partial as RuntimeListenerDefinition).conditions ?? [],
+            actions: (partial as RuntimeListenerDefinition).actions ?? [],
+            ...partial,
+          };
+          addRuntimeListener(newListener);
+          setSelectedBehaviorListenerId(newListener.id);
+          setPendingLibraryEntry(null);
+        }}
+      />
+
+      {/* Library page overlay */}
+      <LibraryPage
+        isOpen={libraryPageOpen}
+        onClose={() => setLibraryPageOpen(false)}
+        systemEntries={SYSTEM_LIBRARY}
+        projectEntries={projectLibrary}
+        onDeleteProjectEntry={(entryId) => {
+          if (!activeProjectDetail) return;
+          void deleteProjectLibraryEntry(activeProjectDetail.project.id, entryId).then(() => {
+            setProjectLibrary((prev) => prev.filter((e) => e.id !== entryId));
+          });
+        }}
+      />
+
+      {/* Save to library dialog */}
+      {savingFromExistingListenerId !== null ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/30 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="save-to-library-title"
+            className="relative flex w-full max-w-[28rem] flex-col overflow-hidden rounded-[1.15rem] border border-slate-200 bg-[#f5f7fb] shadow-[0_24px_64px_rgba(15,23,42,0.24)]"
+          >
+            <div className="shrink-0 border-b border-slate-200 bg-white/96 px-4 py-3 backdrop-blur">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    Save to library
+                  </p>
+                  <h3 id="save-to-library-title" className="mt-0.5 text-lg font-semibold text-slate-950">
+                    Save behavior as library entry
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Close dialog"
+                  onClick={() => setSavingFromExistingListenerId(null)}
+                  className={iconButtonClass()}
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+            <div className="px-4 py-4 space-y-4">
+              <p className="text-sm text-slate-500">
+                This saves a copy as a reusable library entry. The current behavior stays where it is and is not
+                automatically linked.
+              </p>
+              <div>
+                <label htmlFor="stl-name" className="mb-1 block text-sm font-medium text-slate-700">
+                  Name <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  id="stl-name"
+                  type="text"
+                  value={saveToLibraryName}
+                  onChange={(e) => setSaveToLibraryName(e.target.value)}
+                  placeholder="e.g. Show if field has value"
+                  className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+              <div>
+                <label htmlFor="stl-description" className="mb-1 block text-sm font-medium text-slate-700">
+                  Description
+                </label>
+                <input
+                  id="stl-description"
+                  type="text"
+                  value={saveToLibraryDescription}
+                  onChange={(e) => setSaveToLibraryDescription(e.target.value)}
+                  placeholder="Optional short description"
+                  className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+              <div>
+                <label htmlFor="stl-category" className="mb-1 block text-sm font-medium text-slate-700">
+                  Category
+                </label>
+                <select
+                  id="stl-category"
+                  value={saveToLibraryCategory}
+                  onChange={(e) => setSaveToLibraryCategory(e.target.value)}
+                  className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                >
+                  <option value="custom">Custom</option>
+                  <option value="validation">Validation</option>
+                  <option value="visibility">Visibility</option>
+                  <option value="host">Host</option>
+                  <option value="events">Events</option>
+                  <option value="data">Data</option>
+                  <option value="repeatables">Repeatables</option>
+                </select>
+              </div>
+            </div>
+            <div className="shrink-0 flex justify-end gap-2 border-t border-slate-200 bg-white/80 px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setSavingFromExistingListenerId(null)}
+                className={actionButtonClass("secondary")}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!saveToLibraryName.trim() || isSavingLibraryEntry || !activeProjectDetail}
+                onClick={() => {
+                  const listener = scopeListeners.find((l) => l.id === savingFromExistingListenerId);
+                  if (!listener || !activeProjectDetail) return;
+                  const nameSlug = saveToLibraryName
+                    .trim()
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]+/g, "_")
+                    .slice(0, 32);
+                  const rand = Math.random().toString(36).slice(2, 6);
+                  const entry: BehaviorLibraryEntry = {
+                    id: `lib_${nameSlug}_${rand}`,
+                    name: saveToLibraryName.trim(),
+                    description: saveToLibraryDescription.trim(),
+                    category: saveToLibraryCategory as BehaviorLibraryEntry["category"],
+                    scope: "project",
+                    revision: 1,
+                    parameters: [],
+                    bindsTo: [],
+                    template: {
+                      eventName: listener.eventName,
+                      conditions: listener.conditions ?? [],
+                      actions: listener.actions ?? [],
+                    },
+                  };
+                  setIsSavingLibraryEntry(true);
+                  void saveProjectLibraryEntry(activeProjectDetail.project.id, entry)
+                    .then((saved) => {
+                      setProjectLibrary((prev) => [...prev, saved]);
+                      setSavingFromExistingListenerId(null);
+                      setSaveToLibraryName("");
+                      setSaveToLibraryDescription("");
+                      setSaveToLibraryCategory("custom");
+                    })
+                    .catch((err) => {
+                      setErrorMessage(err instanceof Error ? err.message : "Failed to save library entry.");
+                    })
+                    .finally(() => {
+                      setIsSavingLibraryEntry(false);
+                    });
+                }}
+                className={actionButtonClass("primary")}
+              >
+                {isSavingLibraryEntry ? "Saving..." : "Save to library"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

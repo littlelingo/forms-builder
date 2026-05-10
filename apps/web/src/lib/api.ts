@@ -2,6 +2,7 @@ import type {
   AuthoringDocument,
   AuthoringProjectDetail,
   AuthoringProjectRecord,
+  BehaviorLibraryEntry,
   ProjectStatus,
   ProjectRevision,
   ReviewStatus,
@@ -162,4 +163,31 @@ export function getConversionSourceUrl(conversionId: string): string {
 
 export function getConversionPagePreviewUrl(conversionId: string, pageNumber: number): string {
   return `${API_BASE_URL}/conversions/${conversionId}/pages/${pageNumber}/preview.png`;
+}
+
+export async function listProjectLibrary(projectId: string): Promise<BehaviorLibraryEntry[]> {
+  const response = await fetch(`${API_BASE_URL}/projects/${encodeURIComponent(projectId)}/library`);
+  return parseResponse<BehaviorLibraryEntry[]>(response);
+}
+
+export async function saveProjectLibraryEntry(
+  projectId: string,
+  entry: BehaviorLibraryEntry,
+): Promise<BehaviorLibraryEntry> {
+  const response = await fetch(`${API_BASE_URL}/projects/${encodeURIComponent(projectId)}/library`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(entry),
+  });
+  return parseResponse<BehaviorLibraryEntry>(response);
+}
+
+export async function deleteProjectLibraryEntry(projectId: string, entryId: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/projects/${encodeURIComponent(projectId)}/library/${encodeURIComponent(entryId)}`,
+    { method: "DELETE" },
+  );
+  if (!response.ok && response.status !== 404) {
+    await parseResponse(response);
+  }
 }

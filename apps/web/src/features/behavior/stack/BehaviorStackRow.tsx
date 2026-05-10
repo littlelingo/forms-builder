@@ -12,6 +12,8 @@ export interface BehaviorStackRowProps {
   onSelect?: (listenerId: string) => void;
   onEdit: (listenerId: string) => void;
   onToggleEnabled?: (listenerId: string, enabled: boolean) => void;
+  /** Called when the user wants to save a non-library-linked listener to the library. */
+  onSaveToLibrary?: (listenerId: string) => void;
   /** Drag-handle props provided by the parent list. */
   dragHandleProps?: HTMLAttributes<HTMLSpanElement>;
   rowProps?: HTMLAttributes<HTMLDivElement>;
@@ -47,6 +49,7 @@ export function BehaviorStackRow({
   onSelect,
   onEdit,
   onToggleEnabled,
+  onSaveToLibrary,
   dragHandleProps,
   rowProps,
   rowStyle,
@@ -95,6 +98,19 @@ export function BehaviorStackRow({
         <span className="text-amber-500" title="Linked to library entry">
           ★
         </span>
+      ) : onSaveToLibrary ? (
+        <button
+          type="button"
+          className="text-[0.7rem] text-slate-400 hover:text-amber-500"
+          onClick={(event) => {
+            event.stopPropagation();
+            onSaveToLibrary(listener.id);
+          }}
+          title="Save to library"
+          aria-label="Save to library"
+        >
+          ☆
+        </button>
       ) : null}
       {hasDestructiveAction ? (
         <span className="h-1.5 w-1.5 rounded-full bg-rose-500" title="Includes destructive action (submit_form)" />
