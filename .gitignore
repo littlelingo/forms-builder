@@ -24,3 +24,7 @@ uploads/
 
 .claude/
 .superpowers/
+
+# Local-only migration artifacts (Phase 1B) — keep on disk, not in git
+data/projects/*/migration-backup/
+data/projects/*/migration-log.json
