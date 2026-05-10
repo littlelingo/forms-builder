@@ -263,3 +263,84 @@ When no `telemetrySink` is supplied the default is a no-op. The sink is called
 synchronously inside the dispatch loop; implementations should be fast. The
 `branchTaken` field on `BehaviorExecutedEvent` is reserved for Phase 3
 conditional branching and is not set in Phase 1A.
+
+## Migration (Phase 1B)
+
+Phase 1B introduces a one-shot migration that promotes legacy listener shapes to
+the Phase 1A schema. The CLI, snapshot pattern, audit log, and load-time
+rejection together form the hard cutover described in the spec.
+
+### Migration marker
+
+Migrated documents carry `runtime.migrationVersion = "phase-1"`. The marker is
+set on the `runtime` block of every `document.json` and every revision under
+`revisions/`. Documents without a `runtime` block (fresh PDF promotion output)
+pass through cleanly — they have no listeners to migrate.
+
+### Promotion mapping
+
+For each `RuntimeListenerDefinition`:
+
+- `eventSourceNodeId != null && source is null` → set `source = { id: eventSourceNodeId }`.
+  Legacy field stays in place; new field becomes authoritative.
+- `targetNodeId != null && target is null` → set `target = { id: targetNodeId }`.
+- `eventName` is a built-in event type (matches the `BUILT_IN_EVENT_NAMES`
+  registry in `services/migration.py`) → leave alone. Built-in events don't need
+  an `EventRef`.
+- `eventName` is custom (not in built-in registry) AND `eventRef is null` → look
+  up or create a `RuntimeEventTypeDefinition` on the closest enclosing scope:
+  1. The owning node's `runtime.eventSources` first.
+  2. Otherwise, the form's `runtime.formEvents`.
+  3. Match by `name` (or `type`) field; reuse existing def's id if found.
+  4. Create a new def with a fresh UUID if none exists.
+  5. Set listener's `eventRef = { id: <def-id> }`.
+
+### Backup + audit log
+
+Before mutating any file, the migration script copies `document.json` and every
+`revisions/*.json` to `data/projects/<id>/migration-backup/<ISO-timestamp>/`.
+The backup directory is permanent — it's the rollback path.
+
+Each migration run appends a JSON entry to `data/projects/<id>/migration-log.json`.
+Each entry records: `project_id`, `started_at`, `finished_at`,
+`documents_migrated`, `event_defs_created`, `collisions[]`, and `noop` boolean.
+
+### Idempotency
+
+A document with `runtime.migrationVersion == "phase-1"` is a no-op on subsequent
+runs — no snapshot, no mutation, no audit log entry. This makes the CLI safe to
+re-run.
+
+### Hard cutover at load time
+
+`InMemoryRepository._load_projects_from_disk` raises `UnmigratedDocumentError`
+when a document has a non-null `runtime` block lacking
+`migrationVersion == "phase-1"`. The FastAPI app surfaces this as 409 Conflict
+with a remediation message pointing at `npm run migrate:behaviors`.
+
+Documents written through the API also get the marker stamped automatically via
+`_stamp_and_write_document`. Legacy documents only show up via direct file
+imports or external project syncs.
+
+### CLI
+
+```bash
+npm run migrate:behaviors
+```
+
+Wraps `python -m form_builder_api.scripts.migrate_behaviors`, which in turn
+calls `migrate_all()` from `services/migration.py`. Prints a summary: project
+counts migrated/skipped, total event defs created, and any collisions.
+
+### Test fixture
+
+`apps/api/tests/fixtures/pre-migration-document.json` carries both legacy paths:
+
+- A field listener with `eventSourceNodeId` + `targetNodeId` (no `source`/`target`).
+- A field listener with a custom event name (`zipResolved`) (no `eventRef`).
+- A form-level listener on `form.submit` (built-in event) — verified untouched
+  after migration.
+
+`test_migration_promotes_legacy_listener_fields` round-trips the fixture;
+`test_migration_is_idempotent` verifies a second run is a no-op with
+byte-identical output.
