@@ -136,146 +136,146 @@ export function InspectorRail({
       className="transition-[width] duration-200 ease-out"
       style={expandedWidth != null ? { width: `${expandedWidth}px` } : undefined}
     >
-    <PanelCard
-      title="Inspector"
-      eyebrow="Properties and behavior"
-      aside={
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            title="Properties"
-            aria-label="Properties"
-            onClick={() => onTabChange("properties")}
-            className={iconButtonClass(activeTab === "properties" ? "primary" : "secondary")}
-          >
-            <PropertiesIcon />
-          </button>
-          <button
-            type="button"
-            title="Validation"
-            aria-label="Validation"
-            onClick={() => onTabChange("validation")}
-            className={iconButtonClass(activeTab === "validation" ? "primary" : "secondary")}
-          >
-            <ValidationIcon />
-          </button>
-          <button
-            type="button"
-            title="Behavior"
-            aria-label="Behavior"
-            onClick={() => {
-              onOpenFormBehavior();
-              onTabChange("behavior");
-            }}
-            className={iconButtonClass(activeTab === "behavior" ? "primary" : "secondary")}
-          >
-            <LogicIcon />
-          </button>
-          <button
-            type="button"
-            title="Map"
-            aria-label="Map"
-            onClick={() => onTabChange("map")}
-            className={iconButtonClass(activeTab === "map" ? "primary" : "secondary")}
-          >
-            <MapIcon />
-          </button>
-        </div>
-      }
-      className="min-h-[52rem] min-w-0 overflow-hidden"
-    >
-      {activeDocument ? (
-        <div className="space-y-4">
-          <div className="app-muted-card p-4">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Current selection</p>
-              <div className="flex gap-2">
-                {isPdfBackedProject && selectedAuthoring !== null ? (
-                  <button
-                    type="button"
-                    onClick={() => onOpenSourceReference(sourceReferenceOpenMode)}
-                    disabled={!sourceReferenceCanOpen}
-                    className={actionButtonClass(sourceReferenceFocusHasMatches ? "primary" : "secondary")}
-                  >
-                    {sourceReferenceActionLabel}
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSelectAuthoring(null);
-                    onOpenFormBehavior();
-                    onTabChange("behavior");
-                  }}
-                  className={actionButtonClass(selectedAuthoring === null ? "primary" : "secondary")}
-                >
-                  Form behavior
-                </button>
-                {selectedAuthoring === null && activeStep ? (
-                  <button
-                    type="button"
-                    onClick={() => onSelectAuthoring({ kind: "step", stepId: activeStep.id })}
-                    className={actionButtonClass()}
-                  >
-                    Return to step
-                  </button>
-                ) : null}
-              </div>
-            </div>
-            <h3 className="mt-2 text-lg font-semibold text-slate-950">
-              {selectedAuthoring === null
-                ? activeDocument.title
-                : selectedAuthoring?.kind === "field"
-                  ? activeBuilderField?.label
-                  : selectedAuthoring?.kind === "group"
-                    ? activeGroup?.label
-                    : selectedAuthoring?.kind === "section"
-                      ? activeSection?.title
-                      : (activeStep?.title ?? activeDocument.title)}
-            </h3>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              {selectedAuthoring === null
-                ? "You are editing form-level runtime behavior. Switch back to a selected node any time from the preview."
-                : "The preview is the main editing surface. Use this panel to refine the selected node."}
-            </p>
+      <PanelCard
+        title="Inspector"
+        eyebrow="Properties and behavior"
+        aside={
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              title="Properties"
+              aria-label="Properties"
+              onClick={() => onTabChange("properties")}
+              className={iconButtonClass(activeTab === "properties" ? "primary" : "secondary")}
+            >
+              <PropertiesIcon />
+            </button>
+            <button
+              type="button"
+              title="Validation"
+              aria-label="Validation"
+              onClick={() => onTabChange("validation")}
+              className={iconButtonClass(activeTab === "validation" ? "primary" : "secondary")}
+            >
+              <ValidationIcon />
+            </button>
+            <button
+              type="button"
+              title="Behavior"
+              aria-label="Behavior"
+              onClick={() => {
+                onOpenFormBehavior();
+                onTabChange("behavior");
+              }}
+              className={iconButtonClass(activeTab === "behavior" ? "primary" : "secondary")}
+            >
+              <LogicIcon />
+            </button>
+            <button
+              type="button"
+              title="Map"
+              aria-label="Map"
+              onClick={() => onTabChange("map")}
+              className={iconButtonClass(activeTab === "map" ? "primary" : "secondary")}
+            >
+              <MapIcon />
+            </button>
           </div>
+        }
+        className="min-h-[52rem] min-w-0 overflow-hidden"
+      >
+        {activeDocument ? (
+          <div className="space-y-4">
+            <div className="app-muted-card p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Current selection</p>
+                <div className="flex gap-2">
+                  {isPdfBackedProject && selectedAuthoring !== null ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenSourceReference(sourceReferenceOpenMode)}
+                      disabled={!sourceReferenceCanOpen}
+                      className={actionButtonClass(sourceReferenceFocusHasMatches ? "primary" : "secondary")}
+                    >
+                      {sourceReferenceActionLabel}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelectAuthoring(null);
+                      onOpenFormBehavior();
+                      onTabChange("behavior");
+                    }}
+                    className={actionButtonClass(selectedAuthoring === null ? "primary" : "secondary")}
+                  >
+                    Form behavior
+                  </button>
+                  {selectedAuthoring === null && activeStep ? (
+                    <button
+                      type="button"
+                      onClick={() => onSelectAuthoring({ kind: "step", stepId: activeStep.id })}
+                      className={actionButtonClass()}
+                    >
+                      Return to step
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              <h3 className="mt-2 text-lg font-semibold text-slate-950">
+                {selectedAuthoring === null
+                  ? activeDocument.title
+                  : selectedAuthoring?.kind === "field"
+                    ? activeBuilderField?.label
+                    : selectedAuthoring?.kind === "group"
+                      ? activeGroup?.label
+                      : selectedAuthoring?.kind === "section"
+                        ? activeSection?.title
+                        : (activeStep?.title ?? activeDocument.title)}
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                {selectedAuthoring === null
+                  ? "You are editing form-level runtime behavior. Switch back to a selected node any time from the preview."
+                  : "The preview is the main editing surface. Use this panel to refine the selected node."}
+              </p>
+            </div>
 
-          {activeTab === "properties" ? (
-            <PropertiesTab
-              selectedAuthoring={selectedAuthoring}
-              activeStep={activeStep}
-              activeSection={activeSection}
-              activeGroup={activeGroup}
-              activeBuilderField={activeBuilderField}
-              onRemoveStep={onRemoveStep}
-              onRemoveSection={onRemoveSection}
-              onRemoveGroup={onRemoveGroup}
-              onRemoveField={onRemoveField}
-              onUpdateDocument={onUpdateDocument}
-              onUpdateField={onUpdateField}
-              onAddGroupToSection={onAddGroupToSection}
-              onAddField={onAddField}
-              onOpenBehaviorTab={onOpenBehaviorTab}
-              getButtonBehaviorSummary={getButtonBehaviorSummary}
-            />
-          ) : activeTab === "validation" ? (
-            <ValidationTab
-              selectedAuthoring={selectedAuthoring}
-              activeStep={activeStep}
-              activeSection={activeSection}
-              activeGroup={activeGroup}
-              activeBuilderField={activeBuilderField}
-            />
-          ) : activeTab === "map" ? (
-            mapSlot
-          ) : (
-            behaviorsSlot
-          )}
-        </div>
-      ) : (
-        <div className="app-muted-card p-6 text-sm text-slate-500">No project selected.</div>
-      )}
-    </PanelCard>
+            {activeTab === "properties" ? (
+              <PropertiesTab
+                selectedAuthoring={selectedAuthoring}
+                activeStep={activeStep}
+                activeSection={activeSection}
+                activeGroup={activeGroup}
+                activeBuilderField={activeBuilderField}
+                onRemoveStep={onRemoveStep}
+                onRemoveSection={onRemoveSection}
+                onRemoveGroup={onRemoveGroup}
+                onRemoveField={onRemoveField}
+                onUpdateDocument={onUpdateDocument}
+                onUpdateField={onUpdateField}
+                onAddGroupToSection={onAddGroupToSection}
+                onAddField={onAddField}
+                onOpenBehaviorTab={onOpenBehaviorTab}
+                getButtonBehaviorSummary={getButtonBehaviorSummary}
+              />
+            ) : activeTab === "validation" ? (
+              <ValidationTab
+                selectedAuthoring={selectedAuthoring}
+                activeStep={activeStep}
+                activeSection={activeSection}
+                activeGroup={activeGroup}
+                activeBuilderField={activeBuilderField}
+              />
+            ) : activeTab === "map" ? (
+              mapSlot
+            ) : (
+              behaviorsSlot
+            )}
+          </div>
+        ) : (
+          <div className="app-muted-card p-6 text-sm text-slate-500">No project selected.</div>
+        )}
+      </PanelCard>
     </div>
   );
 }
