@@ -152,3 +152,114 @@ The runtime slice must support three forms of roundtrip validation.
    - emit `form.submit`
    - receive host success/error event
    - land in expected runtime state
+
+## Node Descriptor Resolution
+
+`resolveNodeDescriptor(id, tombstones?)` is a method on `RuntimeDocumentIndex`
+(returned by `createRuntimeDocumentIndex`). It returns a `NodeDescriptor`:
+
+```ts
+interface NodeDescriptor {
+  id: string;
+  dispatchKey?: string;
+  labelHint?: string;
+  broken?: boolean;
+  lastSeenLabel?: string;
+}
+```
+
+Resolution order:
+
+1. Live node index lookup. If found, `dispatchKey` comes from the node's
+   `dispatchKey` field and `labelHint` from the node's label or title.
+2. Tombstone map fallback. If the node is not in the live index, `broken` is
+   set to `true` and `lastSeenLabel` comes from the tombstone entry when
+   available.
+
+The engine surfaces `resolvedTarget` descriptors inside
+`dispatchWithReport.listeners[n].resolvedTarget` so Behavior Studio can show
+which concrete node a listener targets — even when that node has since been
+deleted.
+
+Phase 1C will use broken descriptors to render broken-ref UI on listener cards.
+
+## Listener Resolution Precedence
+
+When the engine resolves the source, target, and event type for a listener it
+follows this precedence:
+
+1. **Source node.** `listener.source?.id` is preferred over legacy
+   `listener.eventSourceNodeId`. Either may be null, in which case no
+   source-filter is applied and all dispatchers pass.
+
+2. **Target node.** `listener.target?.id` is preferred over legacy
+   `listener.targetNodeId`. Used for `resolveNodeDescriptor` lookups and
+   surfaced in dispatch reports; not used to gate dispatch routing in Phase 1A.
+
+3. **Event type.** `listener.eventRef?.id` is preferred over legacy free-text
+   `listener.type` / `listener.eventName`. When `eventRef` is present, the
+   engine scans `document.runtime.formEvents` then each node's
+   `runtime.eventSources` to resolve the actual event type string.
+
+4. **EventRef scan order.** Form-scope event defs (`document.runtime.formEvents`)
+   are scanned first; node-scope event sources (`field.runtime.eventSources`,
+   etc.) are scanned second.
+
+5. **Broken refs.** If `listener.eventRef.id` is present but cannot be resolved,
+   the listener is skipped with `skippedReason: "broken_event_ref"` in the
+   dispatch report. If `listener.libraryRef` points to an entry that the
+   registry cannot find, the listener is skipped with
+   `skippedReason: "broken_library_ref"`.
+
+See [Runtime Schema](./runtime-schema.md#phase-1a-type-additions) for the
+`NodeRef`, `EventRef`, and `BehaviorLibraryRef` type shapes.
+
+## Library Materialisation
+
+When a listener carries a `libraryRef` and `libraryRef.detached` is absent or
+`false`, the engine materialises the listener at evaluation time rather than
+reading its fields directly:
+
+1. The optional `BehaviorLibraryRegistry` passed to `createRuntimeEngine` is
+   called with `(entry.id, entry.revision)`.
+2. If the registry returns `undefined`, the listener is skipped with
+   `skippedReason: "broken_library_ref"`.
+3. `applyTemplateTokens(entry.template, ref.params)` performs a pure recursive
+   substitution of `{{paramKey}}` placeholders:
+   - A string that is entirely a single `{{key}}` token returns the raw param
+     value, preserving its type.
+   - A string with embedded tokens coerces substituted values to string.
+   - Arrays and plain objects are walked recursively.
+4. The materialised listener is cached by `(entry.id + "::" + revision + "::" + stableStringify(params))`.
+   Subsequent dispatches reuse the cached entry until the engine is unmounted.
+5. `listener.id` and `listener.libraryRef` always come from the listener
+   envelope, not from the template, so they survive the merge.
+
+When `libraryRef.detached` is `true`, the listener's own fields are used
+as-is; the registry is not consulted.
+
+`applyTemplateTokens` and `stableStringify` are pure functions exported from
+`packages/runtime/src/template-tokens.ts`.
+
+## Telemetry Sink
+
+`createRuntimeEngine({ telemetrySink })` accepts an optional callback:
+
+```ts
+type TelemetrySink = (event: BehaviorExecutedEvent) => void;
+
+interface BehaviorExecutedEvent {
+  listenerId: string;
+  durationMs: number;
+  error?: { message: string; actionId?: string };
+}
+```
+
+The engine emits exactly one `BehaviorExecutedEvent` per fired listener, after
+all of the listener's actions have run (or after the first action that throws).
+`durationMs` is measured using `performance.now()`.
+
+When no `telemetrySink` is supplied the default is a no-op. The sink is called
+synchronously inside the dispatch loop; implementations should be fast. The
+`branchTaken` field on `BehaviorExecutedEvent` is reserved for Phase 3
+conditional branching and is not set in Phase 1A.

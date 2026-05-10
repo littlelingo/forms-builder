@@ -244,3 +244,72 @@ Custom events should:
 - describe what happened, not what action will run
 - define payload metadata only when authors or host integrations need it
 - be dispatched with `dispatch_event`
+
+## $-Token Grammar (Strict Path-Only)
+
+Action configs and payload templates can reference runtime values using
+`$`-prefixed tokens. The resolver (`resolveRuntimeToken` in
+`packages/runtime/src/tokens.ts`) enforces a strict, locked grammar — no new
+roots are added without a spec change.
+
+### Locked roots
+
+Only these roots are valid:
+
+| Root        | Description                                                                |
+| ----------- | -------------------------------------------------------------------------- |
+| `$payload`  | Current event payload object.                                              |
+| `$response` | Phase 3 only. Returns `{ ok: false, reason: "phase_3_only" }` in Phase 1A. |
+| `$field`    | Current field values from session state (`state.values`).                  |
+| `$state`    | Full session state object (nodes, validation, submit, currentStepId, ...). |
+| `$source`   | Descriptor of the dispatcher node (`{ id, key, type, label }`).            |
+| `$current`  | Composite view of `{ form, step, project, event, runtime }` keys.          |
+| `$host`     | Host-injected read-only context snapshot.                                  |
+| `$now`      | ISO 8601 timestamp string at evaluation time. Takes no path.               |
+| `$uuid`     | Fresh `crypto.randomUUID()` at evaluation time. Takes no path.             |
+
+### Path semantics
+
+Paths are dot-separated segments after the root. Examples:
+
+```
+$payload.value
+$payload.nextValue
+$state.nodes.field-1.visible
+$field.employment-status
+$source.key
+$current.form.id
+$host.session.userId
+$now
+$uuid
+```
+
+No bracket notation. No operators. No arithmetic. Comparisons belong in
+listener conditions, not in token expressions.
+
+`$now` and `$uuid` are generative roots — any trailing path is ignored.
+
+### Result type
+
+```ts
+type TokenResolution<T = unknown> = { ok: true; value: T } | { ok: false; reason: string; pathRemainder?: string };
+```
+
+Failure reasons:
+
+| Reason           | Meaning                                                                                  |
+| ---------------- | ---------------------------------------------------------------------------------------- |
+| `unknown_root`   | Token starts with `$` but the root is not in the locked set.                             |
+| `phase_3_only`   | Token uses `$response`, which is reserved for Phase 3.                                   |
+| `missing_path`   | Root resolved but a nested segment is absent. `pathRemainder` holds the unresolved tail. |
+| `missing_dollar` | Token does not start with `$`.                                                           |
+
+### Backward compatibility
+
+The existing `resolveRuntimePayloadValue` function (used by action configs for
+payload field references such as `current.field.id`, `current.event.type`, etc.)
+continues to function unchanged. It uses a closed `$runtime` reference key list
+and is independent of `resolveRuntimeToken`.
+
+Phase 1C authoring UI surfaces will adopt `resolveRuntimeToken` for token-input
+autocomplete and inline validation in Behavior Studio action editors.
