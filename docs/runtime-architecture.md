@@ -344,3 +344,7 @@ counts migrated/skipped, total event defs created, and any collisions.
 `test_migration_promotes_legacy_listener_fields` round-trips the fixture;
 `test_migration_is_idempotent` verifies a second run is a no-op with
 byte-identical output.
+
+### Extraction synthesis (new in Phase 1B)
+
+Promotion of a reviewed conversion to an authoring project (`POST /conversions/{id}/promote`) now synthesises a `signature.attested → submit_form` listener for every field of semantic type `signature_attestation`. The synthesised listener is tagged `provenance: "extraction"`. Authors can filter or override these via the Behavior Manager (Phase 1C). This is a behavior addition over pre-1B promotion, where signature attestation did not auto-submit.
