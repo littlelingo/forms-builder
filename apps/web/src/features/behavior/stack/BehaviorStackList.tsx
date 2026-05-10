@@ -82,27 +82,37 @@ export function BehaviorStackList({
         </p>
       ) : (
         <div className="space-y-1.5" role="list">
-          {listeners.map((listener, index) => (
-            <div
-              key={listener.id}
-              draggable
-              onDragStart={handleDragStart(index)}
-              onDragOver={handleDragOver(index)}
-              onDrop={handleDrop(index)}
-              onDragEnd={handleDragEnd}
-              className={dragOverIndex === index && draggingIndex !== index ? "outline outline-2 outline-blue-300" : ""}
-            >
-              <BehaviorStackRow
-                listener={listener}
-                triggerLabel={listenerTriggerPill(listener, document)}
-                summary={summariseListener(listener)}
-                isSelected={listener.id === selectedListenerId}
-                onSelect={onSelectListener}
-                onEdit={onEditListener}
-                onToggleEnabled={onToggleListenerEnabled}
-              />
-            </div>
-          ))}
+          {listeners.map((listener, index) => {
+            const isDragging = draggingIndex === index;
+            const isDropTarget = dragOverIndex === index && draggingIndex !== index;
+            const wrapperClass = [
+              isDragging ? "opacity-50" : "",
+              isDropTarget ? "outline outline-2 outline-blue-300" : "",
+            ]
+              .filter(Boolean)
+              .join(" ");
+            return (
+              <div
+                key={listener.id}
+                draggable
+                onDragStart={handleDragStart(index)}
+                onDragOver={handleDragOver(index)}
+                onDrop={handleDrop(index)}
+                onDragEnd={handleDragEnd}
+                className={wrapperClass}
+              >
+                <BehaviorStackRow
+                  listener={listener}
+                  triggerLabel={listenerTriggerPill(listener, document)}
+                  summary={summariseListener(listener)}
+                  isSelected={listener.id === selectedListenerId}
+                  onSelect={onSelectListener}
+                  onEdit={onEditListener}
+                  onToggleEnabled={onToggleListenerEnabled}
+                />
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
