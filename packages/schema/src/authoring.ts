@@ -122,3 +122,67 @@ export interface ProjectRevision {
   note: string;
   document: AuthoringDocument;
 }
+
+// ---- Behavior Library (Phase 1A schema-only; Phase 1C wires the editor) ----
+
+export type BehaviorLibraryParameterType =
+  | "string"
+  | "number"
+  | "boolean"
+  | "enum"
+  | "nodeRef"
+  | "eventRef"
+  | "fieldKey"
+  | "list";
+
+export interface BehaviorLibraryParameterConstraints {
+  regex?: string;
+  min?: number;
+  max?: number;
+}
+
+export interface BehaviorLibraryParameter {
+  key: string;
+  type: BehaviorLibraryParameterType;
+  label: string;
+  description?: string;
+  required?: boolean;
+  default?: unknown;
+  options?: string[]; // for enum
+  itemType?: BehaviorLibraryParameterType; // for list<T>
+  constraints?: BehaviorLibraryParameterConstraints;
+}
+
+export type BehaviorLibraryScope = "system" | "project";
+
+export type BehaviorLibraryCategory =
+  | "validation"
+  | "visibility"
+  | "host"
+  | "events"
+  | "data"
+  | "repeatables"
+  | "custom";
+
+export interface BehaviorLibraryEntryI18nText {
+  name: string;
+  description: string;
+}
+
+export interface BehaviorLibraryEntry {
+  id: string;
+  name: string;
+  description: string;
+  category: BehaviorLibraryCategory;
+  scope: BehaviorLibraryScope;
+  revision: number;
+  icon?: string;
+  parameters: BehaviorLibraryParameter[];
+  // Restricts applicability. Empty array = any node type.
+  bindsTo: string[];
+  // Listener template with {{paramKey}} placeholders. Refs in template MUST
+  // reference parameter tokens, not literal ids. Phase 1A leaves this opaque
+  // (Phase 1C wires the editor).
+  template: unknown;
+  i18n?: { en: BehaviorLibraryEntryI18nText; [lang: string]: BehaviorLibraryEntryI18nText };
+}
