@@ -2,7 +2,7 @@ import type { CSSProperties, ChangeEvent, DragEvent, MouseEvent, PointerEvent, R
 import { Fragment, startTransition, useEffect, useMemo, useRef, useState } from "react";
 
 import { createRuntimeEngine } from "@form-builder/runtime";
-import type { RuntimeDispatchReport, RuntimeTraceEntry } from "@form-builder/runtime";
+import type { BehaviorLibraryRegistry, RuntimeDispatchReport, RuntimeTraceEntry } from "@form-builder/runtime";
 import type {
   AuthoringDocument,
   AuthoringField,
@@ -1650,11 +1650,32 @@ function StageShell({
   );
 }
 
+function buildLibraryRegistry(
+  systemEntries: BehaviorLibraryEntry[],
+  projectEntries: BehaviorLibraryEntry[],
+): BehaviorLibraryRegistry {
+  return {
+    resolve(id: string, revision: number) {
+      const all: BehaviorLibraryEntry[] = [...systemEntries, ...projectEntries];
+      return (
+        all.find((entry) => entry.id === id && entry.revision === revision) ?? all.find((entry) => entry.id === id)
+      );
+    },
+  };
+}
+
 export default function App() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const jsonInputRef = useRef<HTMLInputElement | null>(null);
   const runtimeSessionInputRef = useRef<HTMLInputElement | null>(null);
-  const runtimeEngineRef = useRef(createRuntimeEngine());
+  const libraryRegistryRef = useRef<BehaviorLibraryRegistry>(buildLibraryRegistry(SYSTEM_LIBRARY, []));
+  const runtimeEngineRef = useRef(
+    createRuntimeEngine({
+      libraryRegistry: {
+        resolve: (id, revision) => libraryRegistryRef.current.resolve(id, revision),
+      },
+    }),
+  );
   const runtimeSessionRef = useRef<RuntimeSessionState | null>(null);
   const pendingBehaviorFocusRef = useRef<string | null>(null);
   const behaviorStudioDialogRef = useRef<HTMLDivElement | null>(null);
@@ -1797,6 +1818,9 @@ export default function App() {
 
   // Library system state
   const [projectLibrary, setProjectLibrary] = useState<BehaviorLibraryEntry[]>([]);
+  useEffect(() => {
+    libraryRegistryRef.current = buildLibraryRegistry(SYSTEM_LIBRARY, projectLibrary);
+  }, [projectLibrary]);
   const [libraryPickerOpen, setLibraryPickerOpen] = useState(false);
   const [libraryPageOpen, setLibraryPageOpen] = useState(false);
   const [pendingLibraryEntry, setPendingLibraryEntry] = useState<BehaviorLibraryEntry | null>(null);
@@ -10967,6 +10991,7 @@ export default function App() {
         onClose={() => setLibraryPickerOpen(false)}
         systemEntries={SYSTEM_LIBRARY}
         projectEntries={projectLibrary}
+        bindsToFilter={activeRuntimeScope ? [activeRuntimeScope.scopeKind] : undefined}
         onSelectEntry={(entry) => {
           setLibraryPickerOpen(false);
           setPendingLibraryEntry(entry);

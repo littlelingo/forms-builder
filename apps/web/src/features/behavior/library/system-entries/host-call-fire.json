@@ -20,8 +20,7 @@
         "id": "action-host-call",
         "kind": "host_action",
         "config": {
-          "handlerKey": "{{handlerKey}}",
-          "payload": { "$eventPayload": "*" }
+          "handlerKey": "{{handlerKey}}"
         },
         "continueOnError": true
       }

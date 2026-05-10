@@ -20,7 +20,7 @@
         "id": "action-set-value",
         "kind": "set_field_value",
         "target": { "nodeId": "{{targetField}}" },
-        "config": { "value": { "$eventPayload": "value" } },
+        "config": { "value": { "$runtime": "current.event.payload.value" } },
         "continueOnError": false
       }
     ]
