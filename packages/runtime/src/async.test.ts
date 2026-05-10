@@ -466,6 +466,99 @@ test("Phase 3 Stage D: onError continue advances past the erroring action", asyn
   assert.equal(state.values["field-counter"], "after-error");
 });
 
+test("Phase 3 Stage F: engine-level debounce defers listener execution to a single fire after the window", async () => {
+  const document = createDocument();
+  document.runtime!.formListeners = [
+    {
+      id: "listener-debounced",
+      label: "Debounced set",
+      eventName: "form.tick",
+      enabled: true,
+      conditions: [],
+      timing: { debounce_ms: 30 },
+      actions: [
+        {
+          id: "act-debounced-set",
+          kind: "set_field_value",
+          target: { nodeId: "field-counter", nodeType: "field" },
+          config: { fieldId: "field-counter", value: { $runtime: "current.event.payload.value" } },
+          continueOnError: false,
+        },
+      ],
+    },
+  ];
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-async",
+    projectId: "project-async",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  // Five rapid sync dispatches — each should report listener as
+  // deferred_by_debounce and not execute the action inline.
+  for (let i = 1; i <= 5; i++) {
+    const report = engine.dispatchWithReport(buildTickEvent(i));
+    const lst = report.listeners.find((entry) => entry.listenerId === "listener-debounced");
+    assert.ok(lst);
+    assert.equal(lst.matched, false, "listener must be deferred, not run inline");
+    assert.equal(lst.skippedReason, "deferred_by_debounce");
+  }
+  // State unchanged before the debounce window expires.
+  assert.equal(engine.getState().values["field-counter"], undefined);
+
+  // Wait past the debounce window — only the last call (value 5) fires.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(
+    engine.getState().values["field-counter"],
+    5,
+    "exactly one deferred execution should land, using the latest payload value",
+  );
+});
+
+test("Phase 3 Stage F: engine-level throttle drops within-window dispatches", () => {
+  const document = createDocument();
+  document.runtime!.formListeners = [
+    {
+      id: "listener-throttled",
+      label: "Throttled set",
+      eventName: "form.tick",
+      enabled: true,
+      conditions: [],
+      timing: { throttle_ms: 1000 },
+      actions: [
+        {
+          id: "act-throttle-set",
+          kind: "set_field_value",
+          target: { nodeId: "field-counter", nodeType: "field" },
+          config: { fieldId: "field-counter", value: { $runtime: "current.event.payload.value" } },
+          continueOnError: false,
+        },
+      ],
+    },
+  ];
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-async",
+    projectId: "project-async",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+  // Two back-to-back dispatches inside the throttle window.
+  const r1 = engine.dispatchWithReport(buildTickEvent(1));
+  const r2 = engine.dispatchWithReport(buildTickEvent(2));
+  const l1 = r1.listeners.find((entry) => entry.listenerId === "listener-throttled");
+  const l2 = r2.listeners.find((entry) => entry.listenerId === "listener-throttled");
+  assert.ok(l1);
+  assert.ok(l2);
+  // Both report "dropped_by_throttle" from the report perspective (the
+  // diagnostic flagged the listener as throttle-managed); the first call's
+  // scheduled action actually runs immediately.
+  assert.equal(l1.skippedReason, "dropped_by_throttle");
+  assert.equal(l2.skippedReason, "dropped_by_throttle");
+  assert.equal(engine.getState().values["field-counter"], 1, "first call's action ran; the second was dropped");
+});
+
 test("Phase 3 Stage C: unmount cancels asyncTail and clears continuations", async () => {
   const engine = createRuntimeEngine();
   engine.mount(createDocument(), {

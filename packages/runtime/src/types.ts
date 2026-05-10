@@ -95,7 +95,9 @@ export interface RuntimeListenerDiagnostic {
     | "conditions_failed"
     | "source_mismatch"
     | "broken_event_ref"
-    | "broken_library_ref";
+    | "broken_library_ref"
+    | "deferred_by_debounce"
+    | "dropped_by_throttle";
   resolvedTarget?: NodeDescriptor;
   conditions: RuntimeConditionDiagnostic[];
   actions: RuntimeActionDiagnostic[];

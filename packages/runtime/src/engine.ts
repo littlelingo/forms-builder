@@ -1264,6 +1264,50 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
         // Use the materialised listener's actions (may differ from raw when libraryRef is set).
         const resolvedListener =
           materialisedListener(listenerInvocation.listener.listener) ?? listenerInvocation.listener.listener;
+
+        // Phase 3 Stage F: when the listener carries non-empty timing,
+        // defer the entire evaluation+execution via the per-engine
+        // scheduler. The synchronous diagnostic above stays in the
+        // dispatch report (marked "deferred_by_debounce") so authors can
+        // tell the listener was matched but not yet run. The scheduler
+        // fires the deferred body which re-evaluates and executes
+        // without writing into the now-stale report.
+        const timing = resolvedListener.timing;
+        const hasTiming = timing && (Number(timing.debounce_ms ?? 0) > 0 || Number(timing.throttle_ms ?? 0) > 0);
+        if (hasTiming) {
+          const debounceWins = Number(timing!.debounce_ms ?? 0) > 0;
+          // Mark diagnostic and continue; do not execute inline.
+          listenerDiagnostic.matched = false;
+          listenerDiagnostic.skippedReason = debounceWins ? "deferred_by_debounce" : "dropped_by_throttle";
+          // Capture the invocation context for the scheduled fire.
+          const deferredInvocation = listenerInvocation;
+          listenerScheduler.schedule(resolvedListener.id, timing!, () => {
+            if (!mounted || !document || !index) return;
+            // Re-evaluate at fire time so condition state reflects whatever the
+            // chain produced while the timer ran.
+            const fireDiag = evaluateListenerDiagnostic(deferredInvocation.listener, deferredInvocation.event);
+            if (!fireDiag.matched) return;
+            // Throw on async-only kinds — deferred listeners use sync execution only.
+            if (resolvedListener.actions.some((a) => isRuntimeAsyncActionKind(a.kind))) {
+              return;
+            }
+            try {
+              for (const action of resolvedListener.actions) {
+                try {
+                  executeAction(action, deferredInvocation.event);
+                } catch (err) {
+                  if (err instanceof HaltChainError) break;
+                  throw err;
+                }
+              }
+            } catch {
+              // Swallow — deferred fires cannot propagate to the original dispatch caller.
+              // executeAction's onError policy already pushed any error-trace events.
+            }
+          });
+          continue;
+        }
+
         // Phase 3: throw early if the chain contains async-only actions; sync dispatch must surface the bug.
         if (resolvedListener.actions.some((a) => isRuntimeAsyncActionKind(a.kind))) {
           throw new Error(
