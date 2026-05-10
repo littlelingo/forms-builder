@@ -3461,6 +3461,18 @@ export default function App() {
       case "mark_required":
       case "mark_optional":
         return { nodeId: builderNodeOptions[0]?.id ?? "" };
+      case "branch":
+        // Phase 3: minimal branch starter — empty conditions match by
+        // default; author edits via the JSON config inspector for now.
+        return { conditions: [], actions: [], else: [] };
+      case "wait":
+        return { mode: "fixed_ms", durationMs: 250 };
+      case "host_call_await":
+        return {
+          handlerKey: runtimeHostHandlerSuggestions(scope, field, listener)[0] ?? "host.action",
+          payload: {},
+          timeoutMs: 5000,
+        };
       default:
         return {};
     }

@@ -770,6 +770,173 @@ export function ActionEditor({
           </div>
         ) : null}
 
+        {/* Phase 3: wait config — fixed_ms duration or until_event */}
+        {action.kind === "wait" ? (
+          <div className="grid gap-3 rounded-md border border-slate-200 bg-white px-3 py-3">
+            <div className="grid grid-cols-2 gap-2">
+              <label className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                Mode
+                <select
+                  value={String(action.config.mode ?? "fixed_ms")}
+                  onChange={(event) =>
+                    onUpdateRuntimeAction(listener.id, action.id, (current) => {
+                      current.config.mode = event.target.value;
+                    })
+                  }
+                  className="mt-1 w-full rounded-2xl border border-soft px-3 py-2 text-sm text-slate-800"
+                >
+                  <option value="fixed_ms">Fixed delay</option>
+                  <option value="until_event">Until event</option>
+                </select>
+              </label>
+              {action.config.mode === "until_event" ? (
+                <>
+                  <label className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                    Event type
+                    <input
+                      type="text"
+                      value={String(action.config.eventType ?? "")}
+                      onChange={(event) =>
+                        onUpdateRuntimeAction(listener.id, action.id, (current) => {
+                          current.config.eventType = event.target.value;
+                        })
+                      }
+                      className="mt-1 w-full rounded-2xl border border-soft px-3 py-2 text-sm text-slate-800"
+                    />
+                  </label>
+                  <label className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                    Timeout (ms)
+                    <input
+                      type="number"
+                      min={0}
+                      value={Number(action.config.timeoutMs ?? 0)}
+                      onChange={(event) =>
+                        onUpdateRuntimeAction(listener.id, action.id, (current) => {
+                          current.config.timeoutMs = Number(event.target.value) || 0;
+                        })
+                      }
+                      className="mt-1 w-full rounded-2xl border border-soft px-3 py-2 text-sm text-slate-800"
+                    />
+                  </label>
+                </>
+              ) : (
+                <label className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                  Duration (ms)
+                  <input
+                    type="number"
+                    min={0}
+                    value={Number(action.config.durationMs ?? 0)}
+                    onChange={(event) =>
+                      onUpdateRuntimeAction(listener.id, action.id, (current) => {
+                        current.config.durationMs = Number(event.target.value) || 0;
+                      })
+                    }
+                    className="mt-1 w-full rounded-2xl border border-soft px-3 py-2 text-sm text-slate-800"
+                  />
+                </label>
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        {/* Phase 3: host_call_await — handler key + optional correlationId + timeout */}
+        {action.kind === "host_call_await" ? (
+          <div className="grid gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-3">
+            <p className="text-[0.7rem] text-amber-900">
+              Suspends the listener chain until the host dispatches{" "}
+              <code className="rounded bg-amber-100 px-1 py-0.5">host.action_response</code> with a matching{" "}
+              <code className="rounded bg-amber-100 px-1 py-0.5">correlationId</code>.
+            </p>
+            <label className="text-xs uppercase tracking-[0.18em] text-slate-500">
+              Handler key
+              <input
+                type="text"
+                value={String(action.config.handlerKey ?? "")}
+                onChange={(event) =>
+                  onUpdateRuntimeAction(listener.id, action.id, (current) => {
+                    current.config.handlerKey = event.target.value;
+                  })
+                }
+                className="mt-1 w-full rounded-2xl border border-soft px-3 py-2 text-sm text-slate-800"
+              />
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                Correlation id (optional)
+                <input
+                  type="text"
+                  value={String(action.config.correlationId ?? "")}
+                  placeholder="auto-generated when blank"
+                  onChange={(event) =>
+                    onUpdateRuntimeAction(listener.id, action.id, (current) => {
+                      const next = event.target.value.trim();
+                      if (next) {
+                        current.config.correlationId = next;
+                      } else {
+                        delete current.config.correlationId;
+                      }
+                    })
+                  }
+                  className="mt-1 w-full rounded-2xl border border-soft px-3 py-2 text-sm text-slate-800"
+                />
+              </label>
+              <label className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                Timeout (ms)
+                <input
+                  type="number"
+                  min={0}
+                  value={Number(action.config.timeoutMs ?? 0)}
+                  onChange={(event) =>
+                    onUpdateRuntimeAction(listener.id, action.id, (current) => {
+                      current.config.timeoutMs = Number(event.target.value) || 0;
+                    })
+                  }
+                  className="mt-1 w-full rounded-2xl border border-soft px-3 py-2 text-sm text-slate-800"
+                />
+              </label>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Phase 3: branch — minimal placeholder; nested-action editing is a follow-up */}
+        {action.kind === "branch" ? (
+          <div className="grid gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-3 text-[0.78rem] text-sky-900">
+            <p>
+              Branch: evaluates conditions and runs <strong>then</strong> or <strong>else</strong> arms. Nested-action
+              authoring is a follow-up surface; for now configure via the action's JSON config (max nesting depth 3
+              enforced by the engine).
+            </p>
+            <p className="text-[0.7rem] text-sky-700">
+              Conditions: {Array.isArray((action.config as Record<string, unknown>).conditions) ? ((action.config as { conditions: unknown[] }).conditions.length) : 0} ·
+              Then actions: {Array.isArray((action.config as Record<string, unknown>).actions) ? ((action.config as { actions: unknown[] }).actions.length) : 0} ·
+              Else actions: {Array.isArray((action.config as Record<string, unknown>).else) ? ((action.config as { else: unknown[] }).else.length) : 0}
+            </p>
+          </div>
+        ) : null}
+
+        {/* Phase 3: per-action error policy. Applies to every kind. */}
+        <div>
+          <label className="text-xs uppercase tracking-[0.18em] text-slate-500">
+            On error
+            <select
+              value={String(action.onError ?? (action.continueOnError ? "continue" : "halt_and_raise"))}
+              onChange={(event) =>
+                onUpdateRuntimeAction(listener.id, action.id, (current) => {
+                  current.onError = event.target.value as "continue" | "halt" | "halt_and_raise";
+                  // Keep continueOnError in sync for backwards compat: only the new field drives the engine,
+                  // but old consumers might still inspect it.
+                  current.continueOnError = current.onError === "continue";
+                })
+              }
+              className="mt-2 w-full rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
+            >
+              <option value="halt_and_raise">Halt and emit runtime.action_error (default)</option>
+              <option value="halt">Halt the chain silently</option>
+              <option value="continue">Continue past errors</option>
+            </select>
+          </label>
+        </div>
+
         <div className="flex flex-wrap gap-2">
           <button
             type="button"

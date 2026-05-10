@@ -379,7 +379,11 @@ export const runtimeActionOptions: Array<{ value: RuntimeActionKind; label: stri
   { value: "mark_required", label: "Mark required" },
   { value: "mark_optional", label: "Mark optional" },
   { value: "dispatch_event", label: "Dispatch event" },
-  { value: "host_action", label: "Request host action" },
+  { value: "host_action", label: "Request host action (fire-and-forget)" },
+  // Phase 3 additions
+  { value: "branch", label: "Branch · if / else" },
+  { value: "wait", label: "Wait · delay or until event" },
+  { value: "host_call_await", label: "Host call · await response" },
 ];
 
 export const builtInRuntimeEventNames = new Set<string>(runtimeCoreEventTypes.map((eventType) => eventType.type));
