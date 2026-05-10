@@ -1,6 +1,7 @@
 import type { CSSProperties, HTMLAttributes } from "react";
 
 import type { RuntimeListenerDefinition } from "@form-builder/schema";
+import { runtimeActionSafetyClass } from "@form-builder/schema";
 
 import { iconButtonClass } from "../../../lib/ui-utils";
 
@@ -57,7 +58,8 @@ export function BehaviorStackRow({
   const enabled = listener.enabled !== false;
   const provenance = listener.provenance;
   const hasLibraryRef = listener.libraryRef && !listener.libraryRef.detached;
-  const hasDestructiveAction = (listener.actions ?? []).some((a) => a.kind === "submit_form");
+  const hasDestructiveAction = (listener.actions ?? []).some((a) => runtimeActionSafetyClass(a.kind) === "destructive");
+  const hasHostAction = (listener.actions ?? []).some((a) => runtimeActionSafetyClass(a.kind) === "host");
   const containerClass = [
     "flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm transition",
     isSelected ? "border-blue-300 bg-blue-50" : "border-soft bg-white hover:border-slate-300",
@@ -113,8 +115,9 @@ export function BehaviorStackRow({
         </button>
       ) : null}
       {hasDestructiveAction ? (
-        <span className="h-1.5 w-1.5 rounded-full bg-rose-500" title="Includes destructive action (submit_form)" />
+        <span className="h-1.5 w-1.5 rounded-full bg-rose-500" title="Includes destructive action" />
       ) : null}
+      {hasHostAction ? <span className="h-1.5 w-1.5 rounded-full bg-amber-400" title="Includes host action" /> : null}
       {onToggleEnabled ? (
         <button
           type="button"

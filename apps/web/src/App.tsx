@@ -2362,6 +2362,7 @@ export default function App() {
         stepId: null,
         selection: null,
         graphSelection: createListenerGraphSelection(listener),
+        provenance: listener.provenance,
       })) ?? [];
 
     const steps = activeDocument.steps.map<LogicMapStepEntry>((step) => {
@@ -2383,6 +2384,7 @@ export default function App() {
             stepId: step.id,
             selection: { kind: "step", stepId: step.id } as AuthoringSelection,
             graphSelection: createListenerGraphSelection(listener),
+            provenance: listener.provenance,
           })),
         );
       }
@@ -2403,6 +2405,7 @@ export default function App() {
               stepId: step.id,
               selection: { kind: "section", stepId: step.id, sectionId: section.id } as AuthoringSelection,
               graphSelection: createListenerGraphSelection(listener),
+              provenance: listener.provenance,
             })),
           );
         }
@@ -2451,6 +2454,7 @@ export default function App() {
                   fieldId: field.id,
                 } as AuthoringSelection,
                 graphSelection: createListenerGraphSelection(listener),
+                provenance: listener.provenance,
               })),
             );
           }
@@ -2477,6 +2481,7 @@ export default function App() {
                   groupId: group.id,
                 } as AuthoringSelection,
                 graphSelection: createListenerGraphSelection(listener),
+                provenance: listener.provenance,
               })),
             );
           }
@@ -2531,6 +2536,7 @@ export default function App() {
                     fieldId: field.id,
                   } as AuthoringSelection,
                   graphSelection: createListenerGraphSelection(listener),
+                  provenance: listener.provenance,
                 })),
               );
             }
