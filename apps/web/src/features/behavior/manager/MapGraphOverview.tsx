@@ -216,7 +216,7 @@ export function MapGraphOverview({
         <div className="mt-4 flex flex-wrap gap-2">
           <span className="app-pill">{logicMapData.steps.length} steps</span>
           <span className="app-pill">{logicMapData.totalConditionals} conditional behavior</span>
-          <span className="app-pill">{logicMapData.totalListeners} behavior flows</span>
+          <span className="app-pill">{logicMapData.totalListeners} behaviors</span>
         </div>
       </div>
       <div className="rounded-[1.15rem] border border-soft bg-white p-4">

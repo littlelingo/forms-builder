@@ -1114,7 +1114,7 @@ export function BehaviorWorkspace({
                   }
                   className={actionButtonClass("primary")}
                 >
-                  Open flows
+                  Open behaviors
                 </button>
               ) : null}
             </div>
@@ -1192,7 +1192,7 @@ export function BehaviorWorkspace({
                           onClick={() => focusDocumentBehaviorCluster(cluster, "interaction", "Document graph canvas")}
                           className={actionButtonClass(behaviorGraphFilter === "state" ? "secondary" : "primary")}
                         >
-                          Open flows
+                          Open behaviors
                         </button>
                       ) : null}
                     </div>
@@ -1681,7 +1681,7 @@ export function BehaviorWorkspace({
                               }
                               className={actionButtonClass("primary")}
                             >
-                              Open flows
+                              Open behaviors
                             </button>
                           ) : null}
                         </div>
@@ -1726,7 +1726,7 @@ export function BehaviorWorkspace({
                                         behaviorGraphFilter === "state" ? "secondary" : "primary",
                                       )}
                                     >
-                                      Open flows
+                                      Open behaviors
                                     </button>
                                   ) : null}
                                   {cluster.selection ? (
@@ -1998,7 +1998,7 @@ export function BehaviorWorkspace({
                                                 behaviorGraphFilter === "state" ? "secondary" : "primary",
                                               )}
                                             >
-                                              Open flows
+                                              Open behaviors
                                             </button>
                                           ) : null}
                                           {cluster.selection ? (
@@ -2094,7 +2094,7 @@ export function BehaviorWorkspace({
                                           }
                                           className={actionButtonClass("primary")}
                                         >
-                                          Open flows
+                                          Open behaviors
                                         </button>
                                       ) : null}
                                     </div>
@@ -2913,7 +2913,7 @@ export function BehaviorWorkspace({
                               }
                               className={actionButtonClass("primary")}
                             >
-                              Open flow
+                              Open behavior
                             </button>
                           </div>
                         </div>
@@ -3004,7 +3004,7 @@ export function BehaviorWorkspace({
                                     behaviorGraphFilter === "state" ? "secondary" : "primary",
                                   )}
                                 >
-                                  Open flows
+                                  Open behaviors
                                 </button>
                               ) : null}
                             </div>
@@ -3133,7 +3133,7 @@ export function BehaviorWorkspace({
                               }
                               className={actionButtonClass("primary")}
                             >
-                              Open flows
+                              Open behaviors
                             </button>
                           ) : null}
                         </div>
@@ -3156,9 +3156,9 @@ export function BehaviorWorkspace({
               <div className="mt-4 rounded-[1rem] border border-soft bg-slate-50 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Flow navigator</p>
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Behavior navigator</p>
                     <p className="mt-2 text-sm leading-6 text-slate-700">
-                      Focus mode now keeps one flow in view at a time. Use these jump points to swap flows without
+                      Focus mode keeps one behavior in view at a time. Use these jump points to swap behaviors without
                       scrolling a long stack, or switch to overview mode to scan everything at once.
                     </p>
                   </div>
@@ -3328,7 +3328,7 @@ export function BehaviorWorkspace({
                 onPointerUp={handleBehaviorGraphPointerEnd}
                 onPointerCancel={handleBehaviorGraphPointerEnd}
                 onKeyDown={handleBehaviorGraphViewportKeyDown}
-                aria-label="Behavior flow canvas"
+                aria-label="Behavior canvas"
               >
                 <div style={graphPanStyle}>
                   <div style={graphViewportStyle} className="space-y-4">

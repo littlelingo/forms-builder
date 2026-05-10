@@ -112,6 +112,7 @@ import {
   LibraryPicker,
   ListenerCreationForm,
   MapGraphOverview,
+  PreviewTestRecorder,
   RuntimeReactionProperties,
   SYSTEM_LIBRARY,
   applyEntryToListener,
@@ -1052,6 +1053,10 @@ interface RuntimeFieldPreviewProps {
   errorMessage: string | null;
   onValueChange: (value: unknown) => void;
   onButtonClick: () => void;
+  /** Best-Next-5: fired when the preview input gains focus. */
+  onFieldFocus?: () => void;
+  /** Best-Next-5: fired when the preview input loses focus. */
+  onFieldBlur?: () => void;
 }
 
 function RuntimeFieldPreview({
@@ -1061,6 +1066,8 @@ function RuntimeFieldPreview({
   errorMessage,
   onValueChange,
   onButtonClick,
+  onFieldFocus,
+  onFieldBlur,
 }: RuntimeFieldPreviewProps) {
   const isActionButton = field.rendererHints.component === "button";
   const isEnabled = nodeState?.enabled ?? true;
@@ -1197,6 +1204,8 @@ function RuntimeFieldPreview({
           value={typeof value === "string" ? value : ""}
           disabled={!isEnabled}
           onChange={(event) => onValueChange(event.target.value)}
+          onFocus={() => onFieldFocus?.()}
+          onBlur={() => onFieldBlur?.()}
           className="w-full rounded-2xl border border-soft bg-white px-4 py-3 text-sm text-slate-700"
         >
           <option value="">{field.options.length ? "Choose an option" : "No options yet"}</option>
@@ -1226,6 +1235,8 @@ function RuntimeFieldPreview({
           disabled={!isEnabled}
           placeholder={field.helpText || "Response field"}
           onChange={(event) => onValueChange(event.target.value)}
+          onFocus={() => onFieldFocus?.()}
+          onBlur={() => onFieldBlur?.()}
           className="min-h-[7.5rem] w-full rounded-2xl border border-soft bg-white px-4 py-3 text-sm text-slate-700 placeholder:text-slate-400"
         />
         {errorMessage ? <p className="text-sm text-rose-700">{errorMessage}</p> : null}
@@ -1248,6 +1259,8 @@ function RuntimeFieldPreview({
         disabled={!isEnabled}
         placeholder={field.helpText || "Response field"}
         onChange={(event) => onValueChange(event.target.value)}
+        onFocus={() => onFieldFocus?.()}
+        onBlur={() => onFieldBlur?.()}
         className="w-full rounded-2xl border border-soft bg-white px-4 py-3 text-sm text-slate-700 placeholder:text-slate-400"
       />
       {errorMessage ? <p className="text-sm text-rose-700">{errorMessage}</p> : null}
@@ -1901,6 +1914,11 @@ export default function App() {
   const [eventFlowEventType, setEventFlowEventType] = useState("");
   const [eventFlowPayloadValues, setEventFlowPayloadValues] = useState<EventFlowPayloadValues>({});
   const [lastDispatchReport, setLastDispatchReport] = useState<RuntimeDispatchReport | null>(null);
+  /** Best-Next-3: preview-based test mode — capture dispatch reports from real preview interactions. */
+  const [previewTestRecordingOn, setPreviewTestRecordingOn] = useState(false);
+  const [previewTestReports, setPreviewTestReports] = useState<
+    { id: string; timestamp: string; report: RuntimeDispatchReport }[]
+  >([]);
   const [traceFromEventReport, setTraceFromEventReport] = useState<{
     eventType: string;
     sourceId: string;
@@ -4422,6 +4440,17 @@ export default function App() {
   }
 
   function dispatchRuntimeEvent(event: RuntimeEventEnvelope) {
+    if (previewTestRecordingOn) {
+      const report = runtimeEngineRef.current.dispatchWithReport(event);
+      runtimeSessionRef.current = report.stateAfter;
+      setRuntimeSessionState(report.stateAfter);
+      setLastDispatchReport(report);
+      setPreviewTestReports((prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), timestamp: new Date().toISOString(), report },
+      ]);
+      return;
+    }
     const nextState = runtimeEngineRef.current.dispatch(event);
     runtimeSessionRef.current = nextState;
     setRuntimeSessionState(nextState);
@@ -4548,6 +4577,46 @@ export default function App() {
       correlationId,
       timestamp,
     });
+  }
+
+  /**
+   * Best-Next-5 — emit `field.focus` / `field.blur` core events from the
+   * preview surface so listeners that depend on focus/blur lifecycle can be
+   * tested against real interactions. Routed through `dispatchRuntimeEvent`
+   * so the preview-test recorder captures them when recording is on.
+   */
+  function handleRuntimeFieldLifecycle(field: AuthoringField, type: "field.focus" | "field.blur") {
+    if (!activeDocument) return;
+    const target: NonNullable<RuntimeEventEnvelope["target"]> = {
+      runtimeId: "builder-preview",
+      formId: activeDocument.id,
+      projectId: activeProjectDetail?.project.id ?? null,
+      nodeId: field.id,
+      nodeKey: field.dispatchKey ?? null,
+      nodeType: "field",
+    };
+    dispatchRuntimeEvent({
+      type,
+      version: "1.0",
+      target,
+      source: target,
+      bubbles: true,
+      payload: {
+        fieldId: field.id,
+        label: field.label,
+        stepId: activeStep?.id ?? null,
+      },
+      correlationId: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  function handleRuntimeFieldFocus(field: AuthoringField) {
+    handleRuntimeFieldLifecycle(field, "field.focus");
+  }
+
+  function handleRuntimeFieldBlur(field: AuthoringField) {
+    handleRuntimeFieldLifecycle(field, "field.blur");
   }
 
   async function handleImportRuntimeSession(file: File) {
@@ -6230,6 +6299,29 @@ export default function App() {
     setSelectedBehaviorNode(node);
     setBehaviorStudioMode(node.kind === "listener" ? "action" : "manage");
     setBehaviorStudioView("studio");
+    setBehaviorStudioOpen(true);
+    setInspectorTab("behavior");
+  }
+
+  /**
+   * Phase 2D-2 — open the manager By-event layout with the trigger filter
+   * pre-set to the chosen event type, so reverse-index click-throughs from
+   * the inspector land on the right view.
+   */
+  function openManagerByEvent(eventType: string) {
+    setEditingListenerId(null);
+    setBehaviorStudioCreating(false);
+    setBehaviorStudioAnchor(null);
+    setBehaviorStudioMode("manage");
+    setBehaviorStudioManagerMode("index");
+    setBehaviorStudioView("studio");
+    setBehaviorIndexLayout("by_event");
+    setBehaviorIndexStepFilter("all");
+    setBehaviorIndexScopeFilter("all");
+    setBehaviorIndexTriggerFilter(eventType);
+    setBehaviorIndexEffectFilter("all");
+    setBehaviorIndexStatusFilter("all");
+    setBehaviorIndexObjectView("all");
     setBehaviorStudioOpen(true);
     setInspectorTab("behavior");
   }
@@ -8331,6 +8423,8 @@ export default function App() {
             errorMessage={runtimeFieldError(field, runtimeSessionState)}
             onValueChange={(nextValue) => handleRuntimeFieldValueChange(field, nextValue)}
             onButtonClick={() => handleRuntimeButtonClick(field)}
+            onFieldFocus={() => handleRuntimeFieldFocus(field)}
+            onFieldBlur={() => handleRuntimeFieldBlur(field)}
           />
         }
       />
@@ -8731,6 +8825,27 @@ export default function App() {
         onSetBehaviorStudioMode={setBehaviorStudioMode}
         onSetBehaviorStudioCreating={setBehaviorStudioCreating}
         onCreateAuthoredEventBehaviorListener={createAuthoredEventBehaviorListener}
+        projectEvents={projectEventCatalog}
+        onPickProjectEvent={(picked) => {
+          if (!activeRuntimeTarget) return;
+          const newListener: RuntimeListenerDefinition = {
+            id: crypto.randomUUID(),
+            label: `When ${picked.label ?? picked.type}`,
+            eventName: picked.type,
+            type: picked.type,
+            eventRef: { id: picked.id },
+            target: { id: activeRuntimeTarget.id },
+            targetNodeId: activeRuntimeTarget.id,
+            enabled: true,
+            provenance: "manual",
+            conditions: [],
+            actions: [],
+          };
+          addRuntimeListener(newListener);
+          setSelectedBehaviorListenerId(newListener.id);
+          setEditingListenerId(newListener.id);
+          setBehaviorStudioOpen(false);
+        }}
       />
     );
   }
@@ -9454,62 +9569,73 @@ export default function App() {
     ) : null;
 
   const behaviorsContent = activeDocument ? (
-    <BehaviorInspectorPanel
-      document={activeDocument}
-      scopeListeners={scopeListeners}
-      selectedListenerId={selectedBehaviorListenerId}
-      onSelectListener={setSelectedBehaviorListenerId}
-      onEditListener={(listenerId) => {
-        setSelectedBehaviorListenerId(listenerId);
-        setEditingListenerId(listenerId);
-        setBehaviorStudioOpen(false);
-      }}
-      onToggleListenerEnabled={onToggleListenerEnabled}
-      onReorderListener={onReorderListener}
-      onAddBehavior={() => {
-        const newListener = createRuntimeListener(defaultBehaviorTriggerName(), []);
-        addRuntimeListener(newListener);
-        justCreatedListenerIdsRef.current.add(newListener.id);
-        setEditingListenerId(newListener.id);
-        setSelectedBehaviorListenerId(newListener.id);
-        setBehaviorStudioOpen(false);
-      }}
-      onAddFromLibrary={() => setLibraryPickerOpen(true)}
-      onSaveToLibrary={(listenerId) => {
-        setSavingFromExistingListenerId(listenerId);
-        setSaveToLibraryName("");
-        setSaveToLibraryDescription("");
-        setSaveToLibraryCategory("custom");
-      }}
-      externalReferenceCount={externalReferenceCount}
-      editingListenerId={editingListenerId}
-      composer={inlineComposerNode}
-      onOpenInAdvancedStudio={
-        editingListenerId
-          ? () => {
-              handleCloseInlineEditor();
-              openBehaviorStudio("studio", "manage");
-            }
-          : undefined
-      }
-      brokenRefsByListenerId={brokenRefsByListenerId}
-    />
+    <div className="space-y-4">
+      <BehaviorInspectorPanel
+        document={activeDocument}
+        scopeListeners={scopeListeners}
+        selectedListenerId={selectedBehaviorListenerId}
+        onSelectListener={setSelectedBehaviorListenerId}
+        onEditListener={(listenerId) => {
+          setSelectedBehaviorListenerId(listenerId);
+          setEditingListenerId(listenerId);
+          setBehaviorStudioOpen(false);
+        }}
+        onToggleListenerEnabled={onToggleListenerEnabled}
+        onReorderListener={onReorderListener}
+        onAddBehavior={() => {
+          const newListener = createRuntimeListener(defaultBehaviorTriggerName(), []);
+          addRuntimeListener(newListener);
+          justCreatedListenerIdsRef.current.add(newListener.id);
+          setEditingListenerId(newListener.id);
+          setSelectedBehaviorListenerId(newListener.id);
+          setBehaviorStudioOpen(false);
+        }}
+        onAddFromLibrary={() => setLibraryPickerOpen(true)}
+        onSaveToLibrary={(listenerId) => {
+          setSavingFromExistingListenerId(listenerId);
+          setSaveToLibraryName("");
+          setSaveToLibraryDescription("");
+          setSaveToLibraryCategory("custom");
+        }}
+        externalReferenceCount={externalReferenceCount}
+        editingListenerId={editingListenerId}
+        composer={inlineComposerNode}
+        onOpenInAdvancedStudio={
+          editingListenerId
+            ? () => {
+                handleCloseInlineEditor();
+                openBehaviorStudio("studio", "manage");
+              }
+            : undefined
+        }
+        brokenRefsByListenerId={brokenRefsByListenerId}
+        projectEvents={projectEventCatalog}
+        reverseIndexNodeId={activeSelectionNodeId}
+        onOpenManagerByEvent={openManagerByEvent}
+      />
+      <PreviewTestRecorder
+        recordingOn={previewTestRecordingOn}
+        reports={previewTestReports}
+        onToggleRecording={setPreviewTestRecordingOn}
+        onClear={() => setPreviewTestReports([])}
+      />
+    </div>
   ) : null;
   const mapContent = logicMapData ? (
     <>
       <div className="rounded-[1.15rem] border border-soft bg-white p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Flow map</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Behavior map</p>
             <h4 className="mt-2 text-lg font-semibold text-slate-950">Document logic and runtime graph</h4>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              Use this as the high-level map for behavior flows, then jump into the focused behavior editor only when
-              you need to change a specific listener or interaction.
+              Use this as the high-level map for behaviors, then jump into the focused behavior editor only when you
+              need to change a specific listener or interaction.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <span className="app-pill">{logicMapData.steps.length} steps</span>
               <span className="app-pill">{logicMapData.totalConditionals} conditional behavior</span>
-              <span className="app-pill">{logicMapData.totalListeners} behavior flows</span>
+              <span className="app-pill">{logicMapData.totalListeners} behaviors</span>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -11289,6 +11415,7 @@ export default function App() {
           setSelectedBehaviorListenerId(newListener.id);
           setPendingLibraryEntry(null);
         }}
+        projectEvents={projectEventCatalog}
       />
 
       {/* Library page overlay */}

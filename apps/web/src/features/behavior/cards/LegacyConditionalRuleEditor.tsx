@@ -51,7 +51,7 @@ export function LegacyConditionalRuleEditor(props: LegacyConditionalRuleEditorPr
               <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Conditional bundle</p>
               <p className="mt-2 text-sm text-slate-700">
                 One condition can drive several effects. Keep related visibility, required, and enabled-conditional
-                listener flows grouped here.
+                listener behaviors grouped here.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
