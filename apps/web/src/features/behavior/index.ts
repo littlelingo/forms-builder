@@ -47,3 +47,5 @@ export { LibraryPicker } from "./library/LibraryPicker";
 export type { LibraryPickerProps } from "./library/LibraryPicker";
 export { ApplyParametersDialog } from "./library/ApplyParametersDialog";
 export type { ApplyParametersDialogProps } from "./library/ApplyParametersDialog";
+export { LibraryPage } from "./library/LibraryPage";
+export type { LibraryPageProps } from "./library/LibraryPage";
