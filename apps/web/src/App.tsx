@@ -1674,6 +1674,7 @@ export default function App() {
     startY: number;
   } | null>(null);
   const simulatorSectionRef = useRef<HTMLDivElement | null>(null);
+  const justCreatedListenerIdsRef = useRef<Set<string>>(new Set());
   const [stage, setStage] = useState<AppStage>("home");
   const [reviewPreviewMode, setReviewPreviewMode] = useState<ReviewPreviewMode>("overlay");
   const [reviewFlowMode, setReviewFlowMode] = useState<ReviewFlowMode>("new_project");
@@ -5922,6 +5923,7 @@ export default function App() {
     mode?: BehaviorStudioMode,
     anchor: BehaviorStudioAnchor | null = null,
   ) {
+    setEditingListenerId(null);
     behaviorStudioReturnFocusRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setBehaviorStudioView(view);
@@ -5970,6 +5972,7 @@ export default function App() {
   }
 
   function openBehaviorBehaviorManager() {
+    setEditingListenerId(null);
     setBehaviorStudioCreating(false);
     setBehaviorStudioAnchor(null);
     setBehaviorStudioMode("manage");
@@ -6010,6 +6013,7 @@ export default function App() {
   }
 
   function openBehaviorNodeInStudio(node: BehaviorGraphSelection, ruleIndex?: number | null) {
+    setEditingListenerId(null);
     setBehaviorStudioCreating(false);
     setBehaviorStudioAnchor(null);
     setBehaviorStudioManagerMode(node.kind === "rule" ? "conditions" : "flows");
@@ -9054,6 +9058,18 @@ export default function App() {
     });
   }
 
+  function handleCloseInlineEditor() {
+    const id = editingListenerId;
+    if (id && justCreatedListenerIdsRef.current.has(id)) {
+      const listener = scopeListeners.find((l) => l.id === id) ?? null;
+      if (listener && listener.actions.length === 0 && (listener.conditions ?? []).length === 0) {
+        removeRuntimeListenerForSelection(selectedAuthoring, id);
+      }
+      justCreatedListenerIdsRef.current.delete(id);
+    }
+    setEditingListenerId(null);
+  }
+
   const inlineEditingListener = editingListenerId
     ? (scopeListeners.find((l) => l.id === editingListenerId) ?? null)
     : null;
@@ -9095,7 +9111,7 @@ export default function App() {
         behaviorPresetCategoryLabels={behaviorPresetCategoryLabels}
         getRuntimePayloadEditorState={getRuntimePayloadEditorState}
         onUpdateRuntimeListener={updateRuntimeListener}
-        onSetSelectedBehaviorNode={() => setEditingListenerId(null)}
+        onSetSelectedBehaviorNode={handleCloseInlineEditor}
         onAddRuntimeActionToListener={addRuntimeActionToListener}
         onMoveRuntimeAction={moveRuntimeAction}
         onDuplicateRuntimeAction={duplicateRuntimeAction}
@@ -9137,6 +9153,7 @@ export default function App() {
       onAddBehavior={() => {
         const newListener = createRuntimeListener(defaultBehaviorTriggerName(), []);
         addRuntimeListener(newListener);
+        justCreatedListenerIdsRef.current.add(newListener.id);
         setEditingListenerId(newListener.id);
         setSelectedBehaviorListenerId(newListener.id);
         setBehaviorStudioOpen(false);
@@ -9147,7 +9164,7 @@ export default function App() {
       onOpenInAdvancedStudio={
         editingListenerId
           ? () => {
-              setEditingListenerId(null);
+              handleCloseInlineEditor();
               openBehaviorStudio("studio", "manage");
             }
           : undefined
