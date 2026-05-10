@@ -4,6 +4,7 @@ import type { RuntimeListenerDefinition } from "@form-builder/schema";
 import { runtimeActionSafetyClass } from "@form-builder/schema";
 
 import { iconButtonClass } from "../../../lib/ui-utils";
+import type { BrokenRefEntry } from "./runtime-stack-helpers";
 
 export interface BehaviorStackRowProps {
   listener: RuntimeListenerDefinition;
@@ -19,6 +20,8 @@ export interface BehaviorStackRowProps {
   dragHandleProps?: HTMLAttributes<HTMLSpanElement>;
   rowProps?: HTMLAttributes<HTMLDivElement>;
   rowStyle?: CSSProperties;
+  /** Broken references detected on this listener. When non-empty, a warning pill is shown. */
+  brokenRefs?: BrokenRefEntry[];
 }
 
 const TRIGGER_PILL_TONES: Record<string, string> = {
@@ -54,6 +57,7 @@ export function BehaviorStackRow({
   dragHandleProps,
   rowProps,
   rowStyle,
+  brokenRefs,
 }: BehaviorStackRowProps) {
   const enabled = listener.enabled !== false;
   const provenance = listener.provenance;
@@ -113,6 +117,17 @@ export function BehaviorStackRow({
         >
           ☆
         </button>
+      ) : null}
+      {brokenRefs && brokenRefs.length > 0 ? (
+        <span
+          className="inline-flex h-5 items-center rounded bg-red-100 px-1.5 text-[0.68rem] font-semibold text-red-700"
+          title={`Broken refs: ${brokenRefs
+            .map((ref) => (ref.lastSeenLabel ? `${ref.kind} (was: ${ref.lastSeenLabel})` : ref.kind))
+            .join(", ")}`}
+          aria-label="Broken reference detected"
+        >
+          ! broken ref
+        </span>
       ) : null}
       {hasDestructiveAction ? (
         <span className="h-1.5 w-1.5 rounded-full bg-rose-500" title="Includes destructive action" />
