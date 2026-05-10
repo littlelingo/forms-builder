@@ -1,4 +1,4 @@
-import { runtimeCoreEventType } from "@form-builder/schema";
+import { runtimeCoreEventType, runtimeActionOnErrorPolicy, isRuntimeAsyncActionKind } from "@form-builder/schema";
 import type {
   AuthoringDocument,
   RuntimeActionDefinition,
@@ -21,6 +21,7 @@ import { createRuntimeDocumentIndex, type IndexedRuntimeListener, type RuntimeDo
 import { RuntimeEventBus } from "./event-bus";
 import { createInitialSessionState, mergeSessionState } from "./session-state";
 import type {
+  AsyncChainContext,
   BehaviorExecutedEvent,
   BehaviorLibraryRegistry,
   CreateRuntimeEngineOptions,
@@ -68,6 +69,17 @@ interface RuntimeDispatchReportDraft {
   stateBefore: RuntimeSessionState;
   traceStartIndex: number;
   listeners: RuntimeListenerDiagnostic[];
+}
+
+/**
+ * Phase 3: sentinel thrown by `executeAction` when an action's onError
+ * policy is `halt`; the chain catches it and stops without re-throwing.
+ */
+class HaltChainError extends Error {
+  constructor() {
+    super("halt_chain");
+    this.name = "HaltChainError";
+  }
 }
 
 export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): RuntimeEngine {
@@ -495,9 +507,22 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
     action: RuntimeActionDefinition,
     event: RuntimeEventEnvelope,
     report?: RuntimeDispatchReportDraft,
-  ): void => {
+    asyncContext?: AsyncChainContext,
+  ): void | Promise<void> => {
     if (!document || !index) {
       return;
+    }
+
+    // Phase 3: branch is fully synchronous; wait + host_call_await are async-only.
+    // Sync paths reach this with `asyncContext === undefined` and async-only kinds throw.
+    if (action.kind === "wait" || action.kind === "host_call_await") {
+      if (!asyncContext) {
+        throw new Error(`Runtime action kind "${action.kind}" requires dispatchAsync.`);
+      }
+      if (action.kind === "wait") {
+        return runWaitAction(action, event, asyncContext);
+      }
+      return runHostCallAwaitAction(action, event, report, asyncContext);
     }
 
     try {
@@ -721,15 +746,351 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
           routeEvent(submitEvent, true, false, report);
           break;
         }
+        case "branch": {
+          // Phase 3: synchronous condition tree evaluation, recurses into the
+          // taken arm. Each arm receives a shallow clone of the parent
+          // response scope so siblings cannot leak data through it.
+          const config = isRecord(action.config) ? action.config : {};
+          const conditions = Array.isArray(config.conditions) ? (config.conditions as RuntimeConditionNode[]) : [];
+          const thenActions = Array.isArray(config.actions) ? (config.actions as RuntimeActionDefinition[]) : [];
+          const elseActions = Array.isArray(config.else) ? (config.else as RuntimeActionDefinition[]) : [];
+          const evaluation = evaluateConditionTree(conditions, event);
+          const passed = evaluation.passed;
+          const armActions = passed ? thenActions : elseActions;
+          const arm: "then" | "else" = passed ? "then" : "else";
+
+          const baseDepth = asyncContext?.branchDepth ?? 0;
+          if (baseDepth >= 3) {
+            // Trace the cap and halt this chain via halt_and_raise.
+            routeEvent(
+              buildEvent(
+                "runtime.action_error",
+                {
+                  reason: "branch_depth_exceeded",
+                  actionId: action.id,
+                  depth: baseDepth,
+                },
+                "internal",
+                {
+                  nodeId: event.target?.nodeId ?? event.source.nodeId,
+                  nodeType: event.target?.nodeType ?? event.source.nodeType,
+                },
+              ),
+              false,
+              false,
+              report,
+            );
+            throw new Error(`Branch nesting cap exceeded (depth ${baseDepth}).`);
+          }
+
+          // Trace branch take/skip
+          routeEvent(
+            buildEvent(
+              passed || elseActions.length > 0 ? "runtime.branch_take" : "runtime.branch_skip",
+              passed || elseActions.length > 0 ? { actionId: action.id, arm } : { actionId: action.id },
+              "internal",
+              {
+                nodeId: event.target?.nodeId ?? event.source.nodeId,
+                nodeType: event.target?.nodeType ?? event.source.nodeType,
+              },
+            ),
+            false,
+            false,
+            report,
+          );
+
+          if (armActions.length === 0) {
+            break;
+          }
+
+          // Recurse with a cloned response scope and bumped depth. When the
+          // outer chain is async, runActionChain returns a Promise that the
+          // outer loop awaits — propagate it via `return`. When sync, a
+          // Promise here means a contract bug: async actions should have
+          // been blocked at routeEvent's listener pre-check.
+          const childContext: AsyncChainContext | undefined = asyncContext
+            ? {
+                responseScope: { ...asyncContext.responseScope },
+                branchDepth: baseDepth + 1,
+              }
+            : undefined;
+          const armResult = runActionChain(armActions, event, report, childContext);
+          if (asyncContext && armResult && typeof (armResult as Promise<void>).then === "function") {
+            return armResult;
+          }
+          if (!asyncContext && armResult && typeof (armResult as Promise<void>).then === "function") {
+            throw new Error("Branch arm contains async-only actions; use dispatchAsync.");
+          }
+          break;
+        }
         default:
           break;
       }
     } catch (error) {
-      if (!action.continueOnError) {
-        throw error;
+      const policy = runtimeActionOnErrorPolicy(action);
+      if (policy === "continue") {
+        return;
       }
+      if (policy === "halt") {
+        // Signal halt by re-throwing a sentinel; the chain catches and stops silently.
+        throw new HaltChainError();
+      }
+      // halt_and_raise — emit runtime.action_error then propagate so the
+      // listener loop captures the diagnostic and stops.
+      try {
+        routeEvent(
+          buildEvent(
+            "runtime.action_error",
+            {
+              listenerId: report?.listeners[report.listeners.length - 1]?.listenerId ?? null,
+              actionId: action.id,
+              reason: error instanceof Error ? error.message : String(error),
+            },
+            "outbound",
+            {
+              nodeId: event.target?.nodeId ?? event.source.nodeId,
+              nodeType: event.target?.nodeType ?? event.source.nodeType,
+            },
+          ),
+          true,
+          false,
+          report,
+        );
+      } catch {
+        // Don't let the diagnostic emit hide the original error.
+      }
+      throw error;
     }
   };
+
+  /**
+   * Phase 3: walk an action chain. Returns void when the chain is purely
+   * synchronous (no wait/host_call_await/async-branch), or a Promise that
+   * resolves when the async chain settles. The caller decides which path
+   * is permissible based on whether dispatchAsync invoked it.
+   */
+  function runActionChain(
+    actions: RuntimeActionDefinition[],
+    event: RuntimeEventEnvelope,
+    report: RuntimeDispatchReportDraft | undefined,
+    asyncContext: AsyncChainContext | undefined,
+  ): void | Promise<void> {
+    if (!asyncContext) {
+      // Sync path — throw on async-only kinds, halt on HaltChainError.
+      try {
+        for (const action of actions) {
+          const ret = executeAction(action, event, report);
+          if (ret && typeof (ret as Promise<void>).then === "function") {
+            // executeAction guarded async kinds upstream, so a Promise here is a contract bug.
+            throw new Error('Internal: sync action chain produced a Promise.');
+          }
+        }
+      } catch (err) {
+        if (err instanceof HaltChainError) {
+          return;
+        }
+        throw err;
+      }
+      return;
+    }
+    return (async () => {
+      try {
+        for (const action of actions) {
+          const ret = executeAction(action, event, report, asyncContext);
+          if (ret && typeof (ret as Promise<void>).then === "function") {
+            await ret;
+          }
+        }
+      } catch (err) {
+        if (err instanceof HaltChainError) {
+          return;
+        }
+        throw err;
+      }
+    })();
+  }
+
+  /**
+   * Phase 3: wait action handler. fixed_ms sleeps; until_event subscribes
+   * once and resolves on the next matching event type, or rejects after
+   * timeoutMs. Caller's onError policy applies on rejection.
+   */
+  function runWaitAction(
+    action: RuntimeActionDefinition,
+    event: RuntimeEventEnvelope,
+    _asyncContext: AsyncChainContext,
+  ): Promise<void> {
+    const config = isRecord(action.config) ? action.config : {};
+    const mode = typeof config.mode === "string" ? (config.mode as "fixed_ms" | "until_event") : "fixed_ms";
+    const timeoutMs = typeof config.timeoutMs === "number" ? config.timeoutMs : null;
+    const eventType = typeof config.eventType === "string" ? config.eventType : null;
+    const durationMs = typeof config.durationMs === "number" ? config.durationMs : 0;
+
+    const traceWait = (resolved: boolean, reason?: string) => {
+      const traceEvent = buildEvent(
+        resolved ? "runtime.wait_resolved" : "runtime.wait_started",
+        {
+          actionId: action.id,
+          mode,
+          ...(durationMs ? { durationMs } : {}),
+          ...(eventType ? { eventType } : {}),
+          ...(reason ? { reason } : {}),
+        },
+        "internal",
+        {
+          nodeId: event.target?.nodeId ?? event.source.nodeId,
+          nodeType: event.target?.nodeType ?? event.source.nodeType,
+        },
+      );
+      routeEvent(traceEvent, false, false);
+    };
+
+    traceWait(false);
+
+    if (mode === "fixed_ms") {
+      return new Promise<void>((resolve) => {
+        setTimeout(() => {
+          traceWait(true, "elapsed");
+          resolve();
+        }, durationMs);
+      });
+    }
+    // until_event — subscribe to the bus, resolve on first matching type.
+    return new Promise<void>((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const unsubscribe = eventBus.subscribe((incoming) => {
+        if (eventType && incoming.type === eventType) {
+          if (timer) clearTimeout(timer);
+          unsubscribe();
+          traceWait(true, "event");
+          resolve();
+        }
+      });
+      if (timeoutMs && timeoutMs > 0) {
+        timer = setTimeout(() => {
+          unsubscribe();
+          routeEvent(
+            buildEvent("runtime.wait_timeout", { actionId: action.id }, "outbound", {
+              nodeId: event.target?.nodeId ?? event.source.nodeId,
+              nodeType: event.target?.nodeType ?? event.source.nodeType,
+            }),
+            true,
+            false,
+          );
+          reject(new Error(`wait until_event timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }
+    });
+  }
+
+  /**
+   * Phase 3: host_call_await handler. Emits host.action_requested, then
+   * suspends the chain on a continuation keyed by correlationId. Resumes
+   * when applyInboundState handles a matching host.action_response.
+   */
+  function runHostCallAwaitAction(
+    action: RuntimeActionDefinition,
+    event: RuntimeEventEnvelope,
+    report: RuntimeDispatchReportDraft | undefined,
+    asyncContext: AsyncChainContext,
+  ): Promise<void> {
+    const config = isRecord(action.config) ? action.config : {};
+    const handlerKey = typeof config.handlerKey === "string" ? config.handlerKey : null;
+    const correlationId = typeof config.correlationId === "string" ? config.correlationId : randomId();
+    const timeoutMs = typeof config.timeoutMs === "number" ? config.timeoutMs : null;
+    const resolvedPayload = resolveRuntimePayload(
+      isRecord(config.payload) ? (config.payload as Record<string, unknown>) : {},
+      event,
+      document!,
+      index!,
+      state,
+    );
+
+    if (pendingContinuations.has(correlationId)) {
+      // Collision — emit + reject second registration.
+      routeEvent(
+        buildEvent(
+          "runtime.continuation_collision",
+          {
+            correlationId,
+            listenerId: report?.listeners[report.listeners.length - 1]?.listenerId ?? null,
+            actionId: action.id,
+          },
+          "outbound",
+          {
+            nodeId: event.target?.nodeId ?? event.source.nodeId,
+            nodeType: event.target?.nodeType ?? event.source.nodeType,
+          },
+        ),
+        true,
+        false,
+        report,
+      );
+      return Promise.reject(new Error(`correlationId collision: ${correlationId}`));
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      const continuation: PendingContinuation = {
+        correlationId,
+        listenerId: report?.listeners[report.listeners.length - 1]?.listenerId ?? "",
+        actionId: action.id,
+        resolve: (responsePayload) => {
+          // Phase 3: write the response into the chain's responseScope so
+          // subsequent $response token resolutions in this listener pick it up.
+          asyncContext.responseScope = { ...asyncContext.responseScope, ...responsePayload };
+          resolve();
+        },
+        reject,
+        timeoutHandle: null,
+      };
+      if (timeoutMs && timeoutMs > 0) {
+        continuation.timeoutHandle = setTimeout(() => {
+          if (pendingContinuations.delete(correlationId)) {
+            routeEvent(
+              buildEvent(
+                "runtime.continuation_timeout",
+                { correlationId, listenerId: continuation.listenerId, actionId: action.id },
+                "outbound",
+                {
+                  nodeId: event.target?.nodeId ?? event.source.nodeId,
+                  nodeType: event.target?.nodeType ?? event.source.nodeType,
+                },
+              ),
+              true,
+              false,
+            );
+            reject(new Error(`host_call_await timed out after ${timeoutMs}ms`));
+          }
+        }, timeoutMs);
+      }
+      pendingContinuations.set(correlationId, continuation);
+
+      // Emit host.action_requested with the same payload shape host_action uses.
+      const requestConfig = structuredClone(config);
+      requestConfig.payload = resolvedPayload;
+      requestConfig.correlationId = correlationId;
+      routeEvent(
+        buildEvent(
+          "host.action_requested",
+          {
+            handlerKey,
+            actionId: action.id,
+            target: action.target ?? null,
+            config: requestConfig,
+            correlationId,
+          },
+          "outbound",
+          {
+            nodeId: event.target?.nodeId ?? event.source.nodeId,
+            nodeType: event.target?.nodeType ?? event.source.nodeType,
+          },
+        ),
+        true,
+        false,
+        report,
+      );
+    });
+  }
 
   const applyInboundState = (event: RuntimeEventEnvelope): void => {
     switch (event.type) {
@@ -824,6 +1185,40 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
         }
         break;
       }
+      case "host.action_response": {
+        // Phase 3: resume a host_call_await continuation keyed by correlationId.
+        const correlationId =
+          typeof event.payload.correlationId === "string"
+            ? event.payload.correlationId
+            : typeof event.correlationId === "string"
+              ? event.correlationId
+              : null;
+        if (!correlationId) {
+          break;
+        }
+        const continuation = pendingContinuations.get(correlationId);
+        if (!continuation) {
+          // Phase 3: stale or unknown id — emit a mismatch trace event.
+          // We cannot route a new event from inside applyInboundState (would
+          // recurse indefinitely), so push a trace entry directly.
+          trace.push({
+            direction: "internal",
+            event: {
+              ...event,
+              type: "runtime.continuation_mismatch",
+              payload: { correlationId },
+            },
+          });
+          break;
+        }
+        if (continuation.timeoutHandle) {
+          clearTimeout(continuation.timeoutHandle);
+        }
+        pendingContinuations.delete(correlationId);
+        const responsePayload = isRecord(event.payload) ? event.payload : {};
+        continuation.resolve(responsePayload);
+        break;
+      }
       default:
         break;
     }
@@ -860,6 +1255,12 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
         // Use the materialised listener's actions (may differ from raw when libraryRef is set).
         const resolvedListener =
           materialisedListener(listenerInvocation.listener.listener) ?? listenerInvocation.listener.listener;
+        // Phase 3: throw early if the chain contains async-only actions; sync dispatch must surface the bug.
+        if (resolvedListener.actions.some((a) => isRuntimeAsyncActionKind(a.kind))) {
+          throw new Error(
+            `Listener "${resolvedListener.id}" uses async-only actions; dispatchAsync must be used instead of dispatch.`,
+          );
+        }
         const listenerStart = performance.now();
         let listenerError: BehaviorExecutedEvent["error"] | undefined;
         try {
@@ -876,6 +1277,99 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
             try {
               executeAction(action, listenerInvocation.event, report);
             } catch (error) {
+              if (error instanceof HaltChainError) {
+                break;
+              }
+              actionDiagnostic.status = "error";
+              actionDiagnostic.errorMessage = error instanceof Error ? error.message : "Runtime action failed.";
+              throw error;
+            }
+          }
+        } catch (err) {
+          listenerError = {
+            message: err instanceof Error ? err.message : String(err),
+            actionId: resolvedListener.actions.find((a) => {
+              const diag = listenerDiagnostic.actions.find((d) => d.actionId === a.id);
+              return diag?.status === "error";
+            })?.id,
+          };
+          telemetrySink?.({
+            listenerId: listenerInvocation.listener.listener.id,
+            durationMs: performance.now() - listenerStart,
+            error: listenerError,
+          });
+          throw err;
+        }
+        telemetrySink?.({
+          listenerId: listenerInvocation.listener.listener.id,
+          durationMs: performance.now() - listenerStart,
+        });
+      }
+    }
+
+    return structuredClone(state);
+  };
+
+  /**
+   * Phase 3: async-aware sibling of `routeEvent`. Same setup, but the
+   * listener-action loop awaits each action's return value so wait /
+   * host_call_await suspensions actually pause execution. Recursive
+   * routeEvent calls from emit/dispatch_event/host_action stay sync —
+   * those side-effect chains are not expected to suspend.
+   */
+  const routeEventAsync = async (
+    event: RuntimeEventEnvelope,
+    executeListeners: boolean,
+    inbound: boolean,
+    report?: RuntimeDispatchReportDraft,
+  ): Promise<RuntimeSessionState> => {
+    if (!document || !index) {
+      return structuredClone(state);
+    }
+    const normalizedEvent = enrichRuntimeEventTargets(
+      normalizeRuntimeEvent(event, document.id, runtimeId, projectId),
+      document,
+      index,
+    );
+    if (report && !report.event) {
+      report.event = structuredClone(normalizedEvent);
+    }
+    trace.push({ direction: inbound ? "inbound" : "internal", event: normalizedEvent });
+    eventBus.emit(normalizedEvent);
+    applyInboundState(normalizedEvent);
+
+    if (executeListeners) {
+      for (const listenerInvocation of collectListenerInvocations(normalizedEvent, index, document)) {
+        const listenerDiagnostic = evaluateListenerDiagnostic(listenerInvocation.listener, listenerInvocation.event);
+        report?.listeners.push(listenerDiagnostic);
+        if (!listenerDiagnostic.matched) {
+          continue;
+        }
+        const resolvedListener =
+          materialisedListener(listenerInvocation.listener.listener) ?? listenerInvocation.listener.listener;
+        const listenerStart = performance.now();
+        let listenerError: BehaviorExecutedEvent["error"] | undefined;
+        const asyncContext: AsyncChainContext = { responseScope: {}, branchDepth: 0 };
+        try {
+          for (const action of resolvedListener.actions) {
+            const actionDiagnostic: RuntimeActionDiagnostic = {
+              actionId: action.id,
+              label: action.label ?? null,
+              kind: action.kind,
+              target: structuredClone(action.target ?? null),
+              config: structuredClone(action.config),
+              status: "executed",
+            };
+            listenerDiagnostic.actions.push(actionDiagnostic);
+            try {
+              const ret = executeAction(action, listenerInvocation.event, report, asyncContext);
+              if (ret && typeof (ret as Promise<void>).then === "function") {
+                await ret;
+              }
+            } catch (error) {
+              if (error instanceof HaltChainError) {
+                break;
+              }
               actionDiagnostic.status = "error";
               actionDiagnostic.errorMessage = error instanceof Error ? error.message : "Runtime action failed.";
               throw error;
@@ -1019,14 +1513,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
         return Promise.reject(new Error("Runtime engine is not mounted."));
       }
       const cloned = structuredClone(event);
-      return enqueueAsync(async () => {
-        // Stage C: delegates to the synchronous routeEvent path. Stage D
-        // hooks async action kinds (wait, host_call_await) into this same
-        // chain — every dispatchAsync invocation is awaited tail-first
-        // through `asyncTail`, so suspensions there serialize subsequent
-        // calls automatically.
-        return routeEvent(cloned, true, true);
-      });
+      return enqueueAsync(async () => routeEventAsync(cloned, true, true));
     },
     dispatchWithReportAsync(event: RuntimeEventEnvelope): Promise<RuntimeDispatchReport> {
       if (!mounted || !document || !index) {
@@ -1040,7 +1527,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
           traceStartIndex: trace.length,
           listeners: [],
         };
-        const stateAfter = routeEvent(cloned, true, true, reportDraft);
+        const stateAfter = await routeEventAsync(cloned, true, true, reportDraft);
         const traceEntries = structuredClone(trace.slice(reportDraft.traceStartIndex));
         return {
           event: reportDraft.event ?? traceEntries[0]?.event ?? structuredClone(event),
