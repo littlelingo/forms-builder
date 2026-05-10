@@ -529,6 +529,28 @@ The behavior library is now first-class. Both system entries (shipped with the p
 
 Phase 1C-4 ships the Manager Table view, broken-ref UI, safety badges, and axe a11y gate.
 
+### Phase 1C-4 — Manager filters + safety badges + broken-ref + a11y (shipped 2026-05)
+
+Final sub-phase of Phase 1C. The Behavior Manager Table view, action safety classification, broken-ref recovery, pre-flight delete, and a11y gate all land here.
+
+- **Manager filters**: provenance (extraction/library/manual), safetyClass (safe/destructive/host), broken-refs-only, search across label/action/payload/dispatchKey. Provenance + worst-action-safetyClass pills on every row.
+- **Safety badges**: `BehaviorStackRow` shows a rose dot when any action is destructive (per `runtimeActionSafetyClass`) and an amber dot for host actions. Inside `ActionEditor`, action cards are tinted rose for destructive and amber for host.
+- **Broken-ref pill**: every listener computes broken refs (source/target/eventRef/libraryRef) via `computeBrokenRefs` against the live document index, the registered system + project library, and the per-document tombstone map. Listeners with broken refs render a red pill with a tooltip listing the unresolved refs.
+- **Tombstone map**: when a node is deleted, App.tsx records `{id, lastSeenLabel}` so post-deletion broken refs can show what they were pointing at.
+- **Pre-flight delete modal**: deleting a node with N referencing behaviors prompts "Delete + null refs / Cancel". Re-point picker is deferred to a future polish phase. Bulk-fix in Manager is also deferred.
+- **a11y smoke**: `npm run a11y:smoke` builds the web app, starts `vite preview`, runs axe-core via Playwright against the home route, and fails on any serious/critical violations. v1 covers `/` only; future expands routes.
+
+### Phase 1C complete
+
+Phase 1C shipped across four sub-phases:
+
+- 1C-1 — Inspector stack foundation
+- 1C-2 — In-place composer expansion
+- 1C-3 — Library system (system + project entries, picker, apply dialog, page)
+- 1C-4 — Manager filters + safety badges + broken-ref + a11y
+
+The behavior authoring redesign is now feature-complete for Phase 1. Phase 2 + Phase 3 from the spec address discovery (project-scope events, By-event view, Map graph), and engine async (branches, awaitable host actions, debounce/throttle), respectively.
+
 ## Non-Goals For The First Pass
 
 - shipping the final graph renderer for every advanced case in one slice
