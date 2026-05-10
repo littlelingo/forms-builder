@@ -43,3 +43,7 @@ export { summariseListener, listenerTriggerPill, countListenersReferencingNode }
 export { SYSTEM_LIBRARY, getSystemEntry } from "./library/system-library";
 export { validateParams, applyEntryToListener, defaultParamsForEntry } from "./library/library-helpers";
 export type { LibraryParamValidationResult } from "./library/library-helpers";
+export { LibraryPicker } from "./library/LibraryPicker";
+export type { LibraryPickerProps } from "./library/LibraryPicker";
+export { ApplyParametersDialog } from "./library/ApplyParametersDialog";
+export type { ApplyParametersDialogProps } from "./library/ApplyParametersDialog";
