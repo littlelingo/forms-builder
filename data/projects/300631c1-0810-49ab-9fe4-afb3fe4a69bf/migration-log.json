@@ -1,0 +1,11 @@
+[
+  {
+    "project_id": "300631c1-0810-49ab-9fe4-afb3fe4a69bf",
+    "started_at": "2026-05-10T02:55:22.617322+00:00",
+    "finished_at": "2026-05-10T02:55:22.623187+00:00",
+    "documents_migrated": 2,
+    "event_defs_created": 0,
+    "collisions": [],
+    "noop": false
+  }
+]

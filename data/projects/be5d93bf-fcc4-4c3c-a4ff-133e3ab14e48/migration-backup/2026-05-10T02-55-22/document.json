@@ -1,0 +1,84 @@
+{
+  "id": "7a85bc0d-d82a-4770-9237-a279c52dba5a",
+  "title": "Untitled form",
+  "documentClass": "born_digital_nonfillable",
+  "reviewStatus": "draft",
+  "targetRuntime": "va_web_form",
+  "visualBaseline": "va.gov",
+  "sourcePriority": [],
+  "sourceConflicts": [],
+  "steps": [
+    {
+      "id": "f2f35fca-c7cf-4606-aaf1-be51fd8ea43c",
+      "title": "Step 1",
+      "description": "Collect the next set of details.",
+      "kind": "collect",
+      "layoutHints": {
+        "surface": "va-step",
+        "density": "comfortable"
+      },
+      "sourcePageIds": [],
+      "provenanceAnchorIds": [],
+      "sections": [
+        {
+          "id": "f1088be9-80bd-46cb-873a-807568674ec6",
+          "title": "New section",
+          "description": "",
+          "layoutHints": {
+            "presentation": "stacked"
+          },
+          "lineage": [],
+          "sourceSectionIds": [],
+          "provenanceAnchorIds": [],
+          "groups": [],
+          "fields": [
+            {
+              "id": "c060c450-3518-494a-9314-be3703590c4c",
+              "stableKey": "field_y2df6sqb",
+              "label": "New field",
+              "helpText": "",
+              "semanticType": "text",
+              "required": false,
+              "confidence": null,
+              "options": [],
+              "validations": [],
+              "conditionals": [],
+              "layoutHints": {
+                "width": "full",
+                "presentation": "input"
+              },
+              "rendererHints": {},
+              "sourcePriority": [
+                "reviewer_override"
+              ],
+              "sourceConflicts": [],
+              "lineage": [],
+              "sourceFieldIds": [],
+              "provenanceAnchorIds": [],
+              "runtime": null
+            }
+          ],
+          "runtime": null
+        }
+      ],
+      "runtime": null
+    }
+  ],
+  "metadata": {
+    "creationMode": "blank",
+    "createdIn": "builder"
+  },
+  "runtime": {
+    "version": "1.0",
+    "formEvents": [],
+    "formListeners": [],
+    "hostBindings": [],
+    "submitEventName": "form.submit",
+    "sessionStateShape": {
+      "mode": "key_value",
+      "fields": [],
+      "example": {},
+      "notes": []
+    }
+  }
+}

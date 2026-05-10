@@ -8866,6 +8866,7 @@
       "fields": [],
       "example": {},
       "notes": []
-    }
+    },
+    "migrationVersion": "phase-1"
   }
 }

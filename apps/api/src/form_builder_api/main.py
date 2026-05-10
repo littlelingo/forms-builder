@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, File, HTTPException, Response, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from form_builder_api.models.api import (
     ConversionRecord,
@@ -20,7 +21,7 @@ from form_builder_api.models.authoring import (
     ProjectPatch,
     ProjectRevision,
 )
-from form_builder_api.repository import InMemoryRepository
+from form_builder_api.repository import InMemoryRepository, UnmigratedDocumentError
 from form_builder_api.services.authoring import (
     build_authoring_project,
     build_authoring_project_from_document,
@@ -43,6 +44,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(UnmigratedDocumentError)
+async def unmigrated_document_handler(request: Request, exc: UnmigratedDocumentError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"error": str(exc), "project_id": exc.project_id})
+
 
 repository = InMemoryRepository()
 
