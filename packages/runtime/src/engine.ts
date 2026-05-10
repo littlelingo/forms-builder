@@ -320,9 +320,8 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
     const listener = materialisedListener(rawListener);
     if (listener === null) {
       // Broken libraryRef — report skipped with reason.
-      const resolvedTarget = rawListener.target?.id && index
-        ? index.resolveNodeDescriptor(rawListener.target.id)
-        : undefined;
+      const resolvedTarget =
+        rawListener.target?.id && index ? index.resolveNodeDescriptor(rawListener.target.id) : undefined;
       return {
         listenerId: rawListener.id,
         label: rawListener.label ?? null,
@@ -355,9 +354,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
     }
 
     if (brokenEventRef) {
-      const resolvedTarget = listener.target?.id && index
-        ? index.resolveNodeDescriptor(listener.target.id)
-        : undefined;
+      const resolvedTarget = listener.target?.id && index ? index.resolveNodeDescriptor(listener.target.id) : undefined;
       return {
         listenerId: listener.id,
         label: listener.label ?? null,
@@ -389,8 +386,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
     const matched = enabled && typeMatches && !sourceMismatch && conditionsPassed;
 
     // Resolve target descriptor when listener.target?.id is set.
-    const resolvedTarget =
-      listener.target?.id && index ? index.resolveNodeDescriptor(listener.target.id) : undefined;
+    const resolvedTarget = listener.target?.id && index ? index.resolveNodeDescriptor(listener.target.id) : undefined;
 
     const skippedReason = matched
       ? undefined
@@ -785,7 +781,8 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
           continue;
         }
         // Use the materialised listener's actions (may differ from raw when libraryRef is set).
-        const resolvedListener = materialisedListener(listenerInvocation.listener.listener) ?? listenerInvocation.listener.listener;
+        const resolvedListener =
+          materialisedListener(listenerInvocation.listener.listener) ?? listenerInvocation.listener.listener;
         const listenerStart = performance.now();
         let listenerError: BehaviorExecutedEvent["error"] | undefined;
         try {

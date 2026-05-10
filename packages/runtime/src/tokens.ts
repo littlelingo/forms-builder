@@ -16,7 +16,17 @@ export interface RuntimeTokenContext {
 }
 
 // Locked set of valid roots. No new roots without a spec change.
-const LOCKED_ROOTS = new Set(["$payload", "$response", "$field", "$state", "$source", "$current", "$host", "$now", "$uuid"]);
+const LOCKED_ROOTS = new Set([
+  "$payload",
+  "$response",
+  "$field",
+  "$state",
+  "$source",
+  "$current",
+  "$host",
+  "$now",
+  "$uuid",
+]);
 
 // Roots that require no path traversal — they generate values directly.
 const GENERATIVE_ROOTS = new Set(["$now", "$uuid"]);
@@ -25,10 +35,7 @@ const GENERATIVE_ROOTS = new Set(["$now", "$uuid"]);
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-function walkPath(
-  obj: unknown,
-  segments: string[],
-): { ok: true; value: unknown } | { ok: false; remainder: string } {
+function walkPath(obj: unknown, segments: string[]): { ok: true; value: unknown } | { ok: false; remainder: string } {
   let current: unknown = obj;
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
