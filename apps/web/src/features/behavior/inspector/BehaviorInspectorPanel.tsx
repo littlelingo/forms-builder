@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import type { AuthoringDocument, RuntimeListenerDefinition } from "@form-builder/schema";
 
 import { BehaviorStackList } from "../index";
@@ -12,6 +14,10 @@ export interface BehaviorInspectorPanelProps {
   onReorderListener: (listenerId: string, fromIndex: number, toIndex: number) => void;
   onAddBehavior: () => void;
   externalReferenceCount: number;
+  editingListenerId?: string | null;
+  composer?: ReactNode;
+  /** When provided, shows an "Open in advanced studio" link while the inline editor is active. */
+  onOpenInAdvancedStudio?: () => void;
 }
 
 export function BehaviorInspectorPanel({
@@ -24,6 +30,9 @@ export function BehaviorInspectorPanel({
   onReorderListener,
   onAddBehavior,
   externalReferenceCount,
+  editingListenerId,
+  composer,
+  onOpenInAdvancedStudio,
 }: BehaviorInspectorPanelProps) {
   return (
     <div className="space-y-4">
@@ -36,7 +45,21 @@ export function BehaviorInspectorPanel({
         onToggleListenerEnabled={onToggleListenerEnabled}
         onReorderListener={onReorderListener}
         onAddBehavior={onAddBehavior}
+        editingListenerId={editingListenerId}
+        composer={composer}
       />
+
+      {editingListenerId && onOpenInAdvancedStudio ? (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={onOpenInAdvancedStudio}
+            className="text-xs text-blue-600 underline-offset-2 hover:underline"
+          >
+            Open in advanced studio
+          </button>
+        </div>
+      ) : null}
 
       {externalReferenceCount > 0 ? (
         <div className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">

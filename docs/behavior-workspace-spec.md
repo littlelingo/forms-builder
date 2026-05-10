@@ -503,6 +503,19 @@ The reverse-index callout ("Used by N behaviors elsewhere") surfaces below the s
 
 Edit and Add still delegate to the existing Behavior Studio modal. Phase 1C-2 replaces those entry points with in-place expansion (When/If/Then/Raises composer) inside the rail.
 
+### Phase 1C-2 — In-place composer (shipped 2026-05)
+
+The Behavior Studio modal is no longer the primary edit/add path for the inspector stack. Clicking edit on a stack row, or "+ Add behavior", now expands the row to host the existing `BehaviorComposer` inline. The inspector rail grows from 384px (`24rem`) to 540px during edit and collapses on close. Implementation:
+
+- `InspectorRail` accepts `expandedWidth?: number`; transitions via `transition-[width] duration-200 ease-out`.
+- `BuilderStage` accepts `expandedRailWidth?: number` and applies an inline `gridTemplateColumns` override on its third track when set, so the rail can actually grow within the grid layout.
+- `BehaviorStackList` accepts `editingListenerId` + `composer` ReactNode and renders the composer in place of the matching collapsed row (drag-reorder is disabled on the editing row).
+- `BehaviorInspectorPanel` forwards both props to the stack list and renders an "Open in advanced studio" link below the list when editing — click reopens the legacy modal for power-user flows.
+- App.tsx tracks `editingListenerId`; the inline composer is mutually exclusive with the legacy `BehaviorStudioModal` (opening one closes the other).
+- "+ Add behavior" creates a fresh listener via `createRuntimeListener` + `addRuntimeListener`, then sets `editingListenerId` to the new id so the composer mounts on a real listener (no `"__new__"` sentinel).
+
+The legacy modal stays available via the "Open in advanced studio" link and is still used by other surfaces (graph workspace, behavior toolbar). Phase 1C-3 ships the Library system; Phase 1C-4 adds Manager Table view + safety badges + a11y axe gate.
+
 ## Non-Goals For The First Pass
 
 - shipping the final graph renderer for every advanced case in one slice

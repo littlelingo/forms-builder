@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import type { ReactNode } from "react";
+
 import type { AuthoringDocument, RuntimeListenerDefinition } from "@form-builder/schema";
 
 import { actionButtonClass } from "../../../lib/ui-utils";
@@ -16,6 +18,10 @@ export interface BehaviorStackListProps {
   onToggleListenerEnabled?: (listenerId: string, enabled: boolean) => void;
   onReorderListener: (listenerId: string, fromIndex: number, toIndex: number) => void;
   onAddBehavior?: () => void;
+  /** Listener id currently being edited inline; matching row renders the `composer` slot in place. */
+  editingListenerId?: string | null;
+  /** Composer node mounted in place of the editing row, or in place of the empty state when editingListenerId === "__new__". */
+  composer?: ReactNode;
 }
 
 export function BehaviorStackList({
@@ -27,6 +33,8 @@ export function BehaviorStackList({
   onToggleListenerEnabled,
   onReorderListener,
   onAddBehavior,
+  editingListenerId,
+  composer,
 }: BehaviorStackListProps) {
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -77,12 +85,19 @@ export function BehaviorStackList({
         ) : null}
       </div>
       {listeners.length === 0 ? (
-        <p className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-3 text-center text-sm text-slate-600">
-          No behaviors yet. Click <strong>+ Add behavior</strong> to get started.
-        </p>
+        editingListenerId === "__new__" && composer != null ? (
+          composer
+        ) : (
+          <p className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-3 text-center text-sm text-slate-600">
+            No behaviors yet. Click <strong>+ Add behavior</strong> to get started.
+          </p>
+        )
       ) : (
         <div className="space-y-1.5" role="list">
           {listeners.map((listener, index) => {
+            if (listener.id === editingListenerId && composer != null) {
+              return <div key={listener.id}>{composer}</div>;
+            }
             const isDragging = draggingIndex === index;
             const isDropTarget = dragOverIndex === index && draggingIndex !== index;
             const wrapperClass = [
@@ -113,6 +128,7 @@ export function BehaviorStackList({
               </div>
             );
           })}
+          {editingListenerId === "__new__" && composer != null ? composer : null}
         </div>
       )}
     </div>
