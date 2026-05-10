@@ -9,6 +9,8 @@ import type {
   RuntimeListenerDefinition,
 } from "@form-builder/schema";
 
+import { runtimeActionSafetyClass } from "@form-builder/schema";
+
 import { createRuntimeEngine } from "./engine";
 
 function createHostContext(): RuntimeHostContext {
@@ -361,6 +363,13 @@ function invokeNextStepAction(): RuntimeActionDefinition {
     continueOnError: false,
   };
 }
+
+test("runtimeActionSafetyClass labels destructive and host actions correctly", () => {
+  assert.equal(runtimeActionSafetyClass("submit_form"), "destructive");
+  assert.equal(runtimeActionSafetyClass("host_action"), "host");
+  assert.equal(runtimeActionSafetyClass("set_field_value"), "safe");
+  assert.equal(runtimeActionSafetyClass("show_node"), "safe");
+});
 
 test("RuntimeListenerDefinition accepts NodeRef/EventRef/libraryRef/timing/provenance fields", () => {
   // Type-check only: this test exists to prove the schema additions compile.
