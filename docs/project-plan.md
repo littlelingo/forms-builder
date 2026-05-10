@@ -94,6 +94,7 @@ This file is the living project tracker for the Form Builder platform. Phase 1 e
 - 2026-05-01: added authoring models, project promotion, file-backed project persistence, and revision snapshots.
 - 2026-05-01: added project endpoints and a new dual-workspace UI with explicit review-to-authoring transition.
 - 2026-05-01: implemented the first authoring loop for structural editing, field-type switching, option editing, and VA-baseline live preview.
+- 2026-05-10: Phase 2A schema + persistence foundation for project-scope event catalogs. New `RuntimeEventScope` + `RuntimeProjectBehavior` in shared schema and Python mirror; per-project `project-events.json` persisted under `data/projects/<id>/`; `GET/PUT /projects/{id}/project-events` endpoints; runtime engine resolves cross-form `eventRef` ids against the project catalog when supplied via mount options.
 
 # Next Steps
 

@@ -141,9 +141,13 @@ export interface RuntimeActionDefinition {
   continueOnError: boolean;
 }
 
+export type RuntimeEventScope = "form" | "node" | "project";
+
 export interface RuntimeEventTypeDefinition {
   id: string;
   type?: string;
+  /** Phase 2A: where the event def lives. Inferred at consumption when absent. */
+  scope?: RuntimeEventScope;
   dispatcherId?: string | null;
   dispatcherType?: RuntimeNodeType | null;
   bubbles?: boolean;
@@ -158,6 +162,17 @@ export interface RuntimeEventTypeDefinition {
 }
 
 export type RuntimeEventDefinition = RuntimeEventTypeDefinition;
+
+/**
+ * Phase 2A: project-scope runtime behavior. Persisted at
+ * `data/projects/<id>/project-events.json` and fetched separately from the
+ * authoring document so cross-form references can resolve against a shared
+ * catalog without bundling project state into every form load.
+ */
+export interface RuntimeProjectBehavior {
+  version: "1.0";
+  projectEvents: RuntimeEventTypeDefinition[];
+}
 
 export type BehaviorProvenance = "extraction" | "library" | "manual";
 

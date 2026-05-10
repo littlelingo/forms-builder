@@ -22,6 +22,7 @@ from form_builder_api.models.authoring import (
     ProjectPatch,
     ProjectRevision,
 )
+from form_builder_api.models.runtime import RuntimeProjectBehavior
 from form_builder_api.repository import InMemoryRepository, UnmigratedDocumentError
 from form_builder_api.services.authoring import (
     build_authoring_project,
@@ -234,6 +235,20 @@ def get_project_revisions(project_id: str) -> list[ProjectRevision]:
     if repository.get_project(project_id) is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return repository.list_project_revisions(project_id)
+
+
+@app.get("/projects/{project_id}/project-events", response_model=RuntimeProjectBehavior)
+def get_project_events(project_id: str) -> RuntimeProjectBehavior:
+    if repository.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return repository.get_project_events(project_id)
+
+
+@app.put("/projects/{project_id}/project-events", response_model=RuntimeProjectBehavior)
+def put_project_events(project_id: str, behavior: RuntimeProjectBehavior) -> RuntimeProjectBehavior:
+    if repository.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return repository.update_project_events(project_id, behavior)
 
 
 @app.get("/projects/{project_id}/library", response_model=list[BehaviorLibraryEntry])

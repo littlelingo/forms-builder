@@ -31,6 +31,7 @@ RuntimeHostBindingDirection = Literal["inbound", "outbound", "bidirectional"]
 RuntimePayloadMode = Literal["key_value", "json"]
 RuntimeValueType = Literal["string", "number", "boolean", "object", "array", "unknown"]
 RuntimeConditionOperator = Literal["equals", "not_equals", "contains", "exists"]
+RuntimeEventScope = Literal["form", "node", "project"]
 BehaviorProvenance = Literal["extraction", "library", "manual"]
 BehaviorSafetyClass = Literal["safe", "destructive", "host"]
 
@@ -82,6 +83,7 @@ class RuntimeActionDefinition(CamelModel):
 class RuntimeEventTypeDefinition(CamelModel):
     id: str
     type: str | None = None
+    scope: RuntimeEventScope | None = None
     dispatcher_id: str | None = None
     dispatcher_type: RuntimeNodeType | None = None
     bubbles: bool | None = None
@@ -93,6 +95,14 @@ class RuntimeEventTypeDefinition(CamelModel):
 
 
 RuntimeEventDefinition = RuntimeEventTypeDefinition
+
+
+class RuntimeProjectBehavior(CamelModel):
+    """Phase 2A: project-scope behavior catalog persisted at
+    `data/projects/<id>/project-events.json`."""
+
+    version: Literal["1.0"] = "1.0"
+    project_events: list[RuntimeEventDefinition] = Field(default_factory=list)
 
 
 class NodeRef(CamelModel):

@@ -747,3 +747,80 @@ def test_behavior_lifecycle_edits_survive_project_save_and_disk_reload(monkeypat
     assert reloaded_field_flows_by_id["flow-field-change"].conditions[0].enabled is False
     assert reloaded_field_flows_by_id["flow-field-change-copy"].enabled is True
     assert reloaded_field_flows_by_id["flow-field-change-copy"].conditions[0].expected_value == "copy"
+
+
+def test_project_events_persistence_round_trips_via_api_and_disk(monkeypatch, tmp_path):
+    """Phase 2A: project-scope event catalog saves to project-events.json and
+    survives a fresh repository load."""
+    repository = InMemoryRepository(project_storage_dir=tmp_path / "projects")
+    monkeypatch.setattr("form_builder_api.main.repository", repository)
+
+    document_payload = {
+        "id": "doc-project-events",
+        "title": "Project Events Carrier",
+        "documentClass": "mixed",
+        "reviewStatus": "accepted",
+        "targetRuntime": "va_web_form",
+        "visualBaseline": "va.gov",
+        "sourcePriority": [],
+        "sourceConflicts": [],
+        "metadata": {},
+        "steps": [],
+    }
+    create_response = client.post("/projects/from-document", json=document_payload)
+    assert create_response.status_code == 200
+    project_id = create_response.json()["project"]["id"]
+
+    # Initial GET returns an empty catalog without writing the file.
+    initial = client.get(f"/projects/{project_id}/project-events")
+    assert initial.status_code == 200
+    assert initial.json() == {"version": "1.0", "projectEvents": []}
+
+    catalog_payload = {
+        "version": "1.0",
+        "projectEvents": [
+            {
+                "id": "proj-evt-heartbeat",
+                "type": "project.heartbeat",
+                "scope": "project",
+                "description": "Project-scope heartbeat tick",
+                "bubbles": False,
+            },
+            {
+                "id": "proj-evt-context",
+                "type": "project.context_changed",
+                "scope": "project",
+            },
+        ],
+    }
+
+    saved = client.put(f"/projects/{project_id}/project-events", json=catalog_payload)
+    assert saved.status_code == 200
+    saved_body = saved.json()
+    assert {entry["id"] for entry in saved_body["projectEvents"]} == {
+        "proj-evt-heartbeat",
+        "proj-evt-context",
+    }
+    events_path = tmp_path / "projects" / project_id / "project-events.json"
+    assert events_path.exists(), "PUT must write the catalog to disk"
+
+    reloaded = InMemoryRepository(project_storage_dir=tmp_path / "projects")
+    behavior = reloaded.get_project_events(project_id)
+    assert behavior.version == "1.0"
+    assert {entry.id for entry in behavior.project_events} == {
+        "proj-evt-heartbeat",
+        "proj-evt-context",
+    }
+    by_id = {entry.id: entry for entry in behavior.project_events}
+    assert by_id["proj-evt-heartbeat"].scope == "project"
+    assert by_id["proj-evt-heartbeat"].type == "project.heartbeat"
+
+
+def test_project_events_endpoints_404_on_unknown_project():
+    response = client.get("/projects/does-not-exist/project-events")
+    assert response.status_code == 404
+    response = client.put(
+        "/projects/does-not-exist/project-events",
+        json={"version": "1.0", "projectEvents": []},
+    )
+    assert response.status_code == 404

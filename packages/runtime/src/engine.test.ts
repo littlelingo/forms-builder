@@ -2575,3 +2575,91 @@ test("synthesised signature.attested listener triggers form.submit end-to-end", 
   const submitEvent = engine.getTrace().findLast((entry) => entry.event.type === "form.submit");
   assert.ok(submitEvent, "form.submit must appear in the event trace");
 });
+
+test("Phase 2A: project-scope event catalog resolves cross-form eventRef ids at dispatch time", () => {
+  const document = createDocument();
+  const field = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "field-name");
+  assert.ok(field);
+  // Listener whose eventRef id is declared at project scope, not on the document.
+  field.runtime = {
+    eventSources: [],
+    listeners: [
+      {
+        id: "listener-project-event",
+        label: "React to a project-scope event",
+        type: "project.heartbeat",
+        dispatcherId: "field-name",
+        dispatcherType: "field",
+        useCapture: false,
+        priority: 0,
+        eventName: "project.heartbeat",
+        eventRef: { id: "proj-evt-heartbeat" },
+        enabled: true,
+        conditions: [],
+        actions: [
+          {
+            id: "action-project-event",
+            kind: "dispatch_event",
+            config: { eventType: "project.heartbeat.handled", payload: {} },
+            continueOnError: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  const buildHeartbeatEvent = (): RuntimeEventEnvelope => ({
+    type: "project.heartbeat",
+    version: "1.0",
+    source: {
+      runtimeId: "runtime-test",
+      formId: "form-test",
+      projectId: "project-test",
+      nodeId: "field-name",
+      nodeType: "field",
+    },
+    payload: { tick: 1 },
+    correlationId: "corr-project-heartbeat",
+    timestamp: "2026-05-01T12:00:02.000Z",
+  });
+
+  // Without the project catalog, eventRef is broken.
+  const offEngine = createRuntimeEngine();
+  offEngine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+  const offReport = offEngine.dispatchWithReport(buildHeartbeatEvent());
+  const offListener = offReport.listeners.find((entry) => entry.listenerId === "listener-project-event");
+  assert.ok(offListener);
+  assert.equal(offListener.matched, false);
+  assert.equal(offListener.skippedReason, "broken_event_ref");
+
+  // With the project catalog, the same eventRef resolves and the listener fires.
+  const onEngine = createRuntimeEngine();
+  onEngine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+    projectEvents: [
+      {
+        id: "proj-evt-heartbeat",
+        type: "project.heartbeat",
+        scope: "project",
+        description: "Project-scope heartbeat tick",
+      },
+    ],
+  });
+  const onReport = onEngine.dispatchWithReport(buildHeartbeatEvent());
+  const onListener = onReport.listeners.find((entry) => entry.listenerId === "listener-project-event");
+  assert.ok(onListener);
+  assert.equal(onListener.matched, true);
+  assert.equal(onListener.skippedReason, undefined);
+  assert.ok(
+    onReport.emittedEvents.some((event) => event.type === "project.heartbeat.handled"),
+    "the project-scope eventRef must drive the action chain at dispatch time",
+  );
+});

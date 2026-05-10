@@ -6,6 +6,7 @@ import type {
   RuntimeEventEnvelope,
   RuntimeEventPhase,
   RuntimeEventTarget,
+  RuntimeEventTypeDefinition,
   RuntimeHostContext,
   RuntimeListenerDefinition,
   RuntimeNodeType,
@@ -88,6 +89,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
   let hostContext: RuntimeHostContext | null = null;
   let runtimeId = "runtime_unmounted";
   let projectId: string | null = null;
+  let projectEventCatalog: RuntimeEventTypeDefinition[] = [];
   let mounted = false;
   let clock = () => new Date();
   let randomId: () => string = () => crypto.randomUUID();
@@ -282,6 +284,10 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
           }
         }
       }
+    }
+    // Phase 2A: fall through to project-scope catalog for cross-form references
+    for (const def of projectEventCatalog) {
+      if (def.id === eventRefId) return def.type ?? def.name ?? null;
     }
     return null;
   };
@@ -836,6 +842,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
       index = createRuntimeDocumentIndex(document);
       runtimeId = options?.runtimeId ?? `runtime_${randomId()}`;
       projectId = options?.projectId ?? null;
+      projectEventCatalog = options?.projectEvents ? options.projectEvents.map((entry) => structuredClone(entry)) : [];
       clock = options?.clock ?? (() => new Date());
       randomId = options?.randomId ?? (() => crypto.randomUUID());
       hostContext = options?.hostContext ?? null;
@@ -888,6 +895,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
       index = null;
       mounted = false;
       hostContext = null;
+      projectEventCatalog = [];
       state = {
         currentStepId: null,
         values: {},

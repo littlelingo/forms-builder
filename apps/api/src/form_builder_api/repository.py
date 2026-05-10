@@ -39,6 +39,7 @@ from .models.authoring import (
     ProjectRevision,
 )
 from .models.canonical import ReviewStatus
+from .models.runtime import RuntimeProjectBehavior
 
 
 def repo_root() -> Path:
@@ -217,6 +218,37 @@ class InMemoryRepository:
         detail.project.revision_count += 1
         self._persist_project(detail, revision)
         return detail
+
+    def get_project_events(self, project_id: str) -> RuntimeProjectBehavior:
+        """Phase 2A: load project-scope event catalog from disk.
+
+        Returns an empty catalog if the file is absent so callers can treat the
+        endpoint as always-200.
+        """
+        if project_id not in self.projects:
+            raise KeyError(project_id)
+        path = self._project_events_path(project_id)
+        if not path.exists():
+            return RuntimeProjectBehavior()
+        return RuntimeProjectBehavior.model_validate(json.loads(path.read_text()))
+
+    def update_project_events(
+        self,
+        project_id: str,
+        behavior: RuntimeProjectBehavior,
+    ) -> RuntimeProjectBehavior:
+        if project_id not in self.projects:
+            raise KeyError(project_id)
+        path = self._project_events_path(project_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._write_json(path, behavior)
+        detail = self.projects[project_id]
+        detail.project.updated_at = datetime.now(timezone.utc)
+        self._write_json(self._project_dir(project_id) / "project.json", detail.project)
+        return behavior
+
+    def _project_events_path(self, project_id: str) -> Path:
+        return self._project_dir(project_id) / "project-events.json"
 
     def list_project_revisions(self, project_id: str) -> list[ProjectRevision]:
         project_dir = self._project_dir(project_id)

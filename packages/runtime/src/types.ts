@@ -4,6 +4,7 @@ import type {
   BehaviorLibraryEntry,
   RuntimeConditionDefinition,
   RuntimeEventEnvelope,
+  RuntimeEventTypeDefinition,
   RuntimeHostContext,
   RuntimeNodeType,
   RuntimeSessionState,
@@ -43,6 +44,12 @@ export interface RuntimeEngineMountOptions {
   emitLoadEvent?: boolean;
   clock?: () => Date;
   randomId?: () => string;
+  /**
+   * Phase 2A: project-scope event catalog. Listener `eventRef` ids that miss
+   * the form-scope and node-scope catalogs fall back to this list, so a form
+   * within a project can react to events declared on the surrounding project.
+   */
+  projectEvents?: RuntimeEventTypeDefinition[] | null;
 }
 
 export type RuntimeEventHandler = (event: RuntimeEventEnvelope) => void;

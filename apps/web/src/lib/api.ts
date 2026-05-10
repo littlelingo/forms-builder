@@ -6,6 +6,7 @@ import type {
   ProjectStatus,
   ProjectRevision,
   ReviewStatus,
+  RuntimeProjectBehavior,
 } from "@form-builder/schema";
 
 import type { ConversionRecord, SamplePdfSummary } from "./types";
@@ -180,6 +181,23 @@ export async function saveProjectLibraryEntry(
     body: JSON.stringify(entry),
   });
   return parseResponse<BehaviorLibraryEntry>(response);
+}
+
+export async function getProjectEvents(projectId: string): Promise<RuntimeProjectBehavior> {
+  const response = await fetch(`${API_BASE_URL}/projects/${encodeURIComponent(projectId)}/project-events`);
+  return parseResponse<RuntimeProjectBehavior>(response);
+}
+
+export async function saveProjectEvents(
+  projectId: string,
+  behavior: RuntimeProjectBehavior,
+): Promise<RuntimeProjectBehavior> {
+  const response = await fetch(`${API_BASE_URL}/projects/${encodeURIComponent(projectId)}/project-events`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(behavior),
+  });
+  return parseResponse<RuntimeProjectBehavior>(response);
 }
 
 export async function deleteProjectLibraryEntry(projectId: string, entryId: string): Promise<void> {
