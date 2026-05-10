@@ -1,6 +1,7 @@
 import type {
   RuntimeActionDefinition,
   AuthoringDocument,
+  BehaviorLibraryEntry,
   RuntimeConditionDefinition,
   RuntimeEventEnvelope,
   RuntimeHostContext,
@@ -9,6 +10,15 @@ import type {
   RuntimeSubmitPayload,
   RuntimeValidationState,
 } from "@form-builder/schema";
+
+export interface BehaviorLibraryRegistry {
+  /** Returns the entry for the given id and revision, or undefined if missing. */
+  resolve(id: string, revision: number): BehaviorLibraryEntry | undefined;
+}
+
+export interface CreateRuntimeEngineOptions {
+  libraryRegistry?: BehaviorLibraryRegistry;
+}
 
 export interface RuntimeEngineMountOptions {
   runtimeId?: string;
@@ -57,7 +67,13 @@ export interface RuntimeListenerDiagnostic {
   eventPhase: RuntimeEventEnvelope["eventPhase"];
   enabled: boolean;
   matched: boolean;
-  skippedReason?: "disabled" | "event_type" | "conditions_failed" | "source_mismatch" | "broken_event_ref";
+  skippedReason?:
+    | "disabled"
+    | "event_type"
+    | "conditions_failed"
+    | "source_mismatch"
+    | "broken_event_ref"
+    | "broken_library_ref";
   resolvedTarget?: NodeDescriptor;
   conditions: RuntimeConditionDiagnostic[];
   actions: RuntimeActionDiagnostic[];

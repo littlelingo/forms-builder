@@ -18,6 +18,8 @@ import { createRuntimeDocumentIndex, type IndexedRuntimeListener, type RuntimeDo
 import { RuntimeEventBus } from "./event-bus";
 import { createInitialSessionState, mergeSessionState } from "./session-state";
 import type {
+  BehaviorLibraryRegistry,
+  CreateRuntimeEngineOptions,
   RuntimeActionDiagnostic,
   RuntimeConditionDiagnostic,
   RuntimeDispatchReport,
@@ -27,6 +29,7 @@ import type {
   RuntimeStateDiff,
   RuntimeTraceEntry,
 } from "./types";
+import { applyTemplateTokens, stableStringify } from "./template-tokens";
 import { validateRuntimeDocument } from "./validation";
 
 const RUNTIME_VERSION = "1.0";
@@ -61,7 +64,11 @@ interface RuntimeDispatchReportDraft {
   listeners: RuntimeListenerDiagnostic[];
 }
 
-export function createRuntimeEngine(): RuntimeEngine {
+export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): RuntimeEngine {
+  const libraryRegistry: BehaviorLibraryRegistry | undefined = options?.libraryRegistry;
+  // Per-engine-instance cache: avoids re-materialising the same (entry + params) pair.
+  const materialisedCache = new Map<string, RuntimeListenerDefinition>();
+
   const eventBus = new RuntimeEventBus();
   let document: AuthoringDocument | null = null;
   let index: RuntimeDocumentIndex | null = null;
@@ -274,12 +281,60 @@ export function createRuntimeEngine(): RuntimeEngine {
     return null;
   };
 
+  const materialisedListener = (listener: RuntimeListenerDefinition): RuntimeListenerDefinition | null => {
+    if (!listener.libraryRef || listener.libraryRef.detached) {
+      return listener;
+    }
+    const ref = listener.libraryRef;
+    const entry = libraryRegistry?.resolve(ref.id, ref.revision);
+    if (!entry) {
+      return null; // broken ref
+    }
+    const cacheKey = `${entry.id}::${entry.revision}::${stableStringify(ref.params)}`;
+    let cached = materialisedCache.get(cacheKey);
+    if (!cached) {
+      const materialisedRaw = applyTemplateTokens(entry.template, ref.params);
+      cached = {
+        ...listener,
+        ...(materialisedRaw as object),
+        // These must always come from the listener envelope, not the template.
+        id: listener.id,
+        libraryRef: listener.libraryRef,
+      };
+      materialisedCache.set(cacheKey, cached);
+    }
+    return cached;
+  };
+
   const evaluateListenerDiagnostic = (
     indexedListener: IndexedRuntimeListener,
     event: RuntimeEventEnvelope,
   ): RuntimeListenerDiagnostic => {
-    const listener = indexedListener.listener;
-    const enabled = listener.enabled !== false;
+    const rawListener = indexedListener.listener;
+    const enabled = rawListener.enabled !== false;
+
+    // Resolve library ref before any other evaluation.
+    const listener = materialisedListener(rawListener);
+    if (listener === null) {
+      // Broken libraryRef — report skipped with reason.
+      const resolvedTarget = rawListener.target?.id && index
+        ? index.resolveNodeDescriptor(rawListener.target.id)
+        : undefined;
+      return {
+        listenerId: rawListener.id,
+        label: rawListener.label ?? null,
+        type: listenerEventType(rawListener),
+        dispatcherId: indexedListener.dispatcherId,
+        dispatcherType: indexedListener.dispatcherType,
+        eventPhase: event.eventPhase,
+        enabled,
+        matched: false,
+        skippedReason: "broken_library_ref",
+        conditions: [],
+        actions: [],
+        ...(resolvedTarget ? { resolvedTarget } : {}),
+      };
+    }
 
     // Resolve event type: prefer eventRef lookup, fall back to legacy type/eventName.
     let type: string;
@@ -726,7 +781,9 @@ export function createRuntimeEngine(): RuntimeEngine {
         if (!listenerDiagnostic.matched) {
           continue;
         }
-        for (const action of listenerInvocation.listener.listener.actions) {
+        // Use the materialised listener's actions (may differ from raw when libraryRef is set).
+        const resolvedListener = materialisedListener(listenerInvocation.listener.listener) ?? listenerInvocation.listener.listener;
+        for (const action of resolvedListener.actions) {
           const actionDiagnostic: RuntimeActionDiagnostic = {
             actionId: action.id,
             label: action.label ?? null,

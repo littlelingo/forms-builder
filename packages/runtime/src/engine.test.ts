@@ -12,8 +12,9 @@ import type {
 import { runtimeActionSafetyClass } from "@form-builder/schema";
 
 import { createRuntimeEngine } from "./engine";
+import { applyTemplateTokens } from "./template-tokens";
 import { createRuntimeDocumentIndex } from "./document-index";
-import type { NodeTombstoneMap } from "./types";
+import type { BehaviorLibraryRegistry, NodeTombstoneMap } from "./types";
 
 function createHostContext(): RuntimeHostContext {
   return {
@@ -1916,4 +1917,224 @@ test("legacy eventSourceNodeId continues to work alongside new source field", ()
     true,
     "action should have executed",
   );
+});
+
+// ── T8: Library materialisation ──────────────────────────────────────────────
+
+test("listener with libraryRef uses materialised template from registry", () => {
+  const document = createDocument();
+
+  // Registry entry: template with a token-bearing condition.
+  const registry: BehaviorLibraryRegistry = {
+    resolve(id, _revision) {
+      if (id !== "lib-pattern-match") return undefined;
+      return {
+        id: "lib-pattern-match",
+        name: "Pattern match",
+        description: "Match payload value against a pattern",
+        category: "validation",
+        scope: "system",
+        revision: 1,
+        parameters: [{ key: "pattern", type: "string", label: "Pattern", required: true }],
+        bindsTo: [],
+        template: {
+          type: "field.change",
+          eventName: "field.change",
+          enabled: true,
+          conditions: [
+            {
+              id: "cond-pattern",
+              enabled: true,
+              source: { kind: "event_payload", path: "nextValue" },
+              operator: "equals",
+              expectedValue: "{{pattern}}",
+            },
+          ],
+          actions: [
+            {
+              id: "action-pattern-matched",
+              kind: "dispatch_event",
+              config: { eventType: "library.pattern_matched", payload: {} },
+              continueOnError: false,
+            },
+          ],
+        },
+      };
+    },
+  };
+
+  // A listener referencing the library entry with params.
+  const libraryListener: RuntimeListenerDefinition = {
+    id: "listener-lib",
+    label: "Library pattern match",
+    type: "field.change",
+    eventName: "field.change",
+    enabled: true,
+    conditions: [],
+    actions: [],
+    libraryRef: { id: "lib-pattern-match", revision: 1, params: { pattern: "12345" } },
+  };
+  document.runtime!.formListeners.push(libraryListener);
+
+  const engine = createRuntimeEngine({ libraryRegistry: registry });
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  // Dispatch matching value → should fire.
+  const reportMatch = engine.dispatchWithReport(fieldChangeEvent("field-name", "12345"));
+  const matchedEntry = reportMatch.listeners.find((l) => l.listenerId === "listener-lib");
+  assert.ok(matchedEntry, "listener should appear in report");
+  assert.equal(matchedEntry.matched, true, "listener should match when payload.value equals pattern");
+  assert.equal(
+    reportMatch.emittedEvents.some((e) => e.type === "library.pattern_matched"),
+    true,
+    "library action should have executed on match",
+  );
+
+  // Dispatch non-matching value → should not fire.
+  const reportNoMatch = engine.dispatchWithReport(fieldChangeEvent("field-name", "99999"));
+  const noMatchEntry = reportNoMatch.listeners.find((l) => l.listenerId === "listener-lib");
+  assert.ok(noMatchEntry, "listener should appear in report for non-match");
+  assert.equal(noMatchEntry.matched, false, "listener should not match when payload.value differs from pattern");
+  assert.equal(
+    reportNoMatch.emittedEvents.some((e) => e.type === "library.pattern_matched"),
+    false,
+    "library action should not execute on non-match",
+  );
+});
+
+test("listener with libraryRef.detached uses listener's own shape, not the template", () => {
+  const document = createDocument();
+
+  // Registry entry whose conditions would reject "accepted".
+  const registry: BehaviorLibraryRegistry = {
+    resolve(_id, _revision) {
+      return {
+        id: "lib-strict",
+        name: "Strict match",
+        description: "Only fires on 'rejected'",
+        category: "validation",
+        scope: "system",
+        revision: 1,
+        parameters: [],
+        bindsTo: [],
+        template: {
+          type: "field.change",
+          eventName: "field.change",
+          enabled: true,
+          conditions: [
+            {
+              id: "cond-strict",
+              enabled: true,
+              source: { kind: "event_payload", path: "nextValue" },
+              operator: "equals",
+              expectedValue: "rejected",
+            },
+          ],
+          actions: [
+            {
+              id: "action-strict",
+              kind: "dispatch_event",
+              config: { eventType: "library.strict_fired", payload: {} },
+              continueOnError: false,
+            },
+          ],
+        },
+      };
+    },
+  };
+
+  // Listener is detached — uses its own conditions (no conditions = always match on type).
+  const detachedListener: RuntimeListenerDefinition = {
+    id: "listener-detached",
+    label: "Detached",
+    type: "field.change",
+    eventName: "field.change",
+    enabled: true,
+    conditions: [],
+    actions: [
+      {
+        id: "action-detached-own",
+        kind: "dispatch_event",
+        config: { eventType: "detached.own_fired", payload: {} },
+        continueOnError: false,
+      },
+    ],
+    libraryRef: { id: "lib-strict", revision: 1, params: {}, detached: true },
+  };
+  document.runtime!.formListeners.push(detachedListener);
+
+  const engine = createRuntimeEngine({ libraryRegistry: registry });
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  // "accepted" would fail the library's template condition, but since detached = true the
+  // listener's own shape (no conditions) should match.
+  const report = engine.dispatchWithReport(fieldChangeEvent("field-name", "accepted"));
+  const entry = report.listeners.find((l) => l.listenerId === "listener-detached");
+  assert.ok(entry, "listener should appear in report");
+  assert.equal(entry.matched, true, "detached listener should use its own conditions");
+  assert.equal(
+    report.emittedEvents.some((e) => e.type === "detached.own_fired"),
+    true,
+    "detached listener's own action should fire",
+  );
+  assert.equal(
+    report.emittedEvents.some((e) => e.type === "library.strict_fired"),
+    false,
+    "library template action should NOT fire for detached listener",
+  );
+});
+
+test("listener with libraryRef but no registry entry is reported skipped with broken_library_ref", () => {
+  const document = createDocument();
+
+  // Registry that never finds anything.
+  const emptyRegistry: BehaviorLibraryRegistry = {
+    resolve(_id, _revision) {
+      return undefined;
+    },
+  };
+
+  const missingRefListener: RuntimeListenerDefinition = {
+    id: "listener-missing-lib",
+    label: "Missing library ref",
+    type: "field.change",
+    eventName: "field.change",
+    enabled: true,
+    conditions: [],
+    actions: [],
+    libraryRef: { id: "missing-entry", revision: 1, params: {} },
+  };
+  document.runtime!.formListeners.push(missingRefListener);
+
+  const engine = createRuntimeEngine({ libraryRegistry: emptyRegistry });
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const report = engine.dispatchWithReport(fieldChangeEvent("field-name", "any"));
+  const entry = report.listeners.find((l) => l.listenerId === "listener-missing-lib");
+  assert.ok(entry, "listener should appear in report");
+  assert.equal(entry.matched, false, "broken libraryRef listener should not match");
+  assert.equal(entry.skippedReason, "broken_library_ref", "skippedReason should be broken_library_ref");
+});
+
+test("applyTemplateTokens substitutes tokens into nested template structures", () => {
+  const result = applyTemplateTokens(
+    { a: "{{x}}", b: ["{{y}}", "raw"], c: { d: "{{z}}" } },
+    { x: 1, y: "two", z: true },
+  );
+  assert.deepEqual(result, { a: 1, b: ["two", "raw"], c: { d: true } });
 });
