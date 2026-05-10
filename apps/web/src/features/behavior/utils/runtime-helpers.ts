@@ -250,11 +250,15 @@ export type BehaviorStudioPositionLayout = {
 };
 export type BehaviorIndexObjectView = "all" | "impacts" | "started";
 /**
- * Phase 2C: Manager layout switcher. `table` is the legacy flat list;
- * `by_event` groups behaviors by event-type so reverse-index queries
- * ("who raises X?", "who consumes X?") read at a glance.
+ * Phase 2C/2D: Manager layout switcher.
+ *
+ * - `table`     legacy flat list with full filters and details drawer
+ * - `by_event`  grouped reverse-index ("who raises X?", "who consumes X?")
+ * - `map`       lightweight DAG / swimlane view (sources → listeners →
+ *               targets) capped at 200 rendered nodes; above the cap the
+ *               renderer collapses to per-scope cluster summaries.
  */
-export type BehaviorIndexLayout = "table" | "by_event";
+export type BehaviorIndexLayout = "table" | "by_event" | "map";
 export type BehaviorIndexStatusFilter = "all" | "enabled" | "disabled";
 export type DocumentBehaviorSurfaceMode = "board" | "minimap" | "canvas";
 export type DocumentBehaviorClusterFocus = "all" | "field" | "group" | "section" | "step";

@@ -27,6 +27,7 @@ import type {
 } from "../utils/runtime-helpers";
 import type { InspectorTab } from "../../inspector";
 import { actionButtonClass, formatLabel } from "../../../lib/ui-utils";
+import { BehaviorIndexMap } from "./BehaviorIndexMap";
 
 interface LogicMapData {
   formListeners: LogicMapListenerEntry[];
@@ -976,7 +977,7 @@ export function BehaviorManager({
                       : "Started from this field"}
                 </button>
               ))}
-              {(["table", "by_event"] as const).map((layout) => (
+              {(["table", "by_event", "map"] as const).map((layout) => (
                 <button
                   key={`behavior-layout-${layout}`}
                   type="button"
@@ -985,10 +986,12 @@ export function BehaviorManager({
                   title={
                     layout === "by_event"
                       ? "Group behaviors by event type — see who raises and consumes each event"
-                      : "Flat list of every behavior matching the filters"
+                      : layout === "map"
+                        ? "Layered DAG: event sources → listeners → action targets, capped at 200 nodes"
+                        : "Flat list of every behavior matching the filters"
                   }
                 >
-                  {layout === "table" ? "Table" : "By event"}
+                  {layout === "table" ? "Table" : layout === "by_event" ? "By event" : "Map"}
                 </button>
               ))}
             </div>
@@ -1289,7 +1292,69 @@ export function BehaviorManager({
             </div>
           ) : null}
 
-          <div className={`mt-4 space-y-3 ${behaviorIndexLayout === "by_event" ? "hidden" : ""}`}>
+          {behaviorIndexLayout === "map"
+            ? (() => {
+                const mapGroups = new Map<
+                  string,
+                  {
+                    triggerType: string;
+                    raised: { id: string; scopeLabel: string; detail: string; hasBrokenRef: boolean }[];
+                    listeners: {
+                      id: string;
+                      title: string;
+                      status: "enabled" | "disabled";
+                      scopeLabel: string;
+                      hasBrokenRef: boolean;
+                      impactsLabel: string;
+                      onOpen: () => void;
+                    }[];
+                  }
+                >();
+                for (const item of visibleBehaviorIndexObjects) {
+                  const triggerType = item.triggerType || "(unspecified)";
+                  const group = mapGroups.get(triggerType) ?? {
+                    triggerType,
+                    raised: [],
+                    listeners: [],
+                  };
+                  if (item.kind === "event") {
+                    group.raised.push({
+                      id: item.id,
+                      scopeLabel: item.scopeLabel,
+                      detail: item.detail,
+                      hasBrokenRef: item.hasBrokenRef,
+                    });
+                  } else {
+                    group.listeners.push({
+                      id: item.id,
+                      title: item.title,
+                      status: item.status,
+                      scopeLabel: item.scopeLabel,
+                      hasBrokenRef: item.hasBrokenRef,
+                      impactsLabel: item.impactsLabel,
+                      onOpen: () => openBehaviorIndexObject(item),
+                    });
+                  }
+                  mapGroups.set(triggerType, group);
+                }
+                const sortedMapGroups = Array.from(mapGroups.values()).sort((left, right) =>
+                  left.triggerType.localeCompare(right.triggerType),
+                );
+                const totalNodes = sortedMapGroups.reduce(
+                  (sum, group) => sum + group.raised.length + group.listeners.length * 2, // listener + target
+                  0,
+                );
+                return (
+                  <BehaviorIndexMap
+                    groups={sortedMapGroups}
+                    totalNodes={totalNodes}
+                    onSelectGroup={(triggerType) => onSetBehaviorIndexTriggerFilter(triggerType)}
+                  />
+                );
+              })()
+            : null}
+
+          <div className={`mt-4 space-y-3 ${behaviorIndexLayout !== "table" ? "hidden" : ""}`}>
             {visibleBehaviorIndexObjects.length ? (
               visibleBehaviorIndexObjects.map((item) => {
                 const itemKey = behaviorIndexObjectKey(item);
