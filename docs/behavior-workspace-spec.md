@@ -489,6 +489,20 @@ Recommended next cleanup:
    - a provenance helper
    - an on-demand full-width compare workspace
 
+## Implementation Status
+
+### Phase 1C-1 — Inspector stack foundation (shipped 2026-05)
+
+The inspector "Behaviors" tab now renders a node-attached stack of behavior rows replacing the legacy three-tile "at a glance" panel. Components live under `apps/web/src/features/behavior/stack/`:
+
+- `BehaviorStackList` — list shell + drag-reorder via HTML5 native DnD; "+ Add behavior" delegates to the existing Behavior Studio modal.
+- `BehaviorStackRow` — collapsed row UI (drag handle + trigger pill + summary + edit button + provenance/library/destructive mini-badges + pause toggle).
+- `runtime-stack-helpers.ts` — `summariseListener`, `listenerTriggerPill`, `countListenersReferencingNode` for reverse-index lookups.
+
+The reverse-index callout ("Used by N behaviors elsewhere") surfaces below the stack when at least one behavior on another node references the selected node.
+
+Edit and Add still delegate to the existing Behavior Studio modal. Phase 1C-2 replaces those entry points with in-place expansion (When/If/Then/Raises composer) inside the rail.
+
 ## Non-Goals For The First Pass
 
 - shipping the final graph renderer for every advanced case in one slice
