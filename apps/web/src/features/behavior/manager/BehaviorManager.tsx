@@ -5,6 +5,7 @@ import type {
   RuntimeEventDefinition,
   RuntimeListenerDefinition,
 } from "@form-builder/schema";
+import type { RuntimeDispatchReport } from "@form-builder/runtime";
 import { runtimeActionSafetyClass } from "@form-builder/schema";
 import type { AuthoringSelection } from "../../../lib/authoring-utils";
 import { runtimeEventDefinitionType } from "../utils/runtime-helpers";
@@ -88,6 +89,20 @@ export interface BehaviorManagerProps {
   onRemoveRuntimeEventSourceForSelection: (selection: AuthoringSelection | null, eventId: string) => void;
   onHandleTestSelectedRule: (rule: LegacyConditionalRule | null) => void;
   onHandleTestSelectedChain: (listener: RuntimeListenerDefinition | null) => void;
+  /**
+   * Phase 2C-2: trace-from-event sim. Manager surfaces a "Trace from event"
+   * action on every Raised by row in the by-event layout; the host runs an
+   * ephemeral `dispatchWithReport` and pipes the matched/skipped listener
+   * diagnostics back into this prop for inline rendering.
+   */
+  traceFromEventReport: {
+    eventType: string;
+    sourceId: string;
+    sourceLabel: string;
+    report: RuntimeDispatchReport;
+  } | null;
+  onRunTraceFromEvent: (eventType: string, source: RuntimeEventSourceCandidate) => void;
+  onClearTraceFromEvent: () => void;
 }
 
 type ManagerFilterState = {
@@ -180,6 +195,9 @@ export function BehaviorManager({
   onRemoveRuntimeEventSourceForSelection,
   onHandleTestSelectedRule,
   onHandleTestSelectedChain,
+  traceFromEventReport,
+  onRunTraceFromEvent,
+  onClearTraceFromEvent,
 }: BehaviorManagerProps) {
   const [managerFilters, setManagerFilters] = useState<ManagerFilterState>({
     provenance: "all",
@@ -1095,11 +1113,15 @@ export function BehaviorManager({
                             {group.raisedBy.length ? (
                               <div className="mt-2 space-y-2">
                                 {group.raisedBy.map((item) => {
-                                  const canTest = item.graphSelection !== null;
+                                  const traceActive =
+                                    traceFromEventReport?.eventType === group.triggerType &&
+                                    traceFromEventReport?.sourceId === item.id;
                                   return (
                                     <div
                                       key={`raised-${behaviorIndexObjectKey(item)}`}
-                                      className="rounded-[0.85rem] border border-soft bg-white p-3"
+                                      className={`rounded-[0.85rem] border p-3 ${
+                                        traceActive ? "border-sky-300 bg-sky-50" : "border-soft bg-white"
+                                      }`}
                                     >
                                       <p className="text-sm font-semibold text-slate-950">{item.scopeLabel}</p>
                                       <p className="mt-1 text-xs text-slate-600">{item.detail}</p>
@@ -1113,11 +1135,13 @@ export function BehaviorManager({
                                         </button>
                                         <button
                                           type="button"
-                                          onClick={() => openBehaviorIndexObjectInSimulator(item)}
-                                          className={actionButtonClass("secondary")}
-                                          disabled={!canTest}
+                                          onClick={() =>
+                                            item.eventSource && onRunTraceFromEvent(group.triggerType, item.eventSource)
+                                          }
+                                          className={actionButtonClass(traceActive ? "primary" : "secondary")}
+                                          disabled={!item.eventSource}
                                         >
-                                          Trace from event
+                                          {traceActive ? "Tracing…" : "Trace from event"}
                                         </button>
                                       </div>
                                     </div>
@@ -1181,6 +1205,89 @@ export function BehaviorManager({
                 );
               })()
             : null}
+
+          {behaviorIndexLayout === "by_event" && traceFromEventReport ? (
+            <div className="mt-4 rounded-[1.05rem] border border-sky-300 bg-sky-50 p-4">
+              <div className="flex flex-wrap items-baseline justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[0.66rem] font-semibold uppercase tracking-[0.18em] text-sky-700">
+                    Trace from event
+                  </p>
+                  <h6 className="mt-1 text-base font-semibold text-slate-950">
+                    {formatLabel(traceFromEventReport.eventType)}
+                  </h6>
+                  <p className="mt-1 text-xs text-slate-600">
+                    Dispatched from <span className="font-medium">{traceFromEventReport.sourceLabel}</span> against an
+                    ephemeral runtime — the live preview engine is untouched.
+                  </p>
+                </div>
+                <button type="button" onClick={onClearTraceFromEvent} className={actionButtonClass("secondary")}>
+                  Close trace
+                </button>
+              </div>
+              {traceFromEventReport.report.listeners.length ? (
+                <div className="mt-3 space-y-2">
+                  {traceFromEventReport.report.listeners.map((diagnostic) => (
+                    <div
+                      key={`trace-listener-${diagnostic.listenerId}`}
+                      className={`rounded-[0.85rem] border p-3 ${
+                        diagnostic.matched ? "border-emerald-300 bg-white" : "border-amber-300 bg-amber-50"
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-baseline justify-between gap-3">
+                        <p className="text-sm font-semibold text-slate-950">
+                          {diagnostic.label ?? `Listener ${diagnostic.listenerId}`}
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <span
+                            className={`app-pill ${
+                              diagnostic.matched ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                            }`}
+                          >
+                            {diagnostic.matched ? "Matched" : "Skipped"}
+                          </span>
+                          <span className="app-pill">{formatLabel(diagnostic.eventPhase ?? "target")}</span>
+                          {diagnostic.skippedReason ? (
+                            <span className="app-pill bg-slate-100 text-slate-700">
+                              {formatLabel(diagnostic.skippedReason)}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-600">
+                        {formatLabel(diagnostic.dispatcherType)} · {diagnostic.dispatcherId}
+                        {diagnostic.resolvedTarget?.labelHint
+                          ? ` → ${diagnostic.resolvedTarget.labelHint}`
+                          : diagnostic.resolvedTarget?.id
+                            ? ` → ${diagnostic.resolvedTarget.id}`
+                            : ""}
+                      </p>
+                      {diagnostic.conditions.length ? (
+                        <ul className="mt-2 space-y-1 text-xs text-slate-700">
+                          {diagnostic.conditions.map((condition) => (
+                            <li key={`trace-cond-${diagnostic.listenerId}-${condition.conditionId}`}>
+                              {condition.passed ? "✓" : "✗"} {condition.label ?? condition.conditionId} ·{" "}
+                              {condition.operator}
+                              {condition.expectedValue !== undefined
+                                ? ` (expected ${String(condition.expectedValue)})`
+                                : ""}
+                              {!condition.passed && condition.actualValue !== undefined
+                                ? ` · actual ${String(condition.actualValue)}`
+                                : ""}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-slate-600">
+                  No listeners reach this event from the chosen source. Add a consumer to start a chain.
+                </p>
+              )}
+            </div>
+          ) : null}
 
           <div className={`mt-4 space-y-3 ${behaviorIndexLayout === "by_event" ? "hidden" : ""}`}>
             {visibleBehaviorIndexObjects.length ? (

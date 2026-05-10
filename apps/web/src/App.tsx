@@ -24,6 +24,7 @@ import type {
   RuntimeDocumentBehavior,
   RuntimeEventEnvelope,
   RuntimeEventDefinition,
+  RuntimeEventTypeDefinition,
   RuntimeListenerDefinition,
   RuntimeNodeBehavior,
   RuntimeNodeType,
@@ -53,6 +54,7 @@ import {
   getProject,
   importProjectDocument,
   listConversions,
+  getProjectEvents,
   listProjectLibrary,
   listProjectRevisions,
   listProjects,
@@ -1899,6 +1901,12 @@ export default function App() {
   const [eventFlowEventType, setEventFlowEventType] = useState("");
   const [eventFlowPayloadValues, setEventFlowPayloadValues] = useState<EventFlowPayloadValues>({});
   const [lastDispatchReport, setLastDispatchReport] = useState<RuntimeDispatchReport | null>(null);
+  const [traceFromEventReport, setTraceFromEventReport] = useState<{
+    eventType: string;
+    sourceId: string;
+    sourceLabel: string;
+    report: RuntimeDispatchReport;
+  } | null>(null);
   const [selectedRuntimeEvidenceKey, setSelectedRuntimeEvidenceKey] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingProject, setIsLoadingProject] = useState(false);
@@ -1917,6 +1925,7 @@ export default function App() {
 
   // Library system state
   const [projectLibrary, setProjectLibrary] = useState<BehaviorLibraryEntry[]>([]);
+  const [projectEventCatalog, setProjectEventCatalog] = useState<RuntimeEventTypeDefinition[]>([]);
   useEffect(() => {
     libraryRegistryRef.current = buildLibraryRegistry(SYSTEM_LIBRARY, projectLibrary);
   }, [projectLibrary]);
@@ -2057,6 +2066,18 @@ export default function App() {
     listProjectLibrary(activeProjectId)
       .then(setProjectLibrary)
       .catch(() => setProjectLibrary([]));
+  }, [activeProjectId]);
+
+  // Phase 2A: fetch the project-scope event catalog so cross-form eventRef
+  // ids resolve when the runtime engine mounts a form within the project.
+  useEffect(() => {
+    if (!activeProjectId) {
+      setProjectEventCatalog([]);
+      return;
+    }
+    getProjectEvents(activeProjectId)
+      .then((behavior) => setProjectEventCatalog(behavior.projectEvents))
+      .catch(() => setProjectEventCatalog([]));
   }, [activeProjectId]);
 
   const activeConversion =
@@ -3120,6 +3141,7 @@ export default function App() {
         app: { stage: "builder" },
         data: {},
       },
+      projectEvents: projectEventCatalog,
     });
     runtimeSessionRef.current = nextState;
     setRuntimeSessionState(nextState);
@@ -4576,6 +4598,7 @@ export default function App() {
         app: { stage: "builder" },
         data: {},
       },
+      projectEvents: projectEventCatalog,
     });
     runtimeSessionRef.current = nextState;
     setRuntimeSessionState(nextState);
@@ -6475,6 +6498,63 @@ export default function App() {
 
   function handleTestSelectedChain(listener: RuntimeListenerDefinition | null) {
     handleRunGuidedListenerTest(listener);
+  }
+
+  /**
+   * Phase 2C-2: trace-from-event sim. Spins up an ephemeral engine seeded
+   * with the live document + current session, dispatches the chosen event
+   * with `dispatchWithReport`, and surfaces every matched/skipped listener
+   * with its reason. The live engine state is untouched.
+   */
+  function handleRunTraceFromEvent(eventType: string, source: RuntimeEventSourceCandidate) {
+    if (!activeDocument) {
+      setMessage("Open a project before tracing an event.");
+      return;
+    }
+    const ephemeral = createRuntimeEngine();
+    try {
+      ephemeral.mount(activeDocument, {
+        runtimeId: "trace-runtime",
+        projectId: activeProjectId ?? null,
+        emitLoadEvent: false,
+        initialSessionState: runtimeSessionRef.current,
+        projectEvents: projectEventCatalog,
+      });
+      const sourceTarget: NonNullable<RuntimeEventEnvelope["target"]> = {
+        runtimeId: "trace-runtime",
+        formId: activeDocument.id,
+        projectId: activeProjectId ?? null,
+        nodeId: source.id,
+        nodeType: source.nodeType,
+      };
+      const event: RuntimeEventEnvelope = {
+        type: eventType,
+        version: "1.0",
+        target: sourceTarget,
+        currentTarget: sourceTarget,
+        eventPhase: "target",
+        bubbles: source.events.find((entry) => entry.type === eventType)?.bubbles ?? true,
+        source: sourceTarget,
+        payload: {},
+        correlationId: `trace-${eventType}-${source.id}-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+      };
+      const report = ephemeral.dispatchWithReport(event);
+      setTraceFromEventReport({
+        eventType,
+        sourceId: source.id,
+        sourceLabel: source.label,
+        report,
+      });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Trace-from-event simulation failed.");
+    } finally {
+      ephemeral.unmount();
+    }
+  }
+
+  function handleClearTraceFromEvent() {
+    setTraceFromEventReport(null);
   }
 
   function eventFlowOptionsForSource(source: RuntimeEventSourceCandidate): RuntimeSourceEventOption[] {
@@ -10126,6 +10206,9 @@ export default function App() {
                         onSetBehaviorIndexStatusFilter={setBehaviorIndexStatusFilter}
                         onSetBehaviorIndexObjectView={setBehaviorIndexObjectView}
                         onSetBehaviorIndexLayout={setBehaviorIndexLayout}
+                        traceFromEventReport={traceFromEventReport}
+                        onRunTraceFromEvent={handleRunTraceFromEvent}
+                        onClearTraceFromEvent={handleClearTraceFromEvent}
                         onToggleLegacyConditionalRuleForSelection={toggleLegacyConditionalRuleForSelection}
                         onDuplicateLegacyConditionalRuleForSelection={duplicateLegacyConditionalRuleForSelection}
                         onRemoveLegacyConditionalRuleForSelection={removeLegacyConditionalRuleForSelection}
