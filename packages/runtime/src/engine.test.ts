@@ -12,6 +12,7 @@ import type {
 import { runtimeActionSafetyClass } from "@form-builder/schema";
 
 import { createRuntimeEngine } from "./engine";
+import { resolveRuntimeToken } from "./tokens";
 import { applyTemplateTokens } from "./template-tokens";
 import { createRuntimeDocumentIndex } from "./document-index";
 import type { BehaviorExecutedEvent, BehaviorLibraryRegistry, NodeTombstoneMap } from "./types";
@@ -2291,4 +2292,43 @@ test("default engine without telemetrySink does not crash", () => {
 
   // Dispatching an event that fires a listener should not throw even without a sink
   assert.doesNotThrow(() => engine.dispatch(clickEvent("button-next")));
+});
+
+// ---------------------------------------------------------------------------
+// resolveRuntimeToken tests
+// ---------------------------------------------------------------------------
+
+test("resolveRuntimeToken returns ok=true for valid $payload path", () => {
+  const result = resolveRuntimeToken("$payload.value", { payload: { value: "hello" } });
+  assert.equal(result.ok, true);
+  assert.equal(result.ok && result.value, "hello");
+});
+
+test("resolveRuntimeToken returns ok=false reason=unknown_root for $bogus", () => {
+  const result = resolveRuntimeToken("$bogus.x", {});
+  assert.equal(result.ok, false);
+  assert.equal(!result.ok && result.reason, "unknown_root");
+});
+
+test("resolveRuntimeToken returns ok=false reason=missing_path with pathRemainder for missing nested key", () => {
+  const result = resolveRuntimeToken("$payload.deep.thing", { payload: { deep: {} } });
+  assert.equal(result.ok, false);
+  assert.equal(!result.ok && result.reason, "missing_path");
+  assert.equal(!result.ok && result.pathRemainder, "thing");
+});
+
+test("resolveRuntimeToken returns ok=false reason=phase_3_only for $response", () => {
+  const result = resolveRuntimeToken("$response.foo", {});
+  assert.equal(result.ok, false);
+  assert.equal(!result.ok && result.reason, "phase_3_only");
+});
+
+test("resolveRuntimeToken handles $now and $uuid roots without paths", () => {
+  const now = resolveRuntimeToken("$now", {});
+  assert.equal(now.ok, true);
+  assert.match(String(now.ok && now.value), /\d{4}-\d{2}-\d{2}/);
+
+  const uuid = resolveRuntimeToken("$uuid", {});
+  assert.equal(uuid.ok, true);
+  assert.match(String(uuid.ok && uuid.value), /[a-f0-9-]+/i);
 });

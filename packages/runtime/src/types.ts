@@ -11,6 +11,10 @@ import type {
   RuntimeValidationState,
 } from "@form-builder/schema";
 
+export type TokenResolution<T = unknown> =
+  | { ok: true; value: T }
+  | { ok: false; reason: string; pathRemainder?: string };
+
 export interface BehaviorLibraryRegistry {
   /** Returns the entry for the given id and revision, or undefined if missing. */
   resolve(id: string, revision: number): BehaviorLibraryEntry | undefined;
