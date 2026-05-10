@@ -816,6 +816,164 @@ def test_project_events_persistence_round_trips_via_api_and_disk(monkeypatch, tm
     assert by_id["proj-evt-heartbeat"].type == "project.heartbeat"
 
 
+def test_listener_condition_groups_round_trip_via_save_and_disk_reload(monkeypatch, tmp_path):
+    """Phase 2B: OR/NONE/AND condition groups (nested) survive a project
+    PUT/document save and a fresh `InMemoryRepository` load."""
+    repository = InMemoryRepository(project_storage_dir=tmp_path / "projects")
+    monkeypatch.setattr("form_builder_api.main.repository", repository)
+
+    document_payload = {
+        "id": "doc-condition-groups",
+        "title": "Condition groups carrier",
+        "documentClass": "mixed",
+        "reviewStatus": "accepted",
+        "targetRuntime": "va_web_form",
+        "visualBaseline": "va.gov",
+        "sourcePriority": [],
+        "sourceConflicts": [],
+        "metadata": {},
+        "steps": [
+            {
+                "id": "step-1",
+                "title": "Step 1",
+                "description": "",
+                "kind": "collect",
+                "layoutHints": {},
+                "sourcePageIds": [],
+                "provenanceAnchorIds": [],
+                "sections": [
+                    {
+                        "id": "section-1",
+                        "title": "Section 1",
+                        "description": None,
+                        "layoutHints": {},
+                        "lineage": [],
+                        "sourceSectionIds": [],
+                        "provenanceAnchorIds": [],
+                        "groups": [],
+                        "fields": [
+                            {
+                                "id": "field-1",
+                                "stableKey": "field-1",
+                                "label": "Field 1",
+                                "helpText": None,
+                                "semanticType": "text",
+                                "required": False,
+                                "confidence": 1,
+                                "options": [],
+                                "validations": [],
+                                "layoutHints": {},
+                                "rendererHints": {},
+                                "sourcePriority": [],
+                                "sourceConflicts": [],
+                                "lineage": [],
+                                "sourceFieldIds": [],
+                                "provenanceAnchorIds": [],
+                                "runtime": {
+                                    "eventSources": [],
+                                    "listeners": [
+                                        {
+                                            "id": "listener-with-groups",
+                                            "label": "Group-conditioned listener",
+                                            "eventName": "field.change",
+                                            "type": "field.change",
+                                            "dispatcherId": "field-1",
+                                            "dispatcherType": "field",
+                                            "useCapture": False,
+                                            "priority": 0,
+                                            "wiringMode": "local",
+                                            "enabled": True,
+                                            "conditions": [
+                                                {
+                                                    "id": "group-or",
+                                                    "kind": "group",
+                                                    "enabled": True,
+                                                    "operator": "OR",
+                                                    "conditions": [
+                                                        {
+                                                            "id": "atom-alpha",
+                                                            "enabled": True,
+                                                            "source": {"kind": "field_value", "fieldId": "field-1"},
+                                                            "operator": "equals",
+                                                            "expectedValue": "alpha",
+                                                        },
+                                                        {
+                                                            "id": "group-and",
+                                                            "kind": "group",
+                                                            "enabled": True,
+                                                            "operator": "AND",
+                                                            "conditions": [
+                                                                {
+                                                                    "id": "atom-prefix",
+                                                                    "enabled": True,
+                                                                    "source": {
+                                                                        "kind": "field_value",
+                                                                        "fieldId": "field-1",
+                                                                    },
+                                                                    "operator": "contains",
+                                                                    "expectedValue": "pre-",
+                                                                },
+                                                            ],
+                                                        },
+                                                    ],
+                                                },
+                                                {
+                                                    "id": "atom-legacy",
+                                                    "enabled": True,
+                                                    "source": {"kind": "event_payload", "path": "fieldId"},
+                                                    "operator": "exists",
+                                                },
+                                            ],
+                                            "actions": [],
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                        "runtime": None,
+                    }
+                ],
+                "runtime": None,
+            }
+        ],
+    }
+
+    create = client.post("/projects/from-document", json=document_payload)
+    assert create.status_code == 200
+    project_id = create.json()["project"]["id"]
+
+    saved = client.put(f"/projects/{project_id}/document", json=document_payload)
+    assert saved.status_code == 200
+    body = saved.json()
+    listener = body["document"]["steps"][0]["sections"][0]["fields"][0]["runtime"]["listeners"][0]
+    conditions = listener["conditions"]
+    assert len(conditions) == 2
+    or_group = conditions[0]
+    assert or_group["kind"] == "group"
+    assert or_group["operator"] == "OR"
+    nested = or_group["conditions"][1]
+    assert nested["kind"] == "group"
+    assert nested["operator"] == "AND"
+    assert nested["conditions"][0]["operator"] == "contains"
+    legacy_atom = conditions[1]
+    # Atoms without an explicit `kind` key in the input default to "atom" on round-trip.
+    assert legacy_atom["kind"] == "atom"
+    assert legacy_atom["operator"] == "exists"
+
+    reloaded = InMemoryRepository(project_storage_dir=tmp_path / "projects")
+    detail = reloaded.get_project(project_id)
+    assert detail is not None
+    reloaded_listener = detail.document.steps[0].sections[0].fields[0].runtime.listeners[0]
+    reloaded_or_group = reloaded_listener.conditions[0]
+    assert reloaded_or_group.kind == "group"
+    assert reloaded_or_group.operator == "OR"
+    reloaded_nested = reloaded_or_group.conditions[1]
+    assert reloaded_nested.kind == "group"
+    assert reloaded_nested.operator == "AND"
+    assert reloaded_nested.conditions[0].operator == "contains"
+    assert reloaded_listener.conditions[1].kind == "atom"
+
+
 def test_project_events_endpoints_404_on_unknown_project():
     response = client.get("/projects/does-not-exist/project-events")
     assert response.status_code == 404

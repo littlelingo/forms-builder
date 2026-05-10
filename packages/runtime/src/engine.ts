@@ -3,6 +3,8 @@ import type {
   AuthoringDocument,
   RuntimeActionDefinition,
   RuntimeConditionDefinition,
+  RuntimeConditionGroup,
+  RuntimeConditionNode,
   RuntimeEventEnvelope,
   RuntimeEventPhase,
   RuntimeEventTarget,
@@ -208,7 +210,10 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
     return structuredClone(validation);
   };
 
-  const evaluateConditionDiagnostic = (
+  const isConditionGroup = (node: RuntimeConditionNode): node is RuntimeConditionGroup =>
+    (node as RuntimeConditionGroup).kind === "group";
+
+  const evaluateAtomDiagnostic = (
     condition: RuntimeConditionDefinition,
     event: RuntimeEventEnvelope,
   ): RuntimeConditionDiagnostic => {
@@ -260,6 +265,54 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
       actualValue: structuredClone(value),
       passed,
     };
+  };
+
+  /**
+   * Phase 2B: walk the listener condition tree.
+   *
+   * `nodePassed[i]` is the boolean for the i-th input child only — atoms read
+   * their own diagnostic, groups recurse and combine per
+   * `RuntimeConditionGroupOperator`. `passed` is the AND-aggregate at this
+   * level (top-level listener semantics). `diagnostics` is the flat list of
+   * atom diagnostics surfaced in the dispatch report.
+   */
+  const evaluateConditionTree = (
+    nodes: RuntimeConditionNode[],
+    event: RuntimeEventEnvelope,
+  ): {
+    passed: boolean;
+    nodePassed: boolean[];
+    diagnostics: RuntimeConditionDiagnostic[];
+  } => {
+    const diagnostics: RuntimeConditionDiagnostic[] = [];
+    const nodePassed: boolean[] = [];
+    for (const node of nodes) {
+      if (isConditionGroup(node)) {
+        if (node.enabled === false) {
+          nodePassed.push(true);
+          continue;
+        }
+        const child = evaluateConditionTree(node.conditions ?? [], event);
+        diagnostics.push(...child.diagnostics);
+        switch (node.operator) {
+          case "OR":
+            nodePassed.push(child.nodePassed.some(Boolean));
+            break;
+          case "NONE":
+            nodePassed.push(child.nodePassed.every((entry) => !entry));
+            break;
+          case "AND":
+          default:
+            nodePassed.push(child.nodePassed.every(Boolean));
+            break;
+        }
+      } else {
+        const diagnostic = evaluateAtomDiagnostic(node, event);
+        diagnostics.push(diagnostic);
+        nodePassed.push(diagnostic.passed);
+      }
+    }
+    return { passed: nodePassed.every(Boolean), nodePassed, diagnostics };
   };
 
   const resolveEventRefType = (eventRefId: string): string | null => {
@@ -385,12 +438,12 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
     const eventTargetNodeId = event.target?.nodeId ?? null;
     const sourceMismatch = sourceFilterId !== null && sourceFilterId !== eventTargetNodeId;
 
-    const conditions =
+    const evaluation =
       enabled && typeMatches && !sourceMismatch
-        ? (listener.conditions ?? []).map((condition) => evaluateConditionDiagnostic(condition, event))
-        : [];
-    const conditionsPassed = conditions.every((condition) => condition.passed);
-    const matched = enabled && typeMatches && !sourceMismatch && conditionsPassed;
+        ? evaluateConditionTree(listener.conditions ?? [], event)
+        : { passed: true, nodePassed: [], diagnostics: [] };
+    const conditions = evaluation.diagnostics;
+    const matched = enabled && typeMatches && !sourceMismatch && evaluation.passed;
 
     // Resolve target descriptor when listener.target?.id is set.
     const resolvedTarget = listener.target?.id && index ? index.resolveNodeDescriptor(listener.target.id) : undefined;

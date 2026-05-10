@@ -9,6 +9,9 @@ export {
   runtimeCoreEventsForDispatcher,
   runtimeStandardEventPayloadFields,
   runtimeActionSafetyClass,
+  isRuntimeConditionAtom,
+  isRuntimeConditionGroup,
+  flattenRuntimeConditionAtoms,
 } from "./runtime";
 
 import type { FieldNode, FormDefinition } from "./generated";

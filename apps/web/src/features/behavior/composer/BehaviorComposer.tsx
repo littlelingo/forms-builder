@@ -8,6 +8,7 @@ import type {
   RuntimePayloadField,
   RuntimePayloadMode,
 } from "@form-builder/schema";
+import { isRuntimeConditionGroup } from "@form-builder/schema";
 import {
   createEventPayloadCondition,
   createFieldValueCondition,
@@ -472,7 +473,21 @@ export function BehaviorComposer({
         ) : null}
         {listener.conditions.length ? (
           <div className="mt-3 space-y-3">
-            {listener.conditions.map((condition, conditionIndex) => {
+            {listener.conditions.map((conditionNode, conditionIndex) => {
+              if (isRuntimeConditionGroup(conditionNode)) {
+                // Phase 2B engine ships groups; this composer still edits
+                // atoms only. Surface a read-only placeholder so authored
+                // groups stay visible until the Phase 2C composer lands.
+                return (
+                  <div
+                    key={conditionNode.id}
+                    className="rounded-[0.85rem] border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900"
+                  >
+                    Condition group ({conditionNode.operator}) · edit in Behavior Manager.
+                  </div>
+                );
+              }
+              const condition = conditionNode;
               const sourceFieldId = condition.source.kind === "field_value" ? condition.source.fieldId : "";
               const payloadPath = condition.source.kind === "event_payload" ? condition.source.path : "value";
               return (
@@ -485,7 +500,7 @@ export function BehaviorComposer({
                         onChange={(event) =>
                           onUpdateRuntimeListener(listener.id, (current) => {
                             const nextCondition = current.conditions[conditionIndex];
-                            if (!nextCondition) {
+                            if (!nextCondition || isRuntimeConditionGroup(nextCondition)) {
                               return;
                             }
                             if (event.target.value === "event_payload") {
@@ -523,7 +538,7 @@ export function BehaviorComposer({
                           onChange={(event) =>
                             onUpdateRuntimeListener(listener.id, (current) => {
                               const nextCondition = current.conditions[conditionIndex];
-                              if (!nextCondition) {
+                              if (!nextCondition || isRuntimeConditionGroup(nextCondition)) {
                                 return;
                               }
                               const sourceField = activeDocument
@@ -553,7 +568,7 @@ export function BehaviorComposer({
                           onChange={(event) =>
                             onUpdateRuntimeListener(listener.id, (current) => {
                               const nextCondition = current.conditions[conditionIndex];
-                              if (nextCondition) {
+                              if (nextCondition && !isRuntimeConditionGroup(nextCondition)) {
                                 nextCondition.source = { kind: "event_payload", path: event.target.value };
                               }
                             })
@@ -569,7 +584,7 @@ export function BehaviorComposer({
                         onChange={(event) =>
                           onUpdateRuntimeListener(listener.id, (current) => {
                             const nextCondition = current.conditions[conditionIndex];
-                            if (nextCondition) {
+                            if (nextCondition && !isRuntimeConditionGroup(nextCondition)) {
                               nextCondition.operator = event.target.value as RuntimeConditionDefinition["operator"];
                             }
                           })
@@ -594,7 +609,7 @@ export function BehaviorComposer({
                         onChange={(event) =>
                           onUpdateRuntimeListener(listener.id, (current) => {
                             const nextCondition = current.conditions[conditionIndex];
-                            if (nextCondition) {
+                            if (nextCondition && !isRuntimeConditionGroup(nextCondition)) {
                               nextCondition.expectedValue = event.target.value;
                             }
                           })
@@ -610,7 +625,7 @@ export function BehaviorComposer({
                           onChange={(event) =>
                             onUpdateRuntimeListener(listener.id, (current) => {
                               const nextCondition = current.conditions[conditionIndex];
-                              if (nextCondition) {
+                              if (nextCondition && !isRuntimeConditionGroup(nextCondition)) {
                                 nextCondition.enabled = event.target.checked;
                               }
                             })

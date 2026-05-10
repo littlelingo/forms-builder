@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal, Union
 
-from pydantic import Field
+from pydantic import Discriminator, Field, Tag
 
 from .base import CamelModel
 
@@ -31,6 +31,7 @@ RuntimeHostBindingDirection = Literal["inbound", "outbound", "bidirectional"]
 RuntimePayloadMode = Literal["key_value", "json"]
 RuntimeValueType = Literal["string", "number", "boolean", "object", "array", "unknown"]
 RuntimeConditionOperator = Literal["equals", "not_equals", "contains", "exists"]
+RuntimeConditionGroupOperator = Literal["AND", "OR", "NONE"]
 RuntimeEventScope = Literal["form", "node", "project"]
 BehaviorProvenance = Literal["extraction", "library", "manual"]
 BehaviorSafetyClass = Literal["safe", "destructive", "host"]
@@ -58,12 +59,48 @@ class RuntimeConditionSource(CamelModel):
 
 
 class RuntimeConditionDefinition(CamelModel):
+    """Phase 2B: atom condition; `kind` is the discriminator for the
+    `RuntimeConditionNode` union. Existing persisted documents omit `kind`
+    and round-trip via the default."""
+
     id: str
+    kind: Literal["atom"] = "atom"
     label: str | None = None
     enabled: bool = True
     source: RuntimeConditionSource
     operator: RuntimeConditionOperator
     expected_value: object | None = None
+
+
+class RuntimeConditionGroup(CamelModel):
+    """Phase 2B: nestable boolean grouping over listener conditions."""
+
+    id: str
+    kind: Literal["group"]
+    label: str | None = None
+    enabled: bool = True
+    operator: RuntimeConditionGroupOperator
+    conditions: list["RuntimeConditionNode"] = Field(default_factory=list)
+
+
+def _condition_node_kind(value: object) -> str:
+    """Discriminator that defaults missing `kind` to `"atom"` so legacy
+    persisted listeners load without migration."""
+
+    if isinstance(value, dict):
+        return value.get("kind", "atom")
+    return getattr(value, "kind", "atom")
+
+
+RuntimeConditionNode = Annotated[
+    Union[
+        Annotated[RuntimeConditionDefinition, Tag("atom")],
+        Annotated[RuntimeConditionGroup, Tag("group")],
+    ],
+    Discriminator(_condition_node_kind),
+]
+
+RuntimeConditionGroup.model_rebuild()
 
 
 class RuntimeActionTarget(CamelModel):
@@ -148,7 +185,7 @@ class RuntimeListenerDefinition(CamelModel):
     event_name: str
     source_node_id: str | None = None
     enabled: bool = True
-    conditions: list[RuntimeConditionDefinition] = Field(default_factory=list)
+    conditions: list[RuntimeConditionNode] = Field(default_factory=list)
     actions: list[RuntimeActionDefinition] = Field(default_factory=list)
 
 

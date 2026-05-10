@@ -120,12 +120,41 @@ export type RuntimeConditionSource =
 
 export interface RuntimeConditionDefinition {
   id: string;
+  /**
+   * Phase 2B: discriminator. Atom conditions omit the field for
+   * backwards compatibility with existing persisted listeners; group
+   * conditions set `kind: "group"`. Treat absent values as `"atom"`.
+   */
+  kind?: "atom";
   label?: string | null;
   enabled: boolean;
   source: RuntimeConditionSource;
   operator: RuntimeConditionOperator;
   expectedValue?: unknown;
 }
+
+/**
+ * Phase 2B: nestable boolean grouping over listener conditions.
+ *
+ * - `"AND"` matches when every child evaluates true.
+ * - `"OR"` matches when at least one child evaluates true.
+ * - `"NONE"` matches when every child evaluates false (logical NOR).
+ *
+ * The top-level listener `conditions` list is implicitly AND-joined; groups
+ * let authors override that for any subset of the chain.
+ */
+export type RuntimeConditionGroupOperator = "AND" | "OR" | "NONE";
+
+export interface RuntimeConditionGroup {
+  id: string;
+  kind: "group";
+  label?: string | null;
+  enabled: boolean;
+  operator: RuntimeConditionGroupOperator;
+  conditions: RuntimeConditionNode[];
+}
+
+export type RuntimeConditionNode = RuntimeConditionDefinition | RuntimeConditionGroup;
 
 export interface RuntimeActionTarget {
   nodeId?: string | null;
@@ -224,7 +253,7 @@ export interface RuntimeListenerDefinition {
   timing?: BehaviorListenerTiming;
   provenance?: BehaviorProvenance;
   enabled: boolean;
-  conditions: RuntimeConditionDefinition[];
+  conditions: RuntimeConditionNode[];
   actions: RuntimeActionDefinition[];
 }
 
@@ -1143,4 +1172,35 @@ const RUNTIME_ACTION_SAFETY_CLASSES: Record<RuntimeActionKind, BehaviorSafetyCla
 
 export function runtimeActionSafetyClass(kind: RuntimeActionKind): BehaviorSafetyClass {
   return RUNTIME_ACTION_SAFETY_CLASSES[kind];
+}
+
+/**
+ * Phase 2B: discriminate between atom conditions and condition groups so
+ * call sites that only know how to work with atoms can narrow without
+ * runtime errors. Atom conditions persist without an explicit `kind` for
+ * backwards compatibility, so the helper checks for the group tag only.
+ */
+export function isRuntimeConditionGroup(node: RuntimeConditionNode): node is RuntimeConditionGroup {
+  return (node as RuntimeConditionGroup).kind === "group";
+}
+
+export function isRuntimeConditionAtom(node: RuntimeConditionNode): node is RuntimeConditionDefinition {
+  return !isRuntimeConditionGroup(node);
+}
+
+/**
+ * Phase 2B: flatten a listener condition tree into the underlying atoms.
+ * Useful for surfaces that have not yet been taught about groups (UI lists,
+ * legacy diagnostics) and for engine consumers that need every leaf.
+ */
+export function flattenRuntimeConditionAtoms(nodes: RuntimeConditionNode[]): RuntimeConditionDefinition[] {
+  const result: RuntimeConditionDefinition[] = [];
+  for (const node of nodes) {
+    if (isRuntimeConditionGroup(node)) {
+      result.push(...flattenRuntimeConditionAtoms(node.conditions ?? []));
+    } else {
+      result.push(node);
+    }
+  }
+  return result;
 }

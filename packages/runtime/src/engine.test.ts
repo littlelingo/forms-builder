@@ -2576,6 +2576,251 @@ test("synthesised signature.attested listener triggers form.submit end-to-end", 
   assert.ok(submitEvent, "form.submit must appear in the event trace");
 });
 
+test("Phase 2B: OR group matches when any child atom passes", () => {
+  const document = createDocument();
+  const field = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "field-name");
+  assert.ok(field);
+  field.runtime = {
+    eventSources: [],
+    listeners: [
+      {
+        id: "listener-or",
+        label: "Match when value is alpha or beta",
+        type: "field.change",
+        dispatcherId: "field-name",
+        dispatcherType: "field",
+        useCapture: false,
+        priority: 0,
+        eventName: "field.change",
+        enabled: true,
+        conditions: [
+          {
+            id: "group-or",
+            kind: "group",
+            enabled: true,
+            operator: "OR",
+            conditions: [
+              {
+                id: "atom-alpha",
+                enabled: true,
+                source: { kind: "field_value", fieldId: "field-name" },
+                operator: "equals",
+                expectedValue: "alpha",
+              },
+              {
+                id: "atom-beta",
+                enabled: true,
+                source: { kind: "field_value", fieldId: "field-name" },
+                operator: "equals",
+                expectedValue: "beta",
+              },
+            ],
+          },
+        ],
+        actions: [
+          {
+            id: "action-or",
+            kind: "dispatch_event",
+            config: { eventType: "or.matched", payload: {} },
+            continueOnError: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  // Both children pass scenario? Only the second branch matters — set "beta".
+  const matched = engine.dispatchWithReport(fieldChangeEvent("field-name", "beta"));
+  const matchedListener = matched.listeners.find((entry) => entry.listenerId === "listener-or");
+  assert.ok(matchedListener);
+  assert.equal(matchedListener.matched, true);
+  assert.ok(matched.emittedEvents.some((event) => event.type === "or.matched"));
+
+  // Neither child passes — listener is skipped with conditions_failed.
+  const skipped = engine.dispatchWithReport(fieldChangeEvent("field-name", "gamma"));
+  const skippedListener = skipped.listeners.find((entry) => entry.listenerId === "listener-or");
+  assert.ok(skippedListener);
+  assert.equal(skippedListener.matched, false);
+  assert.equal(skippedListener.skippedReason, "conditions_failed");
+});
+
+test("Phase 2B: NONE group matches only when every child atom fails", () => {
+  const document = createDocument();
+  const field = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "field-name");
+  assert.ok(field);
+  field.runtime = {
+    eventSources: [],
+    listeners: [
+      {
+        id: "listener-none",
+        label: "Match when value is neither alpha nor beta",
+        type: "field.change",
+        dispatcherId: "field-name",
+        dispatcherType: "field",
+        useCapture: false,
+        priority: 0,
+        eventName: "field.change",
+        enabled: true,
+        conditions: [
+          {
+            id: "group-none",
+            kind: "group",
+            enabled: true,
+            operator: "NONE",
+            conditions: [
+              {
+                id: "atom-alpha",
+                enabled: true,
+                source: { kind: "field_value", fieldId: "field-name" },
+                operator: "equals",
+                expectedValue: "alpha",
+              },
+              {
+                id: "atom-beta",
+                enabled: true,
+                source: { kind: "field_value", fieldId: "field-name" },
+                operator: "equals",
+                expectedValue: "beta",
+              },
+            ],
+          },
+        ],
+        actions: [
+          {
+            id: "action-none",
+            kind: "dispatch_event",
+            config: { eventType: "none.matched", payload: {} },
+            continueOnError: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  // Value matches alpha — group should fail (NONE: a child passed).
+  const failsAlpha = engine.dispatchWithReport(fieldChangeEvent("field-name", "alpha"));
+  assert.equal(failsAlpha.listeners.find((entry) => entry.listenerId === "listener-none")?.matched, false);
+
+  // Value matches none of the atoms — group passes.
+  const matched = engine.dispatchWithReport(fieldChangeEvent("field-name", "delta"));
+  assert.equal(matched.listeners.find((entry) => entry.listenerId === "listener-none")?.matched, true);
+  assert.ok(matched.emittedEvents.some((event) => event.type === "none.matched"));
+});
+
+test("Phase 2B: nested AND inside OR composes correctly", () => {
+  const document = createDocument();
+  const field = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "field-name");
+  assert.ok(field);
+  field.runtime = {
+    eventSources: [],
+    listeners: [
+      {
+        id: "listener-nested",
+        label: "Match exact tag or any value with prefix",
+        type: "field.change",
+        dispatcherId: "field-name",
+        dispatcherType: "field",
+        useCapture: false,
+        priority: 0,
+        eventName: "field.change",
+        enabled: true,
+        conditions: [
+          {
+            id: "group-outer",
+            kind: "group",
+            enabled: true,
+            operator: "OR",
+            conditions: [
+              {
+                id: "atom-exact",
+                enabled: true,
+                source: { kind: "field_value", fieldId: "field-name" },
+                operator: "equals",
+                expectedValue: "exact",
+              },
+              {
+                id: "group-prefix",
+                kind: "group",
+                enabled: true,
+                operator: "AND",
+                conditions: [
+                  {
+                    id: "atom-prefix-presence",
+                    enabled: true,
+                    source: { kind: "field_value", fieldId: "field-name" },
+                    operator: "exists",
+                  },
+                  {
+                    id: "atom-prefix-contains",
+                    enabled: true,
+                    source: { kind: "field_value", fieldId: "field-name" },
+                    operator: "contains",
+                    expectedValue: "pre-",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        actions: [
+          {
+            id: "action-nested",
+            kind: "dispatch_event",
+            config: { eventType: "nested.matched", payload: {} },
+            continueOnError: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  // exact path
+  assert.equal(
+    engine
+      .dispatchWithReport(fieldChangeEvent("field-name", "exact"))
+      .listeners.find((entry) => entry.listenerId === "listener-nested")?.matched,
+    true,
+  );
+  // prefix path (both inner atoms pass under AND)
+  assert.equal(
+    engine
+      .dispatchWithReport(fieldChangeEvent("field-name", "pre-flight"))
+      .listeners.find((entry) => entry.listenerId === "listener-nested")?.matched,
+    true,
+  );
+  // value present but missing prefix → inner AND fails, outer OR has no other true child → skipped
+  assert.equal(
+    engine
+      .dispatchWithReport(fieldChangeEvent("field-name", "post-flight"))
+      .listeners.find((entry) => entry.listenerId === "listener-nested")?.matched,
+    false,
+  );
+});
+
 test("Phase 2A: project-scope event catalog resolves cross-form eventRef ids at dispatch time", () => {
   const document = createDocument();
   const field = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "field-name");

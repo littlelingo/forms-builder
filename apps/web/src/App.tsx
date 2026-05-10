@@ -36,6 +36,7 @@ import type {
   SectionNode,
 } from "@form-builder/schema";
 import {
+  flattenRuntimeConditionAtoms,
   runtimeCoreEventType,
   runtimeCoreEventTypes,
   runtimeCoreEventsForDispatcher,
@@ -6334,7 +6335,7 @@ export default function App() {
     if (!sourceField || sourceField.rendererHints.component === "button" || sourceField.semanticType === "statement") {
       return "";
     }
-    const conditionValue = listener.conditions.find(
+    const conditionValue = flattenRuntimeConditionAtoms(listener.conditions).find(
       (condition) =>
         condition.enabled !== false &&
         condition.source.kind === "field_value" &&
