@@ -35,3 +35,8 @@ export { SimulatorPanel } from "./test/SimulatorPanel";
 export type { SimulatorPanelProps } from "./test/SimulatorPanel";
 export { BehaviorStudioModal } from "./BehaviorStudioModal";
 export type { BehaviorStudioModalProps } from "./BehaviorStudioModal";
+export { BehaviorStackList } from "./stack/BehaviorStackList";
+export type { BehaviorStackListProps } from "./stack/BehaviorStackList";
+export { BehaviorStackRow } from "./stack/BehaviorStackRow";
+export type { BehaviorStackRowProps } from "./stack/BehaviorStackRow";
+export { summariseListener, listenerTriggerPill, countListenersReferencingNode } from "./stack/runtime-stack-helpers";
