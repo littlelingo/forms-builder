@@ -24,6 +24,7 @@ import type {
   BehaviorExecutedEvent,
   BehaviorLibraryRegistry,
   CreateRuntimeEngineOptions,
+  PendingContinuation,
   RuntimeActionDiagnostic,
   RuntimeConditionDiagnostic,
   RuntimeDispatchReport,
@@ -96,6 +97,22 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
   let clock = () => new Date();
   let randomId: () => string = () => crypto.randomUUID();
   const trace: RuntimeTraceEntry[] = [];
+  // Phase 3 async-dispatch state. Sync dispatch is unaffected and never reads these.
+  // Continuations registered by host_call_await; Stage D writes/reads.
+  const pendingContinuations: Map<string, PendingContinuation> = new Map();
+  // Promise-chain serialization: every dispatchAsync invocation is appended to
+  // the tail. The next call's `fn` only starts after the current tail settles,
+  // so concurrent callers see FIFO semantics regardless of how many awaits
+  // each chain performs internally.
+  let asyncTail: Promise<unknown> = Promise.resolve();
+  const enqueueAsync = <T>(fn: () => Promise<T>): Promise<T> => {
+    const next = asyncTail.then(fn, fn);
+    asyncTail = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  };
 
   const buildEvent = (
     type: string,
@@ -958,6 +975,16 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
         hostContextSnapshot: null,
       };
       trace.length = 0;
+      // Phase 3: clear any registered host_call_await continuations so
+      // a remount does not leak timeout handles or stale resolvers.
+      for (const continuation of pendingContinuations.values()) {
+        if (continuation.timeoutHandle) {
+          clearTimeout(continuation.timeoutHandle);
+        }
+        continuation.reject("engine_unmounted");
+      }
+      pendingContinuations.clear();
+      asyncTail = Promise.resolve();
     },
     dispatch(event: RuntimeEventEnvelope): RuntimeSessionState {
       if (!mounted || !document || !index) {
@@ -986,6 +1013,45 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
         emittedEvents: traceEntries.slice(1).map((entry) => entry.event),
         stateDiff: diffRuntimeSessionState(reportDraft.stateBefore, stateAfter),
       };
+    },
+    dispatchAsync(event: RuntimeEventEnvelope): Promise<RuntimeSessionState> {
+      if (!mounted || !document || !index) {
+        return Promise.reject(new Error("Runtime engine is not mounted."));
+      }
+      const cloned = structuredClone(event);
+      return enqueueAsync(async () => {
+        // Stage C: delegates to the synchronous routeEvent path. Stage D
+        // hooks async action kinds (wait, host_call_await) into this same
+        // chain — every dispatchAsync invocation is awaited tail-first
+        // through `asyncTail`, so suspensions there serialize subsequent
+        // calls automatically.
+        return routeEvent(cloned, true, true);
+      });
+    },
+    dispatchWithReportAsync(event: RuntimeEventEnvelope): Promise<RuntimeDispatchReport> {
+      if (!mounted || !document || !index) {
+        return Promise.reject(new Error("Runtime engine is not mounted."));
+      }
+      const cloned = structuredClone(event);
+      return enqueueAsync(async () => {
+        const reportDraft: RuntimeDispatchReportDraft = {
+          event: null,
+          stateBefore: structuredClone(state),
+          traceStartIndex: trace.length,
+          listeners: [],
+        };
+        const stateAfter = routeEvent(cloned, true, true, reportDraft);
+        const traceEntries = structuredClone(trace.slice(reportDraft.traceStartIndex));
+        return {
+          event: reportDraft.event ?? traceEntries[0]?.event ?? structuredClone(event),
+          stateBefore: reportDraft.stateBefore,
+          stateAfter,
+          listeners: structuredClone(reportDraft.listeners),
+          traceEntries,
+          emittedEvents: traceEntries.slice(1).map((entry) => entry.event),
+          stateDiff: diffRuntimeSessionState(reportDraft.stateBefore, stateAfter),
+        };
+      });
     },
     invoke(action: RuntimeActionDefinition): RuntimeSessionState {
       if (!mounted || !document || !index) {

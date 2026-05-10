@@ -132,11 +132,44 @@ export interface NodeTombstoneMap {
   get(id: string): { lastSeenLabel?: string } | undefined;
 }
 
+/**
+ * Phase 3: per-listener-chain mutable accumulator threaded through async
+ * action execution. Holds the most recent host_call_await response so
+ * `$response` token resolves; tracks branch nesting depth so the engine
+ * can enforce the depth-3 cap.
+ */
+export interface AsyncChainContext {
+  responseScope: Record<string, unknown>;
+  branchDepth: number;
+}
+
+/**
+ * Phase 3: a host_call_await action that is currently waiting for a
+ * matching host.action_response event. Keyed by `correlationId` in the
+ * engine's pending-continuations map.
+ */
+export interface PendingContinuation {
+  correlationId: string;
+  listenerId: string;
+  actionId: string;
+  resolve: (responsePayload: Record<string, unknown>) => void;
+  reject: (reason: string) => void;
+  timeoutHandle: ReturnType<typeof setTimeout> | null;
+}
+
 export interface RuntimeEngine {
   mount(document: AuthoringDocument, options?: RuntimeEngineMountOptions): RuntimeSessionState;
   unmount(): void;
   dispatch(event: RuntimeEventEnvelope): RuntimeSessionState;
   dispatchWithReport(event: RuntimeEventEnvelope): RuntimeDispatchReport;
+  /**
+   * Phase 3: async-aware dispatch. Resolves once every matched listener
+   * chain (including any wait/host_call_await suspensions) completes.
+   * Concurrent calls queue FIFO; sync `dispatch` continues to bypass the
+   * queue and runs immediately against committed state.
+   */
+  dispatchAsync(event: RuntimeEventEnvelope): Promise<RuntimeSessionState>;
+  dispatchWithReportAsync(event: RuntimeEventEnvelope): Promise<RuntimeDispatchReport>;
   invoke(action: RuntimeActionDefinition): RuntimeSessionState;
   subscribe(handler: RuntimeEventHandler): () => void;
   getState(): RuntimeSessionState;
