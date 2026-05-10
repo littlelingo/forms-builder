@@ -348,3 +348,195 @@ byte-identical output.
 ### Extraction synthesis (new in Phase 1B)
 
 Promotion of a reviewed conversion to an authoring project (`POST /conversions/{id}/promote`) now synthesises a `signature.attested → submit_form` listener for every field of semantic type `signature_attestation`. The synthesised listener is tagged `provenance: "extraction"`. Authors can filter or override these via the Behavior Manager (Phase 1C). This is a behavior addition over pre-1B promotion, where signature attestation did not auto-submit.
+
+## Phase 3 · Async dispatch + control flow + time (RFC)
+
+Phase 3 of the behavior-authoring redesign extends the engine with async-aware
+dispatch, branching action chains, time controls (debounce/throttle/wait),
+and an `await`-able host call. This RFC is the precondition for any code
+landing under the Phase 3 PRs and is the canonical reference for the
+semantics that the engine must implement.
+
+### Async dispatch and suspension model
+
+The engine grows two new public methods alongside existing `dispatch` and
+`dispatchWithReport`:
+
+- `dispatchAsync(event): Promise<RuntimeSessionState>` resolves once every
+  matched listener chain has run to completion, including any `wait` or
+  `host_call_await` suspensions inside those chains.
+- `dispatchWithReportAsync(event): Promise<RuntimeDispatchReport>` is the
+  async-aware twin of `dispatchWithReport`, returning the same trace +
+  per-listener diagnostic shape but only after suspensions have resolved.
+
+`dispatch` remains synchronous and is the default entry point. It must
+never `await` an async path; if a chain encounters an async-only action
+under sync dispatch, the engine throws so callers see the bug immediately
+instead of dropping a Promise. (Authoring validators flag any listener
+that uses async-only actions when the host is known to use sync dispatch.)
+
+Inbound events arriving while an async chain is suspended are placed on
+a per-engine FIFO `dispatchQueue`. The queue drains after the active
+chain fully resolves. Sync `dispatch` calls bypass the queue entirely —
+they only see committed state.
+
+### Branch action semantics
+
+`kind: "branch"` actions evaluate a `RuntimeConditionNode` tree
+synchronously using the same `evaluateConditionTree` logic the listener
+match path already uses (see Phase 2B). On `true`, the `actions` arm
+runs; on `false`, the optional `else` arm runs. Missing `else` is a
+no-op on false.
+
+Trace entries: `branch_take` (with `actionId` and `arm: "then" | "else"`)
+or `branch_skip` (with `actionId` when no else arm exists). Both carry
+the resolved condition tree result for inspector replay.
+
+Nesting depth is capped at **3**. The engine increments a depth counter
+each time it recurses into a `branch` arm; on entry at depth ≥ 3 it
+emits `branch_depth_exceeded` and halts the chain via `halt_and_raise`.
+Authoring validators reject save attempts with deeper nesting so the
+runtime path is a defense-in-depth guard.
+
+`$response` scope inside a branch arm is a shallow clone of the parent
+chain's response scope. Sibling arms cannot leak data through the scope
+because each arm receives its own clone. The clone is taken on arm
+entry, before any inner `host_call_await` runs.
+
+### Suspension and resume rules
+
+`host_call_await` actions emit `host.action_requested` (same payload
+shape as the existing fire-and-forget `host_action`) and then suspend
+the listener chain at the action boundary. The engine registers a
+`PendingContinuation` record keyed by `correlationId`:
+
+```
+PendingContinuation = {
+  correlationId
+  listenerId
+  resolve(responsePayload) -> void
+  reject(reason) -> void
+  timeoutHandle | null
+  responseScope: Record<string, unknown>  // mutable accumulator
+}
+```
+
+`correlationId` defaults to a fresh `randomId()` when the action does
+not supply one. Author-supplied static literals are allowed; the
+authoring validator surfaces a warning when two `host_call_await`
+actions in the same listener share a literal id, since the second
+registration will collide and `halt_and_raise`.
+
+Resumption: the host dispatches `host.action_response` with
+`payload.correlationId` set. `applyInboundState` looks up the
+continuation, calls `resolve(payload)`, clears the timeout handle, and
+deletes the entry from the pending map.
+
+Mismatch handling:
+
+- Unknown `correlationId` → `runtime.continuation_mismatch` trace event;
+  payload discarded silently. (No assumption of a stale-receive recovery
+  path in MVP.)
+- Timeout reached before any `host.action_response` → engine emits
+  `runtime.continuation_timeout`, then runs the action's `onError`
+  policy.
+- Collision (an `host_call_await` registers a `correlationId` that is
+  already in the pending map) → engine emits
+  `runtime.continuation_collision` and rejects the second registration
+  via `halt_and_raise` on its owning chain. The first continuation
+  remains in place.
+
+### onError policies
+
+Per-action `onError` controls error fan-out. Three policies:
+
+- `continue` — push a trace entry, advance to the next action in the
+  chain. State changes from the failed action are discarded; subsequent
+  actions still run against the pre-failure state.
+- `halt` — stop the listener chain silently. No outbound event fires.
+- `halt_and_raise` — stop the chain **and** emit `runtime.action_error`
+  with `{ listenerId, actionId, reason }`. Default for new action kinds
+  unless authors opt out.
+
+Phase 1's `continueOnError: boolean` field stays as a deprecated alias.
+The engine reads `action.onError` first, falling back to
+`action.continueOnError ? "continue" : "halt_and_raise"` for
+pre-Phase-3 documents. Authoring writes always populate `onError`
+going forward; persistence layer does not migrate.
+
+### `$response` token grammar
+
+`$response` resolves to the most recent resumed `host.action_response`
+payload **in the current listener-chain scope**. The token's resolver
+walks the same dotted-path semantics as `$payload` / `$state`:
+`$response.user.id` → `responseScope.user.id`.
+
+Scope rules:
+
+- A fresh `responseScope: {}` is created when an async chain begins.
+- `host_call_await` writes the resolved payload into `responseScope`
+  on resume. Subsequent actions in the same chain see it.
+- `branch` arms receive a shallow clone of the parent `responseScope`
+  on entry; mutations inside one arm are not visible to siblings.
+- Sync chains never have a `responseScope`. The resolver returns
+  `{ ok: false, reason: "response_not_in_scope" }` for any `$response`
+  access in a sync chain. Authoring validators flag any `$response`
+  use in a chain with no `host_call_await` action above it.
+
+### Debounce and throttle scheduling
+
+`listener.timing.debounce_ms` and `listener.timing.throttle_ms` exist
+in the schema since Phase 1 but are inert. Phase 3 makes them active
+via a per-engine listener scheduler:
+
+- **Debounce**: clears any pending timer for the listener and arms a
+  new `setTimeout(fn, debounce_ms)`. Only the most recent enqueued
+  evaluation runs.
+- **Throttle**: if `now - lastRun >= throttle_ms`, runs immediately and
+  records `lastRun = now`. Otherwise the dispatch is dropped.
+- When both are set, **debounce wins**. The full evaluation
+  (conditions + actions) is wrapped, not just action execution — this
+  matters because debounced field changes should not fire conditions
+  on every keystroke.
+
+Timer state is per-listener, keyed by `listener.id`. `unmount()` calls
+`scheduler.reset()` to cancel pending timers and prevent leakage
+between mounts.
+
+### FIFO ordering guarantees
+
+Per-engine `dispatchQueue` is a flat FIFO. When a synchronous
+`dispatch` arrives while an async chain is suspended it bypasses the
+queue and runs immediately against committed state, but its trace
+entries are interleaved with the suspended chain's resume entries.
+Authoring/test code that needs strict total ordering should use
+`dispatchAsync` exclusively.
+
+For multi-listener chains on the same event, intra-event ordering
+follows existing capture-target-bubble + priority rules from Phase 1A.
+Async listeners run **sequentially** within a single event dispatch —
+listener N+1 waits for listener N's chain (including suspensions) to
+complete before its conditions evaluate. This avoids interleaved state
+mutations that would break determinism.
+
+The fuzz test in `packages/runtime/src/fuzz.test.ts` is the
+enforcement gate: a 100-event seeded run with 30% await-action
+listeners must produce the same final trace order across three
+consecutive invocations.
+
+### Trace entries (new)
+
+| Kind | Payload |
+|---|---|
+| `branch_take` | `{ actionId, arm: "then" \| "else" }` |
+| `branch_skip` | `{ actionId }` (no else arm) |
+| `branch_depth_exceeded` | `{ actionId, depth }` |
+| `wait_started` | `{ actionId, mode, durationMs?, eventType? }` |
+| `wait_resolved` | `{ actionId, reason: "elapsed" \| "event" }` |
+| `wait_timeout` | `{ actionId }` |
+| `host_call_await_started` | `{ actionId, correlationId, timeoutMs? }` |
+| `host_call_await_resumed` | `{ actionId, correlationId, payload }` |
+| `runtime.continuation_mismatch` | `{ correlationId }` (outbound event + trace) |
+| `runtime.continuation_timeout` | `{ correlationId, listenerId, actionId }` |
+| `runtime.continuation_collision` | `{ correlationId, listenerId, actionId }` |
+| `runtime.action_error` | `{ listenerId, actionId, reason }` |
