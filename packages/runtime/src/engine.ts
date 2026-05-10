@@ -19,6 +19,7 @@ import type {
 
 import { createRuntimeDocumentIndex, type IndexedRuntimeListener, type RuntimeDocumentIndex } from "./document-index";
 import { RuntimeEventBus } from "./event-bus";
+import { createListenerScheduler, type ListenerScheduler } from "./scheduler";
 import { createInitialSessionState, mergeSessionState } from "./session-state";
 import type {
   AsyncChainContext,
@@ -112,6 +113,14 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
   // Phase 3 async-dispatch state. Sync dispatch is unaffected and never reads these.
   // Continuations registered by host_call_await; Stage D writes/reads.
   const pendingContinuations: Map<string, PendingContinuation> = new Map();
+  // Phase 3 Stage F: per-listener debounce/throttle scheduler. Held on the
+  // engine instance so unmount can reset it. Wiring into routeEvent's
+  // listener loop is deferred — once a listener is wrapped by `schedule()`
+  // its execution may run AFTER the dispatch returns, which changes
+  // dispatch-report semantics. The composer UI in Stage G (and any
+  // dedicated debounce listener test) will land that wiring once the
+  // semantic shift is intentional.
+  const listenerScheduler: ListenerScheduler = createListenerScheduler();
   // Promise-chain serialization: every dispatchAsync invocation is appended to
   // the tail. The next call's `fn` only starts after the current tail settles,
   // so concurrent callers see FIFO semantics regardless of how many awaits
@@ -1479,6 +1488,9 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
       }
       pendingContinuations.clear();
       asyncTail = Promise.resolve();
+      // Phase 3 Stage F: drop any pending debounce timers so they cannot
+      // fire after unmount.
+      listenerScheduler.reset();
     },
     dispatch(event: RuntimeEventEnvelope): RuntimeSessionState {
       if (!mounted || !document || !index) {
