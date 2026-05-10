@@ -4,6 +4,22 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+class UnmigratedDocumentError(Exception):
+    """Raised when a project document lacks the Phase 1 migration marker.
+
+    Run `npm run migrate:behaviors` (or invoke
+    `form_builder_api.services.migration.migrate_all`) to migrate.
+    """
+
+    def __init__(self, project_id: str) -> None:
+        super().__init__(
+            f"Project {project_id!r} has not been migrated to Phase 1 schema. "
+            f"Run `npm run migrate:behaviors` to migrate. "
+            f"See docs/runtime-architecture.md for the migration contract."
+        )
+        self.project_id = project_id
+
+
 from .models.api import (
     ConversionRecord,
     ConversionStatus,
@@ -245,10 +261,17 @@ class InMemoryRepository:
             source_context_path = project_dir / "source-context.json"
             if not project_path.exists() or not document_path.exists() or not source_context_path.exists():
                 continue
+            raw_document = json.loads(document_path.read_text())
+            project_id = project_dir.name
+            raw_runtime = raw_document.get("runtime")
+            # Only reject documents that have a runtime block but lack the Phase 1 marker.
+            # Documents with no runtime block (None or absent) are freshly created and need no migration.
+            if raw_runtime is not None and raw_runtime.get("migrationVersion") != "phase-1":
+                raise UnmigratedDocumentError(project_id)
             detail = AuthoringProjectDetail.model_validate(
                 {
                     "project": json.loads(project_path.read_text()),
-                    "document": json.loads(document_path.read_text()),
+                    "document": raw_document,
                     "sourceContext": json.loads(source_context_path.read_text()),
                 }
             )
@@ -263,7 +286,7 @@ class InMemoryRepository:
         revisions_dir = project_dir / "revisions"
         revisions_dir.mkdir(parents=True, exist_ok=True)
         self._write_json(project_dir / "project.json", detail.project)
-        self._write_json(project_dir / "document.json", detail.document)
+        self._stamp_and_write_document(project_dir / "document.json", detail.document)
         self._write_json(project_dir / "source-context.json", detail.source_context)
         if revision is not None:
             self._write_json(revisions_dir / f"{revision.id}.json", revision)
@@ -284,6 +307,12 @@ class InMemoryRepository:
 
     def _project_dir(self, project_id: str) -> Path:
         return self.project_storage_dir / project_id
+
+    def _stamp_and_write_document(self, path: Path, document: "AuthoringDocument") -> None:
+        """Write document.json, ensuring runtime.migrationVersion is set to 'phase-1'."""
+        if document.runtime is not None and document.runtime.migration_version is None:
+            document.runtime.migration_version = "phase-1"
+        self._write_json(path, document)
 
     def _write_json(self, path: Path, model) -> None:
         path.write_text(json.dumps(model.model_dump(mode="json", by_alias=True), indent=2))

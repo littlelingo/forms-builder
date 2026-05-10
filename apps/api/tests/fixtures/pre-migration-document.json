@@ -1,0 +1,70 @@
+{
+  "id": "test-pre-migration",
+  "version": "1.0",
+  "title": "Pre-migration test form",
+  "documentClass": "born_digital_nonfillable",
+  "reviewStatus": "reviewed",
+  "steps": [
+    {
+      "id": "step-1",
+      "title": "First step",
+      "sections": [
+        {
+          "id": "section-1",
+          "title": "Address",
+          "fields": [
+            {
+              "id": "field-zip",
+              "stableKey": "zip",
+              "label": "ZIP code",
+              "semanticType": "text",
+              "runtime": {
+                "eventSources": [],
+                "listeners": [
+                  {
+                    "id": "listener-legacy-source",
+                    "enabled": true,
+                    "eventName": "field.change",
+                    "eventSourceNodeId": "field-zip",
+                    "targetNodeId": "field-city",
+                    "conditions": [],
+                    "actions": []
+                  },
+                  {
+                    "id": "listener-custom-event",
+                    "enabled": true,
+                    "eventName": "zipResolved",
+                    "conditions": [],
+                    "actions": []
+                  }
+                ]
+              }
+            },
+            {
+              "id": "field-city",
+              "stableKey": "city",
+              "label": "City",
+              "semanticType": "text",
+              "runtime": null
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "runtime": {
+    "version": "1.0",
+    "formEvents": [],
+    "formListeners": [
+      {
+        "id": "form-listener-1",
+        "enabled": true,
+        "eventName": "form.submit",
+        "conditions": [],
+        "actions": []
+      }
+    ],
+    "hostBindings": [],
+    "submitEventName": "form.submit"
+  }
+}

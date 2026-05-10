@@ -2435,3 +2435,143 @@ test("stableStringify produces identical output for nested objects regardless of
   const c = stableStringify({ z: { b: 9, a: 1 }, a: [] });
   assert.notEqual(a, c, "structurally different objects should produce different strings");
 });
+
+// ── Extraction synthesis: signature.attested → submit_form ───────────────────
+
+test("synthesised signature.attested listener triggers form.submit end-to-end", () => {
+  // Mirror the shape produced by _synthesise_extraction_listeners in authoring.py.
+  // The listener carries provenance="extraction" and has eventSourceNodeId pointing
+  // at the signature field. Dispatching signature.attested from that field must
+  // cause the engine to emit form.submit (submit status transitions to "submitting").
+  const fieldId = "field-sig-attestation";
+
+  const document: AuthoringDocument = {
+    id: "form-sig-test",
+    title: "Signature Attestation Form",
+    documentClass: "mixed",
+    reviewStatus: "accepted",
+    targetRuntime: "va_web_form",
+    visualBaseline: "va.gov",
+    sourcePriority: [],
+    sourceConflicts: [],
+    metadata: {},
+    runtime: {
+      version: "1.0",
+      formEvents: [],
+      formListeners: [],
+      hostBindings: [],
+      submitEventName: "form.submit",
+      sessionStateShape: {
+        mode: "key_value",
+        fields: [],
+        example: null,
+        notes: [],
+      },
+    },
+    steps: [
+      {
+        id: "step-sig",
+        title: "Attestation",
+        description: null,
+        kind: "review",
+        layoutHints: {},
+        sourcePageIds: [],
+        provenanceAnchorIds: [],
+        sections: [
+          {
+            id: "section-sig",
+            title: "Sign here",
+            description: null,
+            layoutHints: {},
+            lineage: [],
+            sourceSectionIds: [],
+            provenanceAnchorIds: [],
+            fields: [
+              {
+                id: fieldId,
+                stableKey: fieldId,
+                label: "I attest that the above information is correct",
+                helpText: null,
+                semanticType: "signature_attestation",
+                required: false,
+                confidence: 1,
+                options: [],
+                validations: [],
+                layoutHints: {},
+                rendererHints: {},
+                sourcePriority: [],
+                sourceConflicts: [],
+                lineage: [],
+                sourceFieldIds: [],
+                provenanceAnchorIds: [],
+                runtime: {
+                  eventSources: [
+                    {
+                      id: `event-sig-attested-${fieldId}`,
+                      name: "signature.attested",
+                      sourceNodeId: fieldId,
+                      sourceNodeType: "field",
+                    },
+                  ],
+                  listeners: [
+                    {
+                      id: `ext-sig-attested-${fieldId}`,
+                      label: "Submit on attestation",
+                      eventName: "signature.attested",
+                      eventSourceNodeId: fieldId,
+                      enabled: true,
+                      conditions: [],
+                      actions: [
+                        {
+                          id: `ext-sig-attested-${fieldId}-action-0`,
+                          kind: "submit_form",
+                          target: { nodeId: "form-sig-test", nodeType: "form" },
+                          config: {},
+                          continueOnError: false,
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            ],
+            groups: [],
+            runtime: null,
+          },
+        ],
+        runtime: null,
+      },
+    ],
+  };
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+  });
+
+  // Dispatch signature.attested from the signature field — mirrors what the
+  // renderer would emit when the user checks the attestation checkbox.
+  const result = engine.dispatch({
+    type: "signature.attested",
+    version: "1.0",
+    source: {
+      runtimeId: "runtime-test",
+      formId: "form-sig-test",
+      projectId: "project-test",
+      nodeId: fieldId,
+      nodeType: "field",
+    },
+    payload: { fieldId },
+    correlationId: "corr-sig-attested",
+    timestamp: "2026-05-01T12:00:00.000Z",
+  });
+
+  // The submit action should have fired — engine transitions to "submitting".
+  assert.equal(result.submit.status, "submitting", "submit status must be 'submitting' after signature.attested");
+
+  // Confirm form.submit was actually emitted into the trace.
+  const submitEvent = engine.getTrace().findLast((entry) => entry.event.type === "form.submit");
+  assert.ok(submitEvent, "form.submit must appear in the event trace");
+});

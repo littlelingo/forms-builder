@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 from uuid import uuid4
 
 from pydantic import Field
@@ -144,3 +145,64 @@ class ProjectRevision(CamelModel):
 class ProjectPatch(CamelModel):
     name: str | None = None
     status: ProjectStatus | None = None
+
+
+BehaviorLibraryParameterType = Literal[
+    "string",
+    "number",
+    "boolean",
+    "enum",
+    "nodeRef",
+    "eventRef",
+    "fieldKey",
+    "list",
+]
+
+BehaviorLibraryScope = Literal["system", "project"]
+
+BehaviorLibraryCategory = Literal[
+    "validation",
+    "visibility",
+    "host",
+    "events",
+    "data",
+    "repeatables",
+    "custom",
+]
+
+
+class BehaviorLibraryParameterConstraints(CamelModel):
+    regex: str | None = None
+    min: float | None = None
+    max: float | None = None
+
+
+class BehaviorLibraryParameter(CamelModel):
+    key: str
+    type: BehaviorLibraryParameterType
+    label: str
+    description: str | None = None
+    required: bool = False
+    default: object | None = None
+    options: list[str] | None = None
+    item_type: BehaviorLibraryParameterType | None = None
+    constraints: BehaviorLibraryParameterConstraints | None = None
+
+
+class BehaviorLibraryEntryI18nText(CamelModel):
+    name: str
+    description: str
+
+
+class BehaviorLibraryEntry(CamelModel):
+    id: str
+    name: str
+    description: str
+    category: BehaviorLibraryCategory
+    scope: BehaviorLibraryScope
+    revision: int
+    icon: str | None = None
+    parameters: list[BehaviorLibraryParameter] = Field(default_factory=list)
+    binds_to: list[str] = Field(default_factory=list)
+    template: object  # opaque per Phase 1A
+    i18n: dict[str, BehaviorLibraryEntryI18nText] | None = None

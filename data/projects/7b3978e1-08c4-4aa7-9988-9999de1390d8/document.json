@@ -199,5 +199,7 @@
     "sourceConversionId": "4dd551fd-ce08-4470-9028-3fc71a408974",
     "vaBaseline": "true"
   },
-  "runtime": null
+  "runtime": {
+    "migrationVersion": "phase-1"
+  }
 }
