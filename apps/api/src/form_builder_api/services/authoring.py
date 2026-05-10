@@ -14,7 +14,8 @@ from form_builder_api.models.authoring import (
     AuthoringStep,
     ProjectSourceContext,
 )
-from form_builder_api.models.canonical import FormDefinition, ReviewStatus
+from form_builder_api.models.canonical import FormDefinition, ReviewStatus, SemanticType
+from form_builder_api.models.runtime import RuntimeActionDefinition, RuntimeActionTarget, RuntimeListenerDefinition, RuntimeNodeBehavior
 
 
 def build_authoring_project(conversion: ConversionRecord) -> AuthoringProjectDetail:
@@ -152,6 +153,8 @@ def _build_group(group) -> AuthoringGroup:
 
 
 def _build_field(field) -> AuthoringField:
+    listeners = _synthesise_extraction_listeners(field)
+    runtime = RuntimeNodeBehavior(listeners=listeners) if listeners else None
     return AuthoringField(
         stable_key=field.stable_key,
         label=field.label,
@@ -168,7 +171,40 @@ def _build_field(field) -> AuthoringField:
         lineage=list(field.lineage),
         source_field_ids=[field.id],
         provenance_anchor_ids=[anchor.anchor_id for anchor in field.evidence],
+        runtime=runtime,
     )
+
+
+def _synthesise_extraction_listeners(field) -> list[RuntimeListenerDefinition]:
+    """Return zero or more RuntimeListenerDefinition objects inferred from extraction data.
+
+    Every listener produced here MUST carry provenance="extraction" so the future
+    Behavior Manager can identify and filter extraction-derived behaviors.
+    """
+    listeners: list[RuntimeListenerDefinition] = []
+
+    if field.semantic_type == SemanticType.SIGNATURE_ATTESTATION:
+        # Synthesise a listener that gates the submit action on attestation.
+        # When the field emits signature.attested the form is considered ready to submit.
+        listeners.append(
+            RuntimeListenerDefinition(
+                id=f"ext-sig-attested-{field.id}",
+                label="Submit on attestation",
+                event_name="signature.attested",
+                event_source_node_id=field.id,
+                event_source_node_type="field",
+                actions=[
+                    RuntimeActionDefinition(
+                        id=f"ext-sig-attested-{field.id}-action-0",
+                        kind="submit_form",
+                        target=RuntimeActionTarget(node_type="form"),
+                    )
+                ],
+                provenance="extraction",
+            )
+        )
+
+    return listeners
 
 
 def _field_layout_hints(field) -> dict[str, str]:
