@@ -89,6 +89,7 @@ import {
   BehaviorComposer,
   BehaviorInspectorPanel,
   BehaviorManager,
+  countListenersReferencingNode,
   BehaviorQuickToolbar,
   BehaviorStudioModal,
   BehaviorWorkspace,
@@ -1716,6 +1717,7 @@ export default function App() {
   const [editingBehaviorEventId, setEditingBehaviorEventId] = useState<string | null>(null);
   const [pendingBehaviorEventEditId, setPendingBehaviorEventEditId] = useState<string | null>(null);
   const [behaviorListenerSourceType, setBehaviorListenerSourceType] = useState<BehaviorListenerSourceType>("field");
+  const [selectedBehaviorListenerId, setSelectedBehaviorListenerId] = useState<string | null>(null);
   const [behaviorListenerEventType, setBehaviorListenerEventType] = useState("");
   const [behaviorListenerSourceId, setBehaviorListenerSourceId] = useState("");
   const [behaviorListenerUseCapture, setBehaviorListenerUseCapture] = useState(false);
@@ -2557,6 +2559,22 @@ export default function App() {
     }
     return null;
   }, [activeDocument, activeBuilderField, activeGroup, activeSection, activeStep, selectedAuthoring]);
+  const scopeListeners: RuntimeListenerDefinition[] = useMemo(
+    () => activeRuntimeScope?.listeners ?? activeDocument?.runtime?.formListeners ?? [],
+    [activeRuntimeScope, activeDocument],
+  );
+  const activeSelectionNodeId: string | null = useMemo(() => {
+    if (!selectedAuthoring) return null;
+    if (selectedAuthoring.kind === "field") return selectedAuthoring.fieldId;
+    if (selectedAuthoring.kind === "group") return selectedAuthoring.groupId;
+    if (selectedAuthoring.kind === "section") return selectedAuthoring.sectionId;
+    if (selectedAuthoring.kind === "step") return selectedAuthoring.stepId;
+    return null;
+  }, [selectedAuthoring]);
+  const externalReferenceCount = useMemo(() => {
+    if (!activeDocument || !activeSelectionNodeId) return 0;
+    return countListenersReferencingNode(activeDocument, activeSelectionNodeId);
+  }, [activeDocument, activeSelectionNodeId]);
   const runtimeTraceEntries = useMemo(() => {
     if (!activeDocument) {
       return [];
@@ -8977,7 +8995,61 @@ export default function App() {
                     : null;
   const behaviorStudioPosition = behaviorStudioPositionLayout();
   const behaviorStudioWorkspaceShell = behaviorStudioUsesWorkspaceShell();
-  const behaviorsContent = (
+  function onToggleListenerEnabled(listenerId: string, enabled: boolean) {
+    updateAuthoringDocument((doc) => {
+      const toggle = (listeners: RuntimeListenerDefinition[]) => {
+        const target = listeners.find((l) => l.id === listenerId);
+        if (target) {
+          target.enabled = enabled;
+        }
+      };
+      toggle(doc.runtime?.formListeners ?? []);
+      for (const step of doc.steps as AuthoringStep[]) {
+        toggle(step.runtime?.listeners ?? []);
+        for (const section of step.sections as AuthoringSection[]) {
+          toggle(section.runtime?.listeners ?? []);
+          for (const group of section.groups as AuthoringGroup[]) {
+            toggle(group.runtime?.listeners ?? []);
+            for (const field of group.fields as AuthoringField[]) {
+              toggle(field.runtime?.listeners ?? []);
+            }
+          }
+          for (const field of section.fields as AuthoringField[]) {
+            toggle(field.runtime?.listeners ?? []);
+          }
+        }
+      }
+    });
+  }
+
+  function onReorderListener(listenerId: string, fromIndex: number, toIndex: number) {
+    updateAuthoringDocument((doc) => {
+      const reorder = (listeners: RuntimeListenerDefinition[]) => {
+        if (listeners[fromIndex]?.id !== listenerId) return false;
+        const [moved] = listeners.splice(fromIndex, 1);
+        listeners.splice(toIndex, 0, moved);
+        return true;
+      };
+      if (reorder(doc.runtime?.formListeners ?? [])) return;
+      for (const step of doc.steps as AuthoringStep[]) {
+        if (reorder(step.runtime?.listeners ?? [])) return;
+        for (const section of step.sections as AuthoringSection[]) {
+          if (reorder(section.runtime?.listeners ?? [])) return;
+          for (const group of section.groups as AuthoringGroup[]) {
+            if (reorder(group.runtime?.listeners ?? [])) return;
+            for (const field of group.fields as AuthoringField[]) {
+              if (reorder(field.runtime?.listeners ?? [])) return;
+            }
+          }
+          for (const field of section.fields as AuthoringField[]) {
+            if (reorder(field.runtime?.listeners ?? [])) return;
+          }
+        }
+      }
+    });
+  }
+
+  const behaviorsContent = activeDocument ? (
     <BehaviorInspectorPanel
       selectedAuthoring={selectedAuthoring}
       activeBuilderField={activeBuilderField}
@@ -8987,8 +9059,20 @@ export default function App() {
       legacyFieldConditionals={legacyFieldConditionals}
       currentBehaviorSelectionSummary={currentBehaviorSelectionSummary}
       onOpenBehaviorStudio={openBehaviorStudio}
+      document={activeDocument}
+      scopeListeners={scopeListeners}
+      selectedListenerId={selectedBehaviorListenerId}
+      onSelectListener={setSelectedBehaviorListenerId}
+      onEditListener={(listenerId) => {
+        setSelectedBehaviorListenerId(listenerId);
+        openBehaviorStudio("studio", "manage");
+      }}
+      onToggleListenerEnabled={onToggleListenerEnabled}
+      onReorderListener={onReorderListener}
+      onAddBehavior={() => openBehaviorStudioAddBehavior()}
+      externalReferenceCount={externalReferenceCount}
     />
-  );
+  ) : null;
   const mapContent = logicMapData ? (
     <>
       <div className="rounded-[1.15rem] border border-soft bg-white p-4">
