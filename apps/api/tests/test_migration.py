@@ -7,6 +7,9 @@ from pathlib import Path
 import pytest
 
 from form_builder_api.repository import InMemoryRepository, UnmigratedDocumentError
+from form_builder_api.services.migration import migrate_project, MigrationLog
+
+FIXTURE_PATH = Path(__file__).parent / "fixtures" / "pre-migration-document.json"
 
 # ---------------------------------------------------------------------------
 # Minimal fixture helpers
@@ -159,3 +162,87 @@ def test_incomplete_project_dir_is_skipped(tmp_path: Path) -> None:
 
     repo = InMemoryRepository(project_storage_dir=tmp_path)
     assert project_id not in repo.projects
+
+
+# ---------------------------------------------------------------------------
+# Round-trip tests (B6)
+# ---------------------------------------------------------------------------
+
+
+def test_migration_promotes_legacy_listener_fields(tmp_path: Path) -> None:
+    """Round-trip: legacy-shape document → Phase 1A new shape."""
+    project_id = "rt-test"
+    project_root = tmp_path / "data" / "projects" / project_id
+    project_root.mkdir(parents=True)
+    fixture = json.loads(FIXTURE_PATH.read_text())
+    (project_root / "document.json").write_text(json.dumps(fixture))
+
+    log = migrate_project(project_id, base_path=tmp_path)
+
+    # 1. Migration ran (not a no-op).
+    assert not log.noop, "expected non-no-op migration on a legacy-shape document"
+    assert log.documents_migrated >= 1
+
+    # 2. Document was rewritten.
+    written = json.loads((project_root / "document.json").read_text())
+
+    # 3. migrationVersion marker stamped.
+    assert written["runtime"]["migrationVersion"] == "phase-1"
+
+    # 4. Field listener with legacy eventSourceNodeId now has source.id matching.
+    field = written["steps"][0]["sections"][0]["fields"][0]
+    legacy_source_listener = next(
+        l for l in field["runtime"]["listeners"] if l["id"] == "listener-legacy-source"
+    )
+    assert legacy_source_listener["source"]["id"] == "field-zip"
+    assert legacy_source_listener["target"]["id"] == "field-city"
+    # Legacy fields stay in place (additive promotion).
+    assert legacy_source_listener["eventSourceNodeId"] == "field-zip"
+
+    # 5. Field listener with custom event "zipResolved" now has eventRef pointing
+    #    at a newly-created event def.
+    custom_listener = next(
+        l for l in field["runtime"]["listeners"] if l["id"] == "listener-custom-event"
+    )
+    assert "eventRef" in custom_listener
+    new_def_id = custom_listener["eventRef"]["id"]
+    # The new def is on the field's eventSources (closest scope).
+    field_sources = field["runtime"]["eventSources"]
+    assert any(d["id"] == new_def_id and d.get("name") == "zipResolved" for d in field_sources)
+    assert log.event_defs_created >= 1
+
+    # 6. Form-level submit listener (built-in event) untouched — no eventRef created.
+    form_listener = written["runtime"]["formListeners"][0]
+    assert form_listener.get("eventRef") is None  # built-in event names don't get eventRef
+
+    # 7. Backup snapshot created.
+    backup_root = project_root / "migration-backup"
+    assert backup_root.exists()
+    assert any(backup_root.iterdir()), "expected at least one timestamped backup dir"
+
+    # 8. Audit log created.
+    audit_path = project_root / "migration-log.json"
+    assert audit_path.exists()
+    audit = json.loads(audit_path.read_text())
+    assert isinstance(audit, list) and len(audit) == 1
+
+
+def test_migration_is_idempotent(tmp_path: Path) -> None:
+    """Running migrate twice on the same project: second run is a no-op."""
+    project_id = "rt-idempotent"
+    project_root = tmp_path / "data" / "projects" / project_id
+    project_root.mkdir(parents=True)
+    fixture = json.loads(FIXTURE_PATH.read_text())
+    (project_root / "document.json").write_text(json.dumps(fixture))
+
+    first_log = migrate_project(project_id, base_path=tmp_path)
+    assert not first_log.noop
+
+    # Capture content after first migration.
+    first_content = (project_root / "document.json").read_text()
+
+    second_log = migrate_project(project_id, base_path=tmp_path)
+    assert second_log.noop, "second run on a migrated document should be a no-op"
+
+    second_content = (project_root / "document.json").read_text()
+    assert first_content == second_content, "document content must be unchanged on no-op rerun"
