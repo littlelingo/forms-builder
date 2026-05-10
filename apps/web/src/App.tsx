@@ -1718,6 +1718,7 @@ export default function App() {
   const [pendingBehaviorEventEditId, setPendingBehaviorEventEditId] = useState<string | null>(null);
   const [behaviorListenerSourceType, setBehaviorListenerSourceType] = useState<BehaviorListenerSourceType>("field");
   const [selectedBehaviorListenerId, setSelectedBehaviorListenerId] = useState<string | null>(null);
+  const [editingListenerId, setEditingListenerId] = useState<string | null>(null);
   const [behaviorListenerEventType, setBehaviorListenerEventType] = useState("");
   const [behaviorListenerSourceId, setBehaviorListenerSourceId] = useState("");
   const [behaviorListenerUseCapture, setBehaviorListenerUseCapture] = useState(false);
@@ -2679,6 +2680,10 @@ export default function App() {
       current.config.payload = payload;
     });
     syncRuntimePayloadEditor(actionId, payload);
+  }
+
+  function applyRuntimePayloadTemplate(listenerId: string, actionId: string, template: RuntimePayloadTemplate) {
+    applyRuntimePayloadEntries(listenerId, actionId, template.entries);
   }
 
   function runtimePayloadTemplatesForAction(
@@ -9049,6 +9054,73 @@ export default function App() {
     });
   }
 
+  const inlineEditingListener = editingListenerId
+    ? (scopeListeners.find((l) => l.id === editingListenerId) ?? null)
+    : null;
+  const inlineComposerNode =
+    inlineEditingListener && activeDocument ? (
+      <BehaviorComposer
+        listener={inlineEditingListener}
+        listenerIndex={scopeListeners.indexOf(inlineEditingListener)}
+        activeRuntimeScope={activeRuntimeScope}
+        activeRuntimeTarget={activeRuntimeTarget}
+        activeBuilderField={activeBuilderField}
+        activeDocument={activeDocument}
+        runtimeEventSourceCandidates={runtimeEventSourceCandidates}
+        runtimeEventSourceCandidateById={runtimeEventSourceCandidateById}
+        builderStepOptions={builderStepOptions}
+        builderFieldOptions={builderFieldOptions}
+        builderNodeOptions={builderNodeOptions}
+        reactionTargetSearch={reactionTargetSearch}
+        runtimeReactionTargetOptions={runtimeReactionTargetOptions}
+        runtimeNodeTypeIsContainer={runtimeNodeTypeIsContainer}
+        booleanReactionValue={booleanReactionValue}
+        booleanReactionActions={booleanReactionActions}
+        valueReactionMode={valueReactionMode}
+        valueReactionActions={valueReactionActions}
+        listenerPayloadReferenceOptions={listenerPayloadReferenceOptions}
+        navigationReactionValue={navigationReactionValue}
+        navigationReactionActions={navigationReactionActions}
+        runtimePayloadTemplatesForAction={runtimePayloadTemplatesForAction}
+        runtimeEventNameSuggestions={runtimeEventNameSuggestions}
+        runtimeHostHandlerSuggestions={runtimeHostHandlerSuggestions}
+        runtimeTriggerSuggestions={runtimeTriggerSuggestions}
+        runtimeActionChainTemplatesForListener={runtimeActionChainTemplatesForListener}
+        listenerSourcePayloadFields={listenerSourcePayloadFields}
+        firstListenerPayloadReference={firstListenerPayloadReference}
+        defaultEventPayloadConditionPath={defaultEventPayloadConditionPath}
+        defaultConditionOperatorForField={defaultConditionOperatorForField}
+        defaultConditionExpectedValueForField={defaultConditionExpectedValueForField}
+        defaultRuntimeActionConfigForScope={defaultRuntimeActionConfigForScope}
+        behaviorPresetCategoryLabels={behaviorPresetCategoryLabels}
+        getRuntimePayloadEditorState={getRuntimePayloadEditorState}
+        onUpdateRuntimeListener={updateRuntimeListener}
+        onSetSelectedBehaviorNode={() => setEditingListenerId(null)}
+        onAddRuntimeActionToListener={addRuntimeActionToListener}
+        onMoveRuntimeAction={moveRuntimeAction}
+        onDuplicateRuntimeAction={duplicateRuntimeAction}
+        onRemoveRuntimeAction={removeRuntimeAction}
+        onUpdateRuntimeAction={updateRuntimeAction}
+        onSetRuntimePayloadEditorMode={setRuntimePayloadEditorMode}
+        onUpdateRuntimePayloadEditorRaw={updateRuntimePayloadEditorRaw}
+        onApplyRuntimePayloadEntries={applyRuntimePayloadEntries}
+        onSyncRuntimePayloadEditor={syncRuntimePayloadEditor}
+        onInsertRuntimeActionAfter={insertRuntimeActionAfter}
+        onApplyRuntimePayloadTemplate={applyRuntimePayloadTemplate}
+        onReplaceRuntimeActionChain={replaceRuntimeActionChain}
+        onUpdateReactionTarget={updateRuntimeReactionTarget}
+        onSetReactionTargetSearch={setReactionTargetSearch}
+        onSetBooleanReactionProperty={setRuntimeBooleanReactionProperty}
+        onSetValueReactionMode={setRuntimeValueReactionMode}
+        onUpdateValueReactionStatic={updateRuntimeValueReactionStatic}
+        onUpdateValueReactionPayload={updateRuntimeValueReactionPayload}
+        onSetNavigationReaction={setRuntimeNavigationReaction}
+        onUpdateNavigationStep={updateRuntimeNavigationStep}
+        onSetMessage={setMessage}
+        onSetErrorMessage={setErrorMessage}
+      />
+    ) : null;
+
   const behaviorsContent = activeDocument ? (
     <BehaviorInspectorPanel
       document={activeDocument}
@@ -9057,12 +9129,29 @@ export default function App() {
       onSelectListener={setSelectedBehaviorListenerId}
       onEditListener={(listenerId) => {
         setSelectedBehaviorListenerId(listenerId);
-        openBehaviorStudio("studio", "manage");
+        setEditingListenerId(listenerId);
+        setBehaviorStudioOpen(false);
       }}
       onToggleListenerEnabled={onToggleListenerEnabled}
       onReorderListener={onReorderListener}
-      onAddBehavior={() => openBehaviorStudioAddBehavior()}
+      onAddBehavior={() => {
+        const newListener = createRuntimeListener(defaultBehaviorTriggerName(), []);
+        addRuntimeListener(newListener);
+        setEditingListenerId(newListener.id);
+        setSelectedBehaviorListenerId(newListener.id);
+        setBehaviorStudioOpen(false);
+      }}
       externalReferenceCount={externalReferenceCount}
+      editingListenerId={editingListenerId}
+      composer={inlineComposerNode}
+      onOpenInAdvancedStudio={
+        editingListenerId
+          ? () => {
+              setEditingListenerId(null);
+              openBehaviorStudio("studio", "manage");
+            }
+          : undefined
+      }
     />
   ) : null;
   const mapContent = logicMapData ? (
@@ -9575,6 +9664,7 @@ export default function App() {
                 </div>
               ) : null}
               <BuilderStage
+                expandedRailWidth={editingListenerId ? 540 : undefined}
                 stepStrip={
                   <StepStrip
                     activeDocument={activeDocument}
@@ -9678,6 +9768,7 @@ export default function App() {
                   <InspectorRail
                     activeTab={inspectorTab}
                     onTabChange={setInspectorTab}
+                    expandedWidth={editingListenerId ? 540 : undefined}
                     behaviorsSlot={behaviorsContent}
                     mapSlot={<div className="space-y-4">{mapContent}</div>}
                     activeDocument={activeDocument}
