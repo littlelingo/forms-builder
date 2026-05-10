@@ -24,7 +24,11 @@ RuntimeActionKind = Literal[
     "dispatch_event",
     "emit_event",
     "host_action",
+    "branch",
+    "wait",
+    "host_call_await",
 ]
+RuntimeActionOnErrorPolicy = Literal["continue", "halt", "halt_and_raise"]
 RuntimeEventPhase = Literal["capture", "target", "bubble"]
 RuntimeListenerWiringMode = Literal["local", "cross_item", "advanced_dispatcher"]
 RuntimeHostBindingDirection = Literal["inbound", "outbound", "bidirectional"]
@@ -115,6 +119,9 @@ class RuntimeActionDefinition(CamelModel):
     target: RuntimeActionTarget | None = None
     config: dict[str, object] = Field(default_factory=dict)
     continue_on_error: bool = False
+    # Phase 3: explicit error policy. Engine reads this first; falls back to
+    # `continue_on_error` for pre-Phase-3 documents.
+    on_error: RuntimeActionOnErrorPolicy | None = None
 
 
 class RuntimeEventTypeDefinition(CamelModel):

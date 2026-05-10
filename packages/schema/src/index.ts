@@ -12,6 +12,9 @@ export {
   isRuntimeConditionAtom,
   isRuntimeConditionGroup,
   flattenRuntimeConditionAtoms,
+  RUNTIME_ASYNC_ACTION_KINDS,
+  isRuntimeAsyncActionKind,
+  runtimeActionOnErrorPolicy,
 } from "./runtime";
 
 import type { FieldNode, FormDefinition } from "./generated";

@@ -17,7 +17,56 @@ export type RuntimeActionKind =
   | "mark_optional"
   | "dispatch_event"
   | "emit_event"
-  | "host_action";
+  | "host_action"
+  | "branch"
+  | "wait"
+  | "host_call_await";
+
+/**
+ * Phase 3: per-action error fan-out policy. `continue` advances past a
+ * failed action; `halt` stops the chain silently; `halt_and_raise` stops
+ * the chain and emits `runtime.action_error`. Pre-Phase-3 listeners use
+ * `continueOnError: boolean`; the engine reads `onError` first, falling
+ * back to that boolean.
+ */
+export type RuntimeActionOnErrorPolicy = "continue" | "halt" | "halt_and_raise";
+
+/**
+ * Phase 3: nested-actions config for `kind: "branch"`. Conditions evaluate
+ * synchronously via the same condition-tree path as listener match. Max
+ * nesting depth is 3, enforced both at authoring save time and at runtime
+ * (see RFC in docs/runtime-architecture.md).
+ */
+export interface RuntimeBranchActionConfig {
+  conditions: RuntimeConditionNode[];
+  actions: RuntimeActionDefinition[];
+  else?: RuntimeActionDefinition[];
+}
+
+/**
+ * Phase 3: time-delay action. `fixed_ms` sleeps for `durationMs`;
+ * `until_event` resolves on the next matching `eventType`, or rejects
+ * after `timeoutMs`.
+ */
+export interface RuntimeWaitActionConfig {
+  mode: "fixed_ms" | "until_event";
+  durationMs?: number;
+  eventType?: string;
+  timeoutMs?: number;
+}
+
+/**
+ * Phase 3: suspending host call. Engine emits `host.action_requested` and
+ * registers a continuation keyed by `correlationId`; resumes when the
+ * host dispatches `host.action_response` with the matching id, or runs
+ * the action's onError policy on timeout / mismatch.
+ */
+export interface RuntimeHostCallAwaitConfig {
+  handlerKey: string;
+  payload?: Record<string, unknown>;
+  correlationId?: string;
+  timeoutMs?: number;
+}
 
 export type BehaviorSafetyClass = "safe" | "destructive" | "host";
 
@@ -85,7 +134,13 @@ export type RuntimeEventName =
   | "repeatableGroup.item_added"
   | "repeatableGroup.item_removed"
   | "repeatableGroup.item_moved"
-  | "host.context_updated";
+  | "host.context_updated"
+  | "host.action_requested"
+  | "host.action_response"
+  | "runtime.continuation_mismatch"
+  | "runtime.continuation_timeout"
+  | "runtime.continuation_collision"
+  | "runtime.action_error";
 
 export type RuntimeHostBindingDirection = "inbound" | "outbound" | "bidirectional";
 export type RuntimePayloadMode = "key_value" | "json";
@@ -168,6 +223,12 @@ export interface RuntimeActionDefinition {
   target?: RuntimeActionTarget | null;
   config: Record<string, unknown>;
   continueOnError: boolean;
+  /**
+   * Phase 3: explicit error policy. Engine reads this first; if absent,
+   * falls back to `continueOnError ? "continue" : "halt_and_raise"` so
+   * pre-Phase-3 documents keep their existing behavior.
+   */
+  onError?: RuntimeActionOnErrorPolicy;
 }
 
 export type RuntimeEventScope = "form" | "node" | "project";
@@ -1168,7 +1229,35 @@ const RUNTIME_ACTION_SAFETY_CLASSES: Record<RuntimeActionKind, BehaviorSafetyCla
   dispatch_event: "safe",
   emit_event: "safe",
   host_action: "host",
+  branch: "safe",
+  wait: "safe",
+  host_call_await: "host",
 };
+
+/**
+ * Phase 3: action kinds whose execution can suspend the listener chain.
+ * Sync `dispatch` paths must throw if they encounter one of these.
+ */
+export const RUNTIME_ASYNC_ACTION_KINDS: ReadonlySet<RuntimeActionKind> = new Set<RuntimeActionKind>([
+  "wait",
+  "host_call_await",
+]);
+
+export function isRuntimeAsyncActionKind(kind: RuntimeActionKind): boolean {
+  return RUNTIME_ASYNC_ACTION_KINDS.has(kind);
+}
+
+/**
+ * Phase 3: derive the effective error policy for an action. Reads the new
+ * `onError` field first; falls back to the legacy `continueOnError`
+ * boolean for pre-Phase-3 documents.
+ */
+export function runtimeActionOnErrorPolicy(action: RuntimeActionDefinition): RuntimeActionOnErrorPolicy {
+  if (action.onError) {
+    return action.onError;
+  }
+  return action.continueOnError ? "continue" : "halt_and_raise";
+}
 
 export function runtimeActionSafetyClass(kind: RuntimeActionKind): BehaviorSafetyClass {
   return RUNTIME_ACTION_SAFETY_CLASSES[kind];
