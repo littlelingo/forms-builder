@@ -20,6 +20,7 @@
     "typecheck:web": "npm run typecheck --workspace @form-builder/web",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
+    "migrate:behaviors": ".venv/bin/python -m form_builder_api.scripts.migrate_behaviors",
     "test:runtime": "npm run test --workspace @form-builder/runtime",
     "validate:corpus": "PYTHONPATH=apps/api/src ./.venv/bin/python3 scripts/validate_form_samples.py",
     "build:schema": "npm run build --workspace @form-builder/schema",
