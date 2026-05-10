@@ -9051,14 +9051,6 @@ export default function App() {
 
   const behaviorsContent = activeDocument ? (
     <BehaviorInspectorPanel
-      selectedAuthoring={selectedAuthoring}
-      activeBuilderField={activeBuilderField}
-      activeRuntimeScope={activeRuntimeScope}
-      activeStep={activeStep}
-      buildLegacyConditionalRuleGroups={buildLegacyConditionalRuleGroups}
-      legacyFieldConditionals={legacyFieldConditionals}
-      currentBehaviorSelectionSummary={currentBehaviorSelectionSummary}
-      onOpenBehaviorStudio={openBehaviorStudio}
       document={activeDocument}
       scopeListeners={scopeListeners}
       selectedListenerId={selectedBehaviorListenerId}
