@@ -59,6 +59,9 @@ export interface InspectorRailProps {
   activeTab: InspectorTab;
   onTabChange: (tab: InspectorTab) => void;
 
+  /** Optional override of the rail width when an inline editor is open. */
+  expandedWidth?: number;
+
   // Slot for behaviors tab content (Task 6 replaces with a real component)
   behaviorsSlot: ReactNode;
   // Slot for map tab content
@@ -100,6 +103,7 @@ export interface InspectorRailProps {
 export function InspectorRail({
   activeTab,
   onTabChange,
+  expandedWidth,
   behaviorsSlot,
   mapSlot,
   activeDocument,
@@ -128,6 +132,10 @@ export function InspectorRail({
   getButtonBehaviorSummary,
 }: InspectorRailProps) {
   return (
+    <div
+      className="transition-[width] duration-200 ease-out"
+      style={expandedWidth != null ? { width: `${expandedWidth}px` } : undefined}
+    >
     <PanelCard
       title="Inspector"
       eyebrow="Properties and behavior"
@@ -268,5 +276,6 @@ export function InspectorRail({
         <div className="app-muted-card p-6 text-sm text-slate-500">No project selected.</div>
       )}
     </PanelCard>
+    </div>
   );
 }
