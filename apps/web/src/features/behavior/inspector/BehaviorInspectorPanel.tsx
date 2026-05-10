@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import type { AuthoringDocument, RuntimeListenerDefinition } from "@form-builder/schema";
 
 import { BehaviorStackList } from "../index";
@@ -12,6 +14,8 @@ export interface BehaviorInspectorPanelProps {
   onReorderListener: (listenerId: string, fromIndex: number, toIndex: number) => void;
   onAddBehavior: () => void;
   externalReferenceCount: number;
+  editingListenerId?: string | null;
+  composer?: ReactNode;
 }
 
 export function BehaviorInspectorPanel({
@@ -24,6 +28,8 @@ export function BehaviorInspectorPanel({
   onReorderListener,
   onAddBehavior,
   externalReferenceCount,
+  editingListenerId,
+  composer,
 }: BehaviorInspectorPanelProps) {
   return (
     <div className="space-y-4">
@@ -36,6 +42,8 @@ export function BehaviorInspectorPanel({
         onToggleListenerEnabled={onToggleListenerEnabled}
         onReorderListener={onReorderListener}
         onAddBehavior={onAddBehavior}
+        editingListenerId={editingListenerId}
+        composer={composer}
       />
 
       {externalReferenceCount > 0 ? (
