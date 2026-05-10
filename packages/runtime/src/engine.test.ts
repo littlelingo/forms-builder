@@ -2317,10 +2317,29 @@ test("resolveRuntimeToken returns ok=false reason=missing_path with pathRemainde
   assert.equal(!result.ok && result.pathRemainder, "thing");
 });
 
-test("resolveRuntimeToken returns ok=false reason=phase_3_only for $response", () => {
+test("resolveRuntimeToken returns ok=false reason=response_not_in_scope for $response without context.response", () => {
   const result = resolveRuntimeToken("$response.foo", {});
   assert.equal(result.ok, false);
-  assert.equal(!result.ok && result.reason, "phase_3_only");
+  assert.equal(!result.ok && result.reason, "response_not_in_scope");
+});
+
+test("Phase 3 Stage E: $response resolves keys when context.response is provided", () => {
+  const result = resolveRuntimeToken<string>("$response.user.id", { response: { user: { id: "u_42" } } });
+  assert.equal(result.ok, true);
+  assert.equal(result.ok && result.value, "u_42");
+});
+
+test("Phase 3 Stage E: $response missing path returns missing_path with remainder", () => {
+  const result = resolveRuntimeToken("$response.user.email", { response: { user: { id: "u_42" } } });
+  assert.equal(result.ok, false);
+  assert.equal(!result.ok && result.reason, "missing_path");
+  assert.equal(!result.ok && result.pathRemainder, "email");
+});
+
+test("Phase 3 Stage E: $response with no path returns the whole response object", () => {
+  const result = resolveRuntimeToken<Record<string, unknown>>("$response", { response: { city: "Springfield" } });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.ok && result.value, { city: "Springfield" });
 });
 
 test("resolveRuntimeToken handles $now and $uuid roots without paths", () => {

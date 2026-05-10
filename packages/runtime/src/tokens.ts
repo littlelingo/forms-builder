@@ -13,6 +13,12 @@ export interface RuntimeTokenContext {
   source?: { id?: string; key?: string; type?: string; label?: string };
   current?: Record<string, unknown>;
   hostContext?: Record<string, unknown>;
+  /**
+   * Phase 3: per-listener-chain response scope, populated by host_call_await
+   * resumes. `undefined` outside an async chain — `$response` then resolves
+   * to `{ ok: false, reason: "response_not_in_scope" }`.
+   */
+  response?: Record<string, unknown>;
 }
 
 // Locked set of valid roots. No new roots without a spec change.
@@ -65,6 +71,8 @@ function rootToContext(root: string, context: RuntimeTokenContext): unknown {
       return context.current ?? {};
     case "$host":
       return context.hostContext ?? {};
+    case "$response":
+      return context.response ?? {};
     default:
       return {};
   }
@@ -90,9 +98,15 @@ export function resolveRuntimeToken<T = unknown>(token: string, context: Runtime
     return { ok: false, reason: "unknown_root" };
   }
 
-  // 4. Phase-3-only roots
+  // 4. Phase 3 scoped roots — `$response` only resolves inside an async
+  // chain that received a host.action_response. Outside that scope (e.g.
+  // sync dispatch or any chain without a preceding host_call_await), the
+  // resolver returns response_not_in_scope so authoring lints catch it.
   if (root === "$response") {
-    return { ok: false, reason: "phase_3_only" };
+    if (context.response === undefined) {
+      return { ok: false, reason: "response_not_in_scope" };
+    }
+    // fall through to path-based handling below
   }
 
   // 5. Generative roots — ignore trailing path
