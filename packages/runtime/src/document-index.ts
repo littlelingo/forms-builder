@@ -9,6 +9,8 @@ import type {
   RuntimeNodeType,
 } from "@form-builder/schema";
 
+import type { NodeDescriptor, NodeTombstoneMap } from "./types";
+
 export interface IndexedRuntimeNode {
   id: string;
   nodeType: RuntimeNodeType;
@@ -36,6 +38,7 @@ export interface RuntimeDocumentIndex {
   stepOrder: string[];
   nodes: Map<string, IndexedRuntimeNode>;
   listeners: IndexedRuntimeListener[];
+  resolveNodeDescriptor(id: string, tombstones?: NodeTombstoneMap): NodeDescriptor;
 }
 
 export function createRuntimeDocumentIndex(document: AuthoringDocument): RuntimeDocumentIndex {
@@ -136,6 +139,28 @@ export function createRuntimeDocumentIndex(document: AuthoringDocument): Runtime
     stepOrder,
     nodes,
     listeners,
+    resolveNodeDescriptor(id: string, tombstones?: NodeTombstoneMap): NodeDescriptor {
+      const node = nodes.get(id);
+      if (node) {
+        const field = node.field;
+        return {
+          id,
+          dispatchKey:
+            node.field?.dispatchKey ??
+            node.step?.dispatchKey ??
+            node.section?.dispatchKey ??
+            node.group?.dispatchKey ??
+            undefined,
+          labelHint: field?.label ?? node.step?.title ?? node.section?.title ?? node.group?.label ?? undefined,
+        };
+      }
+      const tombstone = tombstones?.get(id);
+      return {
+        id,
+        broken: true,
+        ...(tombstone?.lastSeenLabel ? { lastSeenLabel: tombstone.lastSeenLabel } : {}),
+      };
+    },
   };
 }
 

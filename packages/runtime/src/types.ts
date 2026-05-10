@@ -1,6 +1,7 @@
 import type {
   RuntimeActionDefinition,
   AuthoringDocument,
+  BehaviorLibraryEntry,
   RuntimeConditionDefinition,
   RuntimeEventEnvelope,
   RuntimeHostContext,
@@ -9,6 +10,30 @@ import type {
   RuntimeSubmitPayload,
   RuntimeValidationState,
 } from "@form-builder/schema";
+
+export type TokenResolution<T = unknown> =
+  | { ok: true; value: T }
+  | { ok: false; reason: string; pathRemainder?: string };
+
+export interface BehaviorLibraryRegistry {
+  /** Returns the entry for the given id and revision, or undefined if missing. */
+  resolve(id: string, revision: number): BehaviorLibraryEntry | undefined;
+}
+
+export interface BehaviorExecutedEvent {
+  listenerId: string;
+  durationMs: number;
+  /** Phase 3 branches; no-op in Phase 1A */
+  branchTaken?: string;
+  error?: { message: string; actionId?: string };
+}
+
+export type TelemetrySink = (event: BehaviorExecutedEvent) => void;
+
+export interface CreateRuntimeEngineOptions {
+  libraryRegistry?: BehaviorLibraryRegistry;
+  telemetrySink?: TelemetrySink;
+}
 
 export interface RuntimeEngineMountOptions {
   runtimeId?: string;
@@ -57,7 +82,14 @@ export interface RuntimeListenerDiagnostic {
   eventPhase: RuntimeEventEnvelope["eventPhase"];
   enabled: boolean;
   matched: boolean;
-  skippedReason?: "disabled" | "event_type" | "conditions_failed";
+  skippedReason?:
+    | "disabled"
+    | "event_type"
+    | "conditions_failed"
+    | "source_mismatch"
+    | "broken_event_ref"
+    | "broken_library_ref";
+  resolvedTarget?: NodeDescriptor;
   conditions: RuntimeConditionDiagnostic[];
   actions: RuntimeActionDiagnostic[];
 }
@@ -78,6 +110,19 @@ export interface RuntimeDispatchReport {
   traceEntries: RuntimeTraceEntry[];
   emittedEvents: RuntimeEventEnvelope[];
   stateDiff: RuntimeStateDiff;
+}
+
+export interface NodeDescriptor {
+  id: string;
+  dispatchKey?: string;
+  labelHint?: string;
+  broken?: boolean;
+  lastSeenLabel?: string;
+}
+
+export interface NodeTombstoneMap {
+  /** Returns last-seen metadata for a node id no longer in the live index. */
+  get(id: string): { lastSeenLabel?: string } | undefined;
 }
 
 export interface RuntimeEngine {

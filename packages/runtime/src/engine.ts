@@ -18,6 +18,9 @@ import { createRuntimeDocumentIndex, type IndexedRuntimeListener, type RuntimeDo
 import { RuntimeEventBus } from "./event-bus";
 import { createInitialSessionState, mergeSessionState } from "./session-state";
 import type {
+  BehaviorExecutedEvent,
+  BehaviorLibraryRegistry,
+  CreateRuntimeEngineOptions,
   RuntimeActionDiagnostic,
   RuntimeConditionDiagnostic,
   RuntimeDispatchReport,
@@ -26,7 +29,9 @@ import type {
   RuntimeListenerDiagnostic,
   RuntimeStateDiff,
   RuntimeTraceEntry,
+  TelemetrySink,
 } from "./types";
+import { applyTemplateTokens, stableStringify } from "./template-tokens";
 import { validateRuntimeDocument } from "./validation";
 
 const RUNTIME_VERSION = "1.0";
@@ -61,7 +66,14 @@ interface RuntimeDispatchReportDraft {
   listeners: RuntimeListenerDiagnostic[];
 }
 
-export function createRuntimeEngine(): RuntimeEngine {
+export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): RuntimeEngine {
+  const libraryRegistry: BehaviorLibraryRegistry | undefined = options?.libraryRegistry;
+  const telemetrySink: TelemetrySink | undefined = options?.telemetrySink;
+  // Per-engine-instance cache: stores only the substituted template (raw unknown), not the full
+  // listener envelope. Two listeners sharing the same libraryRef+params share the template but
+  // each gets its own envelope fields (id, label, enabled, …) merged at read time.
+  const templateCache = new Map<string, unknown>();
+
   const eventBus = new RuntimeEventBus();
   let document: AuthoringDocument | null = null;
   let index: RuntimeDocumentIndex | null = null;
@@ -248,20 +260,145 @@ export function createRuntimeEngine(): RuntimeEngine {
     };
   };
 
+  const resolveEventRefType = (eventRefId: string): string | null => {
+    if (!document) return null;
+    // Scan form-scope events first
+    for (const def of document.runtime?.formEvents ?? []) {
+      if (def.id === eventRefId) return def.type ?? def.name ?? null;
+    }
+    // Scan node-scope eventSources
+    for (const step of document.steps) {
+      for (const section of step.sections) {
+        for (const field of section.fields) {
+          for (const def of field.runtime?.eventSources ?? []) {
+            if (def.id === eventRefId) return def.type ?? def.name ?? null;
+          }
+        }
+        for (const group of section.groups) {
+          for (const field of group.fields) {
+            for (const def of field.runtime?.eventSources ?? []) {
+              if (def.id === eventRefId) return def.type ?? def.name ?? null;
+            }
+          }
+        }
+      }
+    }
+    return null;
+  };
+
+  const materialisedListener = (listener: RuntimeListenerDefinition): RuntimeListenerDefinition | null => {
+    if (!listener.libraryRef || listener.libraryRef.detached) {
+      return listener;
+    }
+    const ref = listener.libraryRef;
+    const entry = libraryRegistry?.resolve(ref.id, ref.revision);
+    if (!entry) {
+      return null; // broken ref
+    }
+    const templateCacheKey = `${entry.id}::${entry.revision}::${stableStringify(ref.params)}`;
+    let materialisedRaw = templateCache.get(templateCacheKey);
+    if (!materialisedRaw) {
+      materialisedRaw = applyTemplateTokens(entry.template, ref.params);
+      templateCache.set(templateCacheKey, materialisedRaw);
+    }
+    return {
+      ...listener,
+      ...(materialisedRaw as Partial<RuntimeListenerDefinition>),
+      id: listener.id,
+      libraryRef: listener.libraryRef,
+    } as RuntimeListenerDefinition;
+  };
+
   const evaluateListenerDiagnostic = (
     indexedListener: IndexedRuntimeListener,
     event: RuntimeEventEnvelope,
   ): RuntimeListenerDiagnostic => {
-    const listener = indexedListener.listener;
-    const type = listenerEventType(listener);
-    const enabled = listener.enabled !== false;
+    const rawListener = indexedListener.listener;
+    const enabled = rawListener.enabled !== false;
+
+    // Resolve library ref before any other evaluation.
+    const listener = materialisedListener(rawListener);
+    if (listener === null) {
+      // Broken libraryRef — report skipped with reason.
+      const resolvedTarget =
+        rawListener.target?.id && index ? index.resolveNodeDescriptor(rawListener.target.id) : undefined;
+      return {
+        listenerId: rawListener.id,
+        label: rawListener.label ?? null,
+        type: listenerEventType(rawListener),
+        dispatcherId: indexedListener.dispatcherId,
+        dispatcherType: indexedListener.dispatcherType,
+        eventPhase: event.eventPhase,
+        enabled,
+        matched: false,
+        skippedReason: "broken_library_ref",
+        conditions: [],
+        actions: [],
+        ...(resolvedTarget ? { resolvedTarget } : {}),
+      };
+    }
+
+    // Resolve event type: prefer eventRef lookup, fall back to legacy type/eventName.
+    let type: string;
+    let brokenEventRef = false;
+    if (listener.eventRef) {
+      const resolved = resolveEventRefType(listener.eventRef.id);
+      if (resolved === null) {
+        brokenEventRef = true;
+        type = listenerEventType(listener); // placeholder; listener will be skipped
+      } else {
+        type = resolved;
+      }
+    } else {
+      type = listenerEventType(listener);
+    }
+
+    if (brokenEventRef) {
+      const resolvedTarget = listener.target?.id && index ? index.resolveNodeDescriptor(listener.target.id) : undefined;
+      return {
+        listenerId: listener.id,
+        label: listener.label ?? null,
+        type,
+        dispatcherId: indexedListener.dispatcherId,
+        dispatcherType: indexedListener.dispatcherType,
+        eventPhase: event.eventPhase,
+        enabled,
+        matched: false,
+        skippedReason: "broken_event_ref",
+        conditions: [],
+        actions: [],
+        ...(resolvedTarget ? { resolvedTarget } : {}),
+      };
+    }
+
     const typeMatches = type === event.type;
+
+    // Source-node filter: only active when listener.source?.id is explicitly set (new-shape).
+    // Legacy eventSourceNodeId remains pure metadata until Phase 1B migration promotes it.
+    const sourceFilterId = listener.source?.id ?? null;
+    const eventTargetNodeId = event.target?.nodeId ?? null;
+    const sourceMismatch = sourceFilterId !== null && sourceFilterId !== eventTargetNodeId;
+
     const conditions =
-      enabled && typeMatches
+      enabled && typeMatches && !sourceMismatch
         ? (listener.conditions ?? []).map((condition) => evaluateConditionDiagnostic(condition, event))
         : [];
     const conditionsPassed = conditions.every((condition) => condition.passed);
-    const matched = enabled && typeMatches && conditionsPassed;
+    const matched = enabled && typeMatches && !sourceMismatch && conditionsPassed;
+
+    // Resolve target descriptor when listener.target?.id is set.
+    const resolvedTarget = listener.target?.id && index ? index.resolveNodeDescriptor(listener.target.id) : undefined;
+
+    const skippedReason = matched
+      ? undefined
+      : !enabled
+        ? "disabled"
+        : !typeMatches
+          ? "event_type"
+          : sourceMismatch
+            ? "source_mismatch"
+            : "conditions_failed";
+
     return {
       listenerId: listener.id,
       label: listener.label ?? null,
@@ -271,9 +408,10 @@ export function createRuntimeEngine(): RuntimeEngine {
       eventPhase: event.eventPhase,
       enabled,
       matched,
-      skippedReason: matched ? undefined : !enabled ? "disabled" : !typeMatches ? "event_type" : "conditions_failed",
+      skippedReason,
       conditions,
       actions: [],
+      ...(resolvedTarget ? { resolvedTarget } : {}),
     };
   };
 
@@ -643,24 +781,49 @@ export function createRuntimeEngine(): RuntimeEngine {
         if (!listenerDiagnostic.matched) {
           continue;
         }
-        for (const action of listenerInvocation.listener.listener.actions) {
-          const actionDiagnostic: RuntimeActionDiagnostic = {
-            actionId: action.id,
-            label: action.label ?? null,
-            kind: action.kind,
-            target: structuredClone(action.target ?? null),
-            config: structuredClone(action.config),
-            status: "executed",
-          };
-          listenerDiagnostic.actions.push(actionDiagnostic);
-          try {
-            executeAction(action, listenerInvocation.event, report);
-          } catch (error) {
-            actionDiagnostic.status = "error";
-            actionDiagnostic.errorMessage = error instanceof Error ? error.message : "Runtime action failed.";
-            throw error;
+        // Use the materialised listener's actions (may differ from raw when libraryRef is set).
+        const resolvedListener =
+          materialisedListener(listenerInvocation.listener.listener) ?? listenerInvocation.listener.listener;
+        const listenerStart = performance.now();
+        let listenerError: BehaviorExecutedEvent["error"] | undefined;
+        try {
+          for (const action of resolvedListener.actions) {
+            const actionDiagnostic: RuntimeActionDiagnostic = {
+              actionId: action.id,
+              label: action.label ?? null,
+              kind: action.kind,
+              target: structuredClone(action.target ?? null),
+              config: structuredClone(action.config),
+              status: "executed",
+            };
+            listenerDiagnostic.actions.push(actionDiagnostic);
+            try {
+              executeAction(action, listenerInvocation.event, report);
+            } catch (error) {
+              actionDiagnostic.status = "error";
+              actionDiagnostic.errorMessage = error instanceof Error ? error.message : "Runtime action failed.";
+              throw error;
+            }
           }
+        } catch (err) {
+          listenerError = {
+            message: err instanceof Error ? err.message : String(err),
+            actionId: resolvedListener.actions.find((a) => {
+              const diag = listenerDiagnostic.actions.find((d) => d.actionId === a.id);
+              return diag?.status === "error";
+            })?.id,
+          };
+          telemetrySink?.({
+            listenerId: listenerInvocation.listener.listener.id,
+            durationMs: performance.now() - listenerStart,
+            error: listenerError,
+          });
+          throw err;
         }
+        telemetrySink?.({
+          listenerId: listenerInvocation.listener.listener.id,
+          durationMs: performance.now() - listenerStart,
+        });
       }
     }
 

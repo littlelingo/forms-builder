@@ -8,6 +8,7 @@ export {
   runtimeCoreEventTypes,
   runtimeCoreEventsForDispatcher,
   runtimeStandardEventPayloadFields,
+  runtimeActionSafetyClass,
 } from "./runtime";
 
 import type { FieldNode, FormDefinition } from "./generated";

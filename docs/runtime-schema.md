@@ -292,3 +292,147 @@ It currently supports these buckets:
 
 This lets the runtime respond to host conditions without owning the host
 environment itself.
+
+## Phase 1A Type Additions
+
+The following types were added in Phase 1A. All listener fields that reference
+them are optional so that existing documents continue to load without changes.
+
+### NodeRef
+
+```ts
+interface NodeRef {
+  id: string;
+}
+```
+
+A typed reference to a runtime node by its immutable `id`. The readable
+`dispatchKey` and human `labelHint` are derived at read-time by
+`resolveNodeDescriptor` rather than stored in the ref. Prefer `source` and
+`target` on a listener over the legacy `eventSourceNodeId` / `targetNodeId`
+free-text fields; the engine accepts both.
+
+### EventRef
+
+```ts
+interface EventRef {
+  id: string;
+}
+```
+
+A typed reference to an event definition by its `id`. The engine resolves the
+actual event type string by scanning `document.runtime.formEvents` then each
+node's `runtime.eventSources`. A `nameHint` may be stored for display but is
+never used for dispatch routing. When an `eventRef` is present on a listener it
+takes precedence over the legacy free-text `eventName` field.
+
+### BehaviorLibraryRef
+
+```ts
+interface BehaviorLibraryRef {
+  id: string;
+  revision: number;
+  params: Record<string, unknown>;
+  detached?: boolean;
+}
+```
+
+Marks a listener as materialised from a `BehaviorLibraryEntry`. When
+`detached` is absent or `false`, the engine re-materialises the listener on
+every dispatch using the stored `params` and the template from the registry
+(with caching). When `detached` is `true`, the listener was pinned at author
+time and runs as a plain listener — the registry is not consulted.
+
+### BehaviorListenerTiming
+
+```ts
+interface BehaviorListenerTiming {
+  debounce_ms?: number;
+  throttle_ms?: number;
+}
+```
+
+Schema-forward timing hints for listeners. The engine does not act on these
+values in Phase 1A. They are stored in the document and will be honored in
+Phase 3 when time-windowed execution is added.
+
+### BehaviorProvenance
+
+```ts
+type BehaviorProvenance = "extraction" | "library" | "manual";
+```
+
+Tracks how a listener entered the document:
+
+- `extraction` — created by the PDF extraction pipeline.
+- `library` — instantiated from a `BehaviorLibraryEntry`.
+- `manual` — hand-authored in Behavior Studio.
+
+### BehaviorSafetyClass
+
+```ts
+type BehaviorSafetyClass = "safe" | "destructive" | "host";
+```
+
+Each `RuntimeActionKind` is tagged with a safety class via
+`runtimeActionSafetyClass(kind)` (exported from `@form-builder/schema`):
+
+- `safe` — side-effect free within the form (navigation, show/hide, set value).
+- `destructive` — irreversible within the session (`submit_form`).
+- `host` — delegates to the embedding environment (`host_action`).
+
+### BehaviorLibraryEntry
+
+`BehaviorLibraryEntry` (from `@form-builder/schema` via `authoring.ts`) is the
+full registry record for a reusable behavior preset:
+
+```ts
+interface BehaviorLibraryEntry {
+  id: string;
+  name: string;
+  description: string;
+  category: BehaviorLibraryCategory; // "validation" | "visibility" | "host" | "events" | "data" | "repeatables" | "custom"
+  scope: BehaviorLibraryScope; // "system" | "project"
+  revision: number;
+  parameters: BehaviorLibraryParameter[];
+  bindsTo: string[]; // node semantic types; empty = any
+  template: unknown; // listener shape with {{paramKey}} placeholders
+  i18n?: { en: { name: string; description: string }; [lang: string]: { name: string; description: string } };
+}
+```
+
+The `template` is a partial or full `RuntimeListenerDefinition` with
+`{{paramKey}}` placeholders. `applyTemplateTokens` in `packages/runtime`
+substitutes those placeholders with the stored `params` from `BehaviorLibraryRef`
+before the listener is evaluated. See
+[Runtime Architecture](./runtime-architecture.md#library-materialisation) for
+the full resolution flow.
+
+### Annotated listener example
+
+```jsonc
+{
+  "id": "listener-42",
+  "label": "Hide income section when not employed",
+  "enabled": true,
+  // Phase 1A typed refs:
+  "source": { "id": "field-employment-status" },
+  "target": { "id": "section-income" },
+  "eventRef": { "id": "event-def-radio-change" },
+  // Still accepted for backward compat:
+  "eventSourceNodeId": "field-employment-status",
+  "targetNodeId": "section-income",
+  "eventName": "radio.change",
+  // Library origin tracking:
+  "libraryRef": { "id": "lib-hide-on-value", "revision": 1, "params": { "expectedValue": "not_employed" } },
+  "provenance": "library",
+  // Timing (stored; Phase 3 only):
+  "timing": { "debounce_ms": 200 },
+  "conditions": [...],
+  "actions": [...]
+}
+```
+
+Legacy listener fields (`eventSourceNodeId`, free-text `eventName`,
+`targetNodeId`) are still read by the engine. Newly created listeners should
+use `source`, `target`, and `eventRef` instead.

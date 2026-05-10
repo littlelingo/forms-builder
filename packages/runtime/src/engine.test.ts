@@ -6,9 +6,16 @@ import type {
   RuntimeActionDefinition,
   RuntimeEventEnvelope,
   RuntimeHostContext,
+  RuntimeListenerDefinition,
 } from "@form-builder/schema";
 
+import { runtimeActionSafetyClass } from "@form-builder/schema";
+
 import { createRuntimeEngine } from "./engine";
+import { resolveRuntimeToken } from "./tokens";
+import { applyTemplateTokens, stableStringify } from "./template-tokens";
+import { createRuntimeDocumentIndex } from "./document-index";
+import type { BehaviorExecutedEvent, BehaviorLibraryRegistry, NodeTombstoneMap } from "./types";
 
 function createHostContext(): RuntimeHostContext {
   return {
@@ -360,6 +367,32 @@ function invokeNextStepAction(): RuntimeActionDefinition {
     continueOnError: false,
   };
 }
+
+test("runtimeActionSafetyClass labels destructive and host actions correctly", () => {
+  assert.equal(runtimeActionSafetyClass("submit_form"), "destructive");
+  assert.equal(runtimeActionSafetyClass("host_action"), "host");
+  assert.equal(runtimeActionSafetyClass("set_field_value"), "safe");
+  assert.equal(runtimeActionSafetyClass("show_node"), "safe");
+});
+
+test("RuntimeListenerDefinition accepts NodeRef/EventRef/libraryRef/timing/provenance fields", () => {
+  // Type-check only: this test exists to prove the schema additions compile.
+  const listener: RuntimeListenerDefinition = {
+    id: "lst-001",
+    enabled: true,
+    eventName: "field.change",
+    source: { id: "node-1" },
+    target: { id: "node-2" },
+    eventRef: { id: "evt-1" },
+    libraryRef: { id: "lib-1", revision: 1, params: {} },
+    timing: { debounce_ms: 250 },
+    provenance: "library",
+    conditions: [],
+    actions: [],
+  };
+  assert.equal(listener.id, "lst-001");
+  assert.equal(listener.libraryRef?.revision, 1);
+});
 
 test("runtime restores session state after export/import style roundtrip", () => {
   const document = createDocument();
@@ -1548,4 +1581,857 @@ test("dispatchWithReport explains skipped listeners when conditions fail", () =>
     report.emittedEvents.some((event) => event.type === "report.should_not_emit"),
     false,
   );
+});
+
+test("resolveNodeDescriptor returns id + dispatchKey + labelHint for live nodes", () => {
+  const document = createDocument();
+  const field = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "field-name");
+  assert.ok(field);
+  field.dispatchKey = "p1.zip";
+  field.label = "ZIP";
+  const index = createRuntimeDocumentIndex(document);
+  const descriptor = index.resolveNodeDescriptor("field-name");
+  assert.equal(descriptor.id, "field-name");
+  assert.equal(descriptor.dispatchKey, "p1.zip");
+  assert.equal(descriptor.labelHint, "ZIP");
+  assert.equal(descriptor.broken, undefined);
+});
+
+test("resolveNodeDescriptor marks broken when id missing from index", () => {
+  const document = createDocument();
+  const index = createRuntimeDocumentIndex(document);
+  const descriptor = index.resolveNodeDescriptor("ghost-id");
+  assert.equal(descriptor.id, "ghost-id");
+  assert.equal(descriptor.broken, true);
+});
+
+test("resolveNodeDescriptor returns lastSeenLabel from tombstone map when id missing", () => {
+  const document = createDocument();
+  const index = createRuntimeDocumentIndex(document);
+  const tombstones: NodeTombstoneMap = {
+    get: (id) => (id === "deleted-1" ? { lastSeenLabel: "Old Field" } : undefined),
+  };
+  const descriptor = index.resolveNodeDescriptor("deleted-1", tombstones);
+  assert.equal(descriptor.broken, true);
+  assert.equal(descriptor.lastSeenLabel, "Old Field");
+});
+
+// ── T7 tests: NodeRef + EventRef resolution in dispatch path ──────────────────
+
+test("listener with source: NodeRef matches events from that node id", () => {
+  // Form-level listener with source: { id: "field-name" } — no legacy eventSourceNodeId.
+  // A field.change event targeting field-name should cause the listener to fire.
+  const document = createDocument();
+  document.runtime!.formListeners.push({
+    id: "listener-source-noderef",
+    label: "Source NodeRef match",
+    type: "field.change",
+    dispatcherId: "form-test",
+    dispatcherType: "form",
+    useCapture: true,
+    priority: 0,
+    eventName: "field.change",
+    source: { id: "field-name" },
+    enabled: true,
+    conditions: [],
+    actions: [
+      {
+        id: "action-source-noderef",
+        kind: "dispatch_event",
+        config: { eventType: "noderef.matched", payload: {} },
+        continueOnError: false,
+      },
+    ],
+  });
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const report = engine.dispatchWithReport(fieldChangeEvent("field-name", "hello"));
+  const listener = report.listeners.find((entry) => entry.listenerId === "listener-source-noderef");
+  assert.ok(listener, "listener should appear in report");
+  assert.equal(listener.matched, true, "listener should match when source node matches event target");
+  assert.equal(
+    report.emittedEvents.some((e) => e.type === "noderef.matched"),
+    true,
+    "action should have executed",
+  );
+});
+
+test("listener with source: NodeRef does not match events from other nodes", () => {
+  // Form-level listener with source: { id: "field-name" }.
+  // A field.change event targeting button-next should NOT fire the listener.
+  const document = createDocument();
+  document.runtime!.formListeners.push({
+    id: "listener-source-noderef-no-match",
+    label: "Source NodeRef no match",
+    type: "field.change",
+    dispatcherId: "form-test",
+    dispatcherType: "form",
+    useCapture: true,
+    priority: 0,
+    eventName: "field.change",
+    source: { id: "field-name" },
+    enabled: true,
+    conditions: [],
+    actions: [
+      {
+        id: "action-source-noderef-no-match",
+        kind: "dispatch_event",
+        config: { eventType: "noderef.should_not_emit", payload: {} },
+        continueOnError: false,
+      },
+    ],
+  });
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const report = engine.dispatchWithReport(fieldChangeEvent("button-next", "clicked"));
+  const listener = report.listeners.find((entry) => entry.listenerId === "listener-source-noderef-no-match");
+  assert.ok(listener, "listener should appear in report");
+  assert.equal(listener.matched, false, "listener should not match when source node does not match event target");
+  assert.equal(
+    report.emittedEvents.some((e) => e.type === "noderef.should_not_emit"),
+    false,
+    "action should not have executed",
+  );
+});
+
+test("listener with target: NodeRef sets resolved descriptor on dispatch report", () => {
+  // Form-level listener with target: { id: "field-name" } (which has a dispatchKey).
+  // After dispatching a matching event, report.listeners[n].resolvedTarget includes dispatchKey + labelHint.
+  const document = createDocument();
+  const field = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "field-name");
+  assert.ok(field);
+  field.dispatchKey = "p1.text.applicant-name";
+  field.label = "Applicant Name";
+
+  document.runtime!.formListeners.push({
+    id: "listener-target-noderef",
+    label: "Target NodeRef descriptor",
+    type: "field.change",
+    dispatcherId: "form-test",
+    dispatcherType: "form",
+    useCapture: true,
+    priority: 0,
+    eventName: "field.change",
+    target: { id: "field-name" },
+    enabled: true,
+    conditions: [],
+    actions: [],
+  });
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const report = engine.dispatchWithReport(fieldChangeEvent("field-name", "Jane"));
+  const listener = report.listeners.find((entry) => entry.listenerId === "listener-target-noderef");
+  assert.ok(listener, "listener should appear in report");
+  assert.equal(listener.matched, true);
+  assert.ok(listener.resolvedTarget, "resolvedTarget should be present on the diagnostic");
+  assert.equal(listener.resolvedTarget?.id, "field-name");
+  assert.equal(listener.resolvedTarget?.dispatchKey, "p1.text.applicant-name");
+  assert.equal(listener.resolvedTarget?.labelHint, "Applicant Name");
+});
+
+test("listener with eventRef matches the corresponding event definition by id", () => {
+  // Document has runtime.formEvents containing { id: "evt-zip", type: "zipResolved" }.
+  // Listener has eventRef: { id: "evt-zip" }, no legacy type/eventName type filter.
+  // Dispatching an event with type "zipResolved" should match the listener.
+  const document = createDocument();
+  document.runtime!.formEvents.push({
+    id: "evt-zip",
+    type: "zipResolved",
+    description: "ZIP code resolved",
+  });
+  document.runtime!.formListeners.push({
+    id: "listener-eventref",
+    label: "EventRef match",
+    dispatcherId: "form-test",
+    dispatcherType: "form",
+    useCapture: true,
+    priority: 0,
+    eventName: "zipResolved",
+    eventRef: { id: "evt-zip" },
+    enabled: true,
+    conditions: [],
+    actions: [
+      {
+        id: "action-eventref",
+        kind: "dispatch_event",
+        config: { eventType: "eventref.matched", payload: {} },
+        continueOnError: false,
+      },
+    ],
+  });
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const zipEvent: RuntimeEventEnvelope = {
+    type: "zipResolved",
+    version: "1.0",
+    source: {
+      runtimeId: "runtime-test",
+      formId: "form-test",
+      projectId: "project-test",
+      nodeId: "form-test",
+      nodeType: "form",
+    },
+    payload: {},
+    correlationId: "corr-zip",
+    timestamp: "2026-05-01T12:00:05.000Z",
+  };
+
+  const report = engine.dispatchWithReport(zipEvent);
+  const listener = report.listeners.find((entry) => entry.listenerId === "listener-eventref");
+  assert.ok(listener, "listener should appear in report");
+  assert.equal(listener.matched, true, "listener should match via eventRef resolution");
+  assert.equal(
+    report.emittedEvents.some((e) => e.type === "eventref.matched"),
+    true,
+    "action should have executed",
+  );
+});
+
+test("listener with eventRef.id pointing to missing def is reported skipped with reason 'broken_event_ref'", () => {
+  // Listener has eventRef: { id: "evt-missing" } which doesn't exist in formEvents or node eventSources.
+  // dispatchWithReport should show the listener as skipped with reason "broken_event_ref".
+  const document = createDocument();
+  document.runtime!.formListeners.push({
+    id: "listener-broken-eventref",
+    label: "Broken EventRef",
+    dispatcherId: "form-test",
+    dispatcherType: "form",
+    useCapture: true,
+    priority: 0,
+    eventName: "anything",
+    eventRef: { id: "evt-missing" },
+    enabled: true,
+    conditions: [],
+    actions: [
+      {
+        id: "action-broken-eventref",
+        kind: "dispatch_event",
+        config: { eventType: "broken.should_not_emit", payload: {} },
+        continueOnError: false,
+      },
+    ],
+  });
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const anyEvent: RuntimeEventEnvelope = {
+    type: "anything",
+    version: "1.0",
+    source: {
+      runtimeId: "runtime-test",
+      formId: "form-test",
+      projectId: "project-test",
+      nodeId: "form-test",
+      nodeType: "form",
+    },
+    payload: {},
+    correlationId: "corr-broken",
+    timestamp: "2026-05-01T12:00:06.000Z",
+  };
+
+  const report = engine.dispatchWithReport(anyEvent);
+  const listener = report.listeners.find((entry) => entry.listenerId === "listener-broken-eventref");
+  assert.ok(listener, "listener should appear in report");
+  assert.equal(listener.matched, false);
+  assert.equal(listener.skippedReason, "broken_event_ref", "should report broken_event_ref reason");
+  assert.equal(
+    report.emittedEvents.some((e) => e.type === "broken.should_not_emit"),
+    false,
+    "action should not have executed",
+  );
+});
+
+test("legacy eventSourceNodeId continues to work alongside new source field", () => {
+  // Listener has only eventSourceNodeId (no source: NodeRef).
+  // It should still fire when the event targets that node id.
+  const document = createDocument();
+  document.runtime!.formListeners.push({
+    id: "listener-legacy-source",
+    label: "Legacy eventSourceNodeId",
+    type: "field.change",
+    dispatcherId: "form-test",
+    dispatcherType: "form",
+    useCapture: true,
+    priority: 0,
+    eventName: "field.change",
+    eventSourceNodeId: "field-name",
+    enabled: true,
+    conditions: [],
+    actions: [
+      {
+        id: "action-legacy-source",
+        kind: "dispatch_event",
+        config: { eventType: "legacy.matched", payload: {} },
+        continueOnError: false,
+      },
+    ],
+  });
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const report = engine.dispatchWithReport(fieldChangeEvent("field-name", "value"));
+  const listener = report.listeners.find((entry) => entry.listenerId === "listener-legacy-source");
+  assert.ok(listener, "listener should appear in report");
+  assert.equal(listener.matched, true, "legacy eventSourceNodeId should still match");
+  assert.equal(
+    report.emittedEvents.some((e) => e.type === "legacy.matched"),
+    true,
+    "action should have executed",
+  );
+});
+
+// ── T8: Library materialisation ──────────────────────────────────────────────
+
+test("listener with libraryRef uses materialised template from registry", () => {
+  const document = createDocument();
+
+  // Registry entry: template with a token-bearing condition.
+  const registry: BehaviorLibraryRegistry = {
+    resolve(id, _revision) {
+      if (id !== "lib-pattern-match") return undefined;
+      return {
+        id: "lib-pattern-match",
+        name: "Pattern match",
+        description: "Match payload value against a pattern",
+        category: "validation",
+        scope: "system",
+        revision: 1,
+        parameters: [{ key: "pattern", type: "string", label: "Pattern", required: true }],
+        bindsTo: [],
+        template: {
+          type: "field.change",
+          eventName: "field.change",
+          enabled: true,
+          conditions: [
+            {
+              id: "cond-pattern",
+              enabled: true,
+              source: { kind: "event_payload", path: "nextValue" },
+              operator: "equals",
+              expectedValue: "{{pattern}}",
+            },
+          ],
+          actions: [
+            {
+              id: "action-pattern-matched",
+              kind: "dispatch_event",
+              config: { eventType: "library.pattern_matched", payload: {} },
+              continueOnError: false,
+            },
+          ],
+        },
+      };
+    },
+  };
+
+  // A listener referencing the library entry with params.
+  const libraryListener: RuntimeListenerDefinition = {
+    id: "listener-lib",
+    label: "Library pattern match",
+    type: "field.change",
+    eventName: "field.change",
+    enabled: true,
+    conditions: [],
+    actions: [],
+    libraryRef: { id: "lib-pattern-match", revision: 1, params: { pattern: "12345" } },
+  };
+  document.runtime!.formListeners.push(libraryListener);
+
+  const engine = createRuntimeEngine({ libraryRegistry: registry });
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  // Dispatch matching value → should fire.
+  const reportMatch = engine.dispatchWithReport(fieldChangeEvent("field-name", "12345"));
+  const matchedEntry = reportMatch.listeners.find((l) => l.listenerId === "listener-lib");
+  assert.ok(matchedEntry, "listener should appear in report");
+  assert.equal(matchedEntry.matched, true, "listener should match when payload.value equals pattern");
+  assert.equal(
+    reportMatch.emittedEvents.some((e) => e.type === "library.pattern_matched"),
+    true,
+    "library action should have executed on match",
+  );
+
+  // Dispatch non-matching value → should not fire.
+  const reportNoMatch = engine.dispatchWithReport(fieldChangeEvent("field-name", "99999"));
+  const noMatchEntry = reportNoMatch.listeners.find((l) => l.listenerId === "listener-lib");
+  assert.ok(noMatchEntry, "listener should appear in report for non-match");
+  assert.equal(noMatchEntry.matched, false, "listener should not match when payload.value differs from pattern");
+  assert.equal(
+    reportNoMatch.emittedEvents.some((e) => e.type === "library.pattern_matched"),
+    false,
+    "library action should not execute on non-match",
+  );
+});
+
+test("listener with libraryRef.detached uses listener's own shape, not the template", () => {
+  const document = createDocument();
+
+  // Registry entry whose conditions would reject "accepted".
+  const registry: BehaviorLibraryRegistry = {
+    resolve(_id, _revision) {
+      return {
+        id: "lib-strict",
+        name: "Strict match",
+        description: "Only fires on 'rejected'",
+        category: "validation",
+        scope: "system",
+        revision: 1,
+        parameters: [],
+        bindsTo: [],
+        template: {
+          type: "field.change",
+          eventName: "field.change",
+          enabled: true,
+          conditions: [
+            {
+              id: "cond-strict",
+              enabled: true,
+              source: { kind: "event_payload", path: "nextValue" },
+              operator: "equals",
+              expectedValue: "rejected",
+            },
+          ],
+          actions: [
+            {
+              id: "action-strict",
+              kind: "dispatch_event",
+              config: { eventType: "library.strict_fired", payload: {} },
+              continueOnError: false,
+            },
+          ],
+        },
+      };
+    },
+  };
+
+  // Listener is detached — uses its own conditions (no conditions = always match on type).
+  const detachedListener: RuntimeListenerDefinition = {
+    id: "listener-detached",
+    label: "Detached",
+    type: "field.change",
+    eventName: "field.change",
+    enabled: true,
+    conditions: [],
+    actions: [
+      {
+        id: "action-detached-own",
+        kind: "dispatch_event",
+        config: { eventType: "detached.own_fired", payload: {} },
+        continueOnError: false,
+      },
+    ],
+    libraryRef: { id: "lib-strict", revision: 1, params: {}, detached: true },
+  };
+  document.runtime!.formListeners.push(detachedListener);
+
+  const engine = createRuntimeEngine({ libraryRegistry: registry });
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  // "accepted" would fail the library's template condition, but since detached = true the
+  // listener's own shape (no conditions) should match.
+  const report = engine.dispatchWithReport(fieldChangeEvent("field-name", "accepted"));
+  const entry = report.listeners.find((l) => l.listenerId === "listener-detached");
+  assert.ok(entry, "listener should appear in report");
+  assert.equal(entry.matched, true, "detached listener should use its own conditions");
+  assert.equal(
+    report.emittedEvents.some((e) => e.type === "detached.own_fired"),
+    true,
+    "detached listener's own action should fire",
+  );
+  assert.equal(
+    report.emittedEvents.some((e) => e.type === "library.strict_fired"),
+    false,
+    "library template action should NOT fire for detached listener",
+  );
+});
+
+test("listener with libraryRef but no registry entry is reported skipped with broken_library_ref", () => {
+  const document = createDocument();
+
+  // Registry that never finds anything.
+  const emptyRegistry: BehaviorLibraryRegistry = {
+    resolve(_id, _revision) {
+      return undefined;
+    },
+  };
+
+  const missingRefListener: RuntimeListenerDefinition = {
+    id: "listener-missing-lib",
+    label: "Missing library ref",
+    type: "field.change",
+    eventName: "field.change",
+    enabled: true,
+    conditions: [],
+    actions: [],
+    libraryRef: { id: "missing-entry", revision: 1, params: {} },
+  };
+  document.runtime!.formListeners.push(missingRefListener);
+
+  const engine = createRuntimeEngine({ libraryRegistry: emptyRegistry });
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const report = engine.dispatchWithReport(fieldChangeEvent("field-name", "any"));
+  const entry = report.listeners.find((l) => l.listenerId === "listener-missing-lib");
+  assert.ok(entry, "listener should appear in report");
+  assert.equal(entry.matched, false, "broken libraryRef listener should not match");
+  assert.equal(entry.skippedReason, "broken_library_ref", "skippedReason should be broken_library_ref");
+});
+
+test("applyTemplateTokens substitutes tokens into nested template structures", () => {
+  const result = applyTemplateTokens(
+    { a: "{{x}}", b: ["{{y}}", "raw"], c: { d: "{{z}}" } },
+    { x: 1, y: "two", z: true },
+  );
+  assert.deepEqual(result, { a: 1, b: ["two", "raw"], c: { d: true } });
+});
+
+// ── Telemetry sink tests ───────────────────────────────────────────────────
+
+test("telemetry sink receives behavior.executed for every fired listener", () => {
+  const document = createDocument();
+  const events: BehaviorExecutedEvent[] = [];
+
+  // Add two form-level listeners that both fire on field.change
+  document.runtime!.formListeners.push(
+    {
+      id: "telemetry-listener-a",
+      label: "Telemetry A",
+      eventName: "field.change",
+      enabled: true,
+      conditions: [],
+      actions: [
+        {
+          id: "action-telem-a",
+          kind: "set_field_value",
+          config: { fieldId: "field-name", value: "a" },
+          continueOnError: false,
+        },
+      ],
+    },
+    {
+      id: "telemetry-listener-b",
+      label: "Telemetry B",
+      eventName: "field.change",
+      enabled: true,
+      conditions: [],
+      actions: [
+        {
+          id: "action-telem-b",
+          kind: "set_field_value",
+          config: { fieldId: "field-name", value: "b" },
+          continueOnError: false,
+        },
+      ],
+    },
+  );
+
+  const engine = createRuntimeEngine({ telemetrySink: (e) => events.push(e) });
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  engine.dispatch(fieldChangeEvent("field-name", "hello"));
+
+  // Both form-level listeners should have fired → 2 telemetry events
+  assert.equal(events.length, 2, "expected 2 telemetry events, one per listener");
+  const listenerIds = events.map((e) => e.listenerId).sort();
+  assert.deepEqual(listenerIds, ["telemetry-listener-a", "telemetry-listener-b"]);
+});
+
+test("telemetry event includes durationMs >= 0", () => {
+  const document = createDocument();
+  const events: BehaviorExecutedEvent[] = [];
+
+  document.runtime!.formListeners.push({
+    id: "telemetry-duration-listener",
+    label: "Duration test",
+    eventName: "field.change",
+    enabled: true,
+    conditions: [],
+    actions: [
+      {
+        id: "action-duration",
+        kind: "set_field_value",
+        config: { fieldId: "field-name", value: "measured" },
+        continueOnError: false,
+      },
+    ],
+  });
+
+  const engine = createRuntimeEngine({ telemetrySink: (e) => events.push(e) });
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  engine.dispatch(fieldChangeEvent("field-name", "trigger"));
+
+  assert.ok(events.length >= 1, "expected at least one telemetry event");
+  const evt = events.find((e) => e.listenerId === "telemetry-duration-listener");
+  assert.ok(evt, "expected telemetry event for telemetry-duration-listener");
+  assert.equal(typeof evt.durationMs, "number", "durationMs should be a number");
+  assert.ok(isFinite(evt.durationMs), "durationMs should be finite");
+  assert.ok(evt.durationMs >= 0, "durationMs should be >= 0");
+});
+
+test("telemetry event includes error when an action throws and chain halts", () => {
+  const document = createDocument();
+  const events: BehaviorExecutedEvent[] = [];
+
+  // Use a circular-reference value in config to force structuredClone to throw
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const circular: any = {};
+  circular.self = circular;
+
+  document.runtime!.formListeners.push({
+    id: "telemetry-error-listener",
+    label: "Error test",
+    eventName: "field.change",
+    enabled: true,
+    conditions: [],
+    actions: [
+      {
+        id: "action-throws",
+        kind: "set_field_value",
+        // circular will cause structuredClone to throw inside executeAction
+        config: { fieldId: "field-name", value: circular } as Record<string, unknown>,
+        continueOnError: false,
+      },
+    ],
+  });
+
+  const engine = createRuntimeEngine({ telemetrySink: (e) => events.push(e) });
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  // The engine should throw because continueOnError is false
+  assert.throws(() => engine.dispatch(fieldChangeEvent("field-name", "trigger")));
+
+  // Exactly one telemetry event should have been emitted despite the throw
+  const telemetryEvt = events.find((e) => e.listenerId === "telemetry-error-listener");
+  assert.ok(telemetryEvt, "expected telemetry event to be emitted even on error");
+  assert.ok(telemetryEvt.error, "expected error field to be set");
+  assert.equal(typeof telemetryEvt.error.message, "string", "error.message should be a string");
+  assert.ok(telemetryEvt.error.message.length > 0, "error.message should be non-empty");
+});
+
+test("default engine without telemetrySink does not crash", () => {
+  const document = createDocument();
+  const engine = createRuntimeEngine(); // no telemetrySink
+
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  // Dispatching an event that fires a listener should not throw even without a sink
+  assert.doesNotThrow(() => engine.dispatch(clickEvent("button-next")));
+});
+
+// ---------------------------------------------------------------------------
+// resolveRuntimeToken tests
+// ---------------------------------------------------------------------------
+
+test("resolveRuntimeToken returns ok=true for valid $payload path", () => {
+  const result = resolveRuntimeToken("$payload.value", { payload: { value: "hello" } });
+  assert.equal(result.ok, true);
+  assert.equal(result.ok && result.value, "hello");
+});
+
+test("resolveRuntimeToken returns ok=false reason=unknown_root for $bogus", () => {
+  const result = resolveRuntimeToken("$bogus.x", {});
+  assert.equal(result.ok, false);
+  assert.equal(!result.ok && result.reason, "unknown_root");
+});
+
+test("resolveRuntimeToken returns ok=false reason=missing_path with pathRemainder for missing nested key", () => {
+  const result = resolveRuntimeToken("$payload.deep.thing", { payload: { deep: {} } });
+  assert.equal(result.ok, false);
+  assert.equal(!result.ok && result.reason, "missing_path");
+  assert.equal(!result.ok && result.pathRemainder, "thing");
+});
+
+test("resolveRuntimeToken returns ok=false reason=phase_3_only for $response", () => {
+  const result = resolveRuntimeToken("$response.foo", {});
+  assert.equal(result.ok, false);
+  assert.equal(!result.ok && result.reason, "phase_3_only");
+});
+
+test("resolveRuntimeToken handles $now and $uuid roots without paths", () => {
+  const now = resolveRuntimeToken("$now", {});
+  assert.equal(now.ok, true);
+  assert.match(String(now.ok && now.value), /\d{4}-\d{2}-\d{2}/);
+
+  const uuid = resolveRuntimeToken("$uuid", {});
+  assert.equal(uuid.ok, true);
+  assert.match(String(uuid.ok && uuid.value), /[a-f0-9-]+/i);
+});
+
+// ── Regression: library cache cross-talk (#1) ─────────────────────────────────
+
+test("two listeners with identical libraryRef+params each surface their own id and label in the dispatch report", () => {
+  // Both listeners reference the same library entry with the same params.
+  // Before the fix, the cache stored the full materialised listener (including envelope fields)
+  // so the second listener would incorrectly report the first listener's id/label.
+  const document = createDocument();
+
+  const registry: BehaviorLibraryRegistry = {
+    resolve(id, _revision) {
+      if (id !== "lib-shared") return undefined;
+      return {
+        id: "lib-shared",
+        name: "Shared pattern",
+        description: "Fires on any field.change",
+        category: "validation",
+        scope: "system",
+        revision: 1,
+        parameters: [],
+        bindsTo: [],
+        template: {
+          type: "field.change",
+          eventName: "field.change",
+          enabled: true,
+          conditions: [],
+          actions: [
+            {
+              id: "action-shared",
+              kind: "dispatch_event",
+              config: { eventType: "shared.fired", payload: {} },
+              continueOnError: false,
+            },
+          ],
+        },
+      };
+    },
+  };
+
+  // Two listeners: same libraryRef+params, different envelope fields.
+  const listenerA: RuntimeListenerDefinition = {
+    id: "listener-cache-a",
+    label: "Cache Listener A",
+    type: "field.change",
+    eventName: "field.change",
+    enabled: true,
+    conditions: [],
+    actions: [],
+    libraryRef: { id: "lib-shared", revision: 1, params: {} },
+  };
+  const listenerB: RuntimeListenerDefinition = {
+    id: "listener-cache-b",
+    label: "Cache Listener B",
+    type: "field.change",
+    eventName: "field.change",
+    enabled: false, // disabled — diagnostic should report its own enabled=false
+    conditions: [],
+    actions: [],
+    libraryRef: { id: "lib-shared", revision: 1, params: {} },
+  };
+  document.runtime!.formListeners.push(listenerA, listenerB);
+
+  const engine = createRuntimeEngine({ libraryRegistry: registry });
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const report = engine.dispatchWithReport(fieldChangeEvent("field-name", "value"));
+
+  const diagA = report.listeners.find((l) => l.listenerId === "listener-cache-a");
+  const diagB = report.listeners.find((l) => l.listenerId === "listener-cache-b");
+
+  assert.ok(diagA, "listener-cache-a should appear in report");
+  assert.ok(diagB, "listener-cache-b should appear in report");
+
+  // Each diagnostic must carry its own envelope fields, not the other listener's.
+  assert.equal(diagA.listenerId, "listener-cache-a", "diagA must have its own id");
+  assert.equal(diagA.label, "Cache Listener A", "diagA must have its own label");
+  assert.equal(diagA.enabled, true, "diagA must report its own enabled=true");
+  assert.equal(diagA.matched, true, "diagA should match");
+
+  assert.equal(diagB.listenerId, "listener-cache-b", "diagB must have its own id");
+  assert.equal(diagB.label, "Cache Listener B", "diagB must have its own label");
+  assert.equal(diagB.enabled, false, "diagB must report its own enabled=false");
+  assert.equal(diagB.matched, false, "diagB should not match because it is disabled");
+  assert.equal(diagB.skippedReason, "disabled", "diagB skippedReason should be 'disabled'");
+});
+
+// ── Regression: stableStringify recursive (#3) ───────────────────────────────
+
+test("stableStringify produces identical output for nested objects regardless of key insertion order", () => {
+  const a = stableStringify({ z: { b: 2, a: 1 }, a: [{ y: "y", x: "x" }] });
+  const b = stableStringify({ a: [{ x: "x", y: "y" }], z: { a: 1, b: 2 } });
+
+  assert.equal(a, b, "nested objects with different key insertion order should produce the same stable string");
+
+  // Sanity-check: different values must NOT be equal.
+  const c = stableStringify({ z: { b: 9, a: 1 }, a: [] });
+  assert.notEqual(a, c, "structurally different objects should produce different strings");
 });
