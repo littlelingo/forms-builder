@@ -157,6 +157,16 @@ export interface RuntimeEventTypeDefinition {
 
 export type RuntimeEventDefinition = RuntimeEventTypeDefinition;
 
+/** Reference to a runtime node by id. dispatchKey + labelHint resolved at read-time. */
+export interface NodeRef {
+  id: string;
+}
+
+/** Reference to a runtime event definition by id. nameHint optional, resolved live. */
+export interface EventRef {
+  id: string;
+}
+
 export interface RuntimeListenerDefinition {
   id: string;
   label?: string | null;
