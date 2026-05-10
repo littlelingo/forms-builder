@@ -6,6 +6,7 @@ import type {
   RuntimeActionDefinition,
   RuntimeEventEnvelope,
   RuntimeHostContext,
+  RuntimeListenerDefinition,
 } from "@form-builder/schema";
 
 import { createRuntimeEngine } from "./engine";
@@ -360,6 +361,25 @@ function invokeNextStepAction(): RuntimeActionDefinition {
     continueOnError: false,
   };
 }
+
+test("RuntimeListenerDefinition accepts NodeRef/EventRef/libraryRef/timing/provenance fields", () => {
+  // Type-check only: this test exists to prove the schema additions compile.
+  const listener: RuntimeListenerDefinition = {
+    id: "lst-001",
+    enabled: true,
+    eventName: "field.change",
+    source: { id: "node-1" },
+    target: { id: "node-2" },
+    eventRef: { id: "evt-1" },
+    libraryRef: { id: "lib-1", revision: 1, params: {} },
+    timing: { debounce_ms: 250 },
+    provenance: "library",
+    conditions: [],
+    actions: [],
+  };
+  assert.equal(listener.id, "lst-001");
+  assert.equal(listener.libraryRef?.revision, 1);
+});
 
 test("runtime restores session state after export/import style roundtrip", () => {
   const document = createDocument();

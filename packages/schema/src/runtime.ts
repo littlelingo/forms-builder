@@ -157,6 +157,20 @@ export interface RuntimeEventTypeDefinition {
 
 export type RuntimeEventDefinition = RuntimeEventTypeDefinition;
 
+export type BehaviorProvenance = "extraction" | "library" | "manual";
+
+export interface BehaviorLibraryRef {
+  id: string;
+  revision: number;
+  params: Record<string, unknown>;
+  detached?: boolean;
+}
+
+export interface BehaviorListenerTiming {
+  debounce_ms?: number;
+  throttle_ms?: number;
+}
+
 /** Reference to a runtime node by id. dispatchKey + labelHint resolved at read-time. */
 export interface NodeRef {
   id: string;
@@ -185,6 +199,13 @@ export interface RuntimeListenerDefinition {
   eventName: string;
   /** @deprecated use dispatcherId */
   sourceNodeId?: string | null;
+  // Phase 1A additions (all optional, additive):
+  source?: NodeRef;
+  target?: NodeRef;
+  eventRef?: EventRef;
+  libraryRef?: BehaviorLibraryRef;
+  timing?: BehaviorListenerTiming;
+  provenance?: BehaviorProvenance;
   enabled: boolean;
   conditions: RuntimeConditionDefinition[];
   actions: RuntimeActionDefinition[];
