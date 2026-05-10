@@ -35,7 +35,7 @@ export function ProjectList({ projects, onOpenProject }: ProjectListProps) {
             </button>
           ))
         ) : (
-          <div className="app-muted-card p-4 text-sm text-slate-500">
+          <div className="app-muted-card p-4 text-sm text-slate-600">
             No saved projects yet. Start with a blank form or import a PDF.
           </div>
         )}

@@ -4,9 +4,11 @@ import type {
   AuthoringGroup,
   AuthoringSection,
   AuthoringStep,
+  BehaviorLibraryEntry,
 } from "@form-builder/schema";
 import type { RuntimeListenerDefinition } from "@form-builder/schema";
 import { describeRuntimeAction } from "../utils/runtime-helpers";
+import { SYSTEM_LIBRARY } from "../library/system-library";
 
 /** One-line summary of a behavior row's collapsed display. */
 export function summariseListener(listener: RuntimeListenerDefinition): string {
@@ -97,12 +99,147 @@ function resolveEventRefDefName(document: AuthoringDocument, refId: string): str
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Broken-ref computation
+// ---------------------------------------------------------------------------
+
+export type BrokenRefEntry = {
+  kind: "source" | "target" | "eventRef" | "libraryRef";
+  lastSeenLabel?: string;
+};
+
+/**
+ * Returns an array describing any broken references in the listener.
+ * A ref is "broken" when its id is not resolvable in the current document /
+ * library, or when the tombstone map indicates it was recently deleted.
+ *
+ * Pass `tombstones` for deleted-node awareness (lastSeenLabel is taken from
+ * there when available).  Pass `projectLibrary` for libraryRef resolution.
+ */
+export function computeBrokenRefs(
+  listener: RuntimeListenerDefinition,
+  document: AuthoringDocument,
+  projectLibrary: BehaviorLibraryEntry[],
+  tombstones: Record<string, { lastSeenLabel?: string }>,
+): BrokenRefEntry[] {
+  const broken: BrokenRefEntry[] = [];
+
+  // Build a quick node-id set from the document.
+  const nodeIds = buildNodeIdSet(document);
+
+  // source ref
+  const sourceId = listener.source?.id;
+  if (sourceId && !nodeIds.has(sourceId)) {
+    broken.push({ kind: "source", lastSeenLabel: tombstones[sourceId]?.lastSeenLabel });
+  }
+
+  // target ref
+  const targetId = listener.target?.id;
+  if (targetId && !nodeIds.has(targetId)) {
+    broken.push({ kind: "target", lastSeenLabel: tombstones[targetId]?.lastSeenLabel });
+  }
+
+  // eventRef
+  const eventRefId = listener.eventRef?.id;
+  if (eventRefId && !resolveEventRefExists(document, eventRefId)) {
+    broken.push({ kind: "eventRef", lastSeenLabel: tombstones[eventRefId]?.lastSeenLabel });
+  }
+
+  // libraryRef (only check when not detached)
+  const libraryRef = listener.libraryRef;
+  if (libraryRef && !libraryRef.detached) {
+    const refId = libraryRef.id;
+    const inSystem = SYSTEM_LIBRARY.some((entry) => entry.id === refId);
+    const inProject = projectLibrary.some((entry) => entry.id === refId);
+    if (!inSystem && !inProject) {
+      broken.push({ kind: "libraryRef", lastSeenLabel: tombstones[refId]?.lastSeenLabel });
+    }
+  }
+
+  return broken;
+}
+
+/** Build a Set of all node ids present in the document. */
+function buildNodeIdSet(document: AuthoringDocument): Set<string> {
+  const ids = new Set<string>();
+  ids.add(document.id);
+  const visitNode = (node: AuthoringStep | AuthoringSection | AuthoringGroup | AuthoringField | undefined): void => {
+    if (!node) return;
+    const id = (node as { id?: string }).id;
+    if (id) ids.add(id);
+    const asStep = node as Partial<AuthoringStep>;
+    if (Array.isArray(asStep.sections)) {
+      for (const child of asStep.sections) visitNode(child);
+    }
+    const asSection = node as Partial<AuthoringSection>;
+    if (Array.isArray(asSection.groups)) {
+      for (const child of asSection.groups) visitNode(child);
+    }
+    const asHasFields = node as Partial<AuthoringSection | AuthoringGroup>;
+    if (Array.isArray(asHasFields.fields)) {
+      for (const child of asHasFields.fields) visitNode(child);
+    }
+  };
+  for (const step of document.steps ?? []) {
+    visitNode(step);
+  }
+  return ids;
+}
+
+/** Returns true if the given eventRef id is resolvable anywhere in the document. */
+function resolveEventRefExists(document: AuthoringDocument, refId: string): boolean {
+  const formEvents = document.runtime?.formEvents ?? [];
+  if (formEvents.some((def) => def.id === refId)) return true;
+  const visitNode = (node: AuthoringStep | AuthoringSection | AuthoringGroup | AuthoringField | undefined): boolean => {
+    if (!node) return false;
+    const sources = (node as { runtime?: { eventSources?: { id: string }[] } }).runtime?.eventSources ?? [];
+    if (sources.some((s) => s.id === refId)) return true;
+    const asStep = node as Partial<AuthoringStep>;
+    if (Array.isArray(asStep.sections)) {
+      for (const child of asStep.sections) {
+        if (visitNode(child)) return true;
+      }
+    }
+    const asSection = node as Partial<AuthoringSection>;
+    if (Array.isArray(asSection.groups)) {
+      for (const child of asSection.groups) {
+        if (visitNode(child)) return true;
+      }
+    }
+    const asHasFields = node as Partial<AuthoringSection | AuthoringGroup>;
+    if (Array.isArray(asHasFields.fields)) {
+      for (const child of asHasFields.fields) {
+        if (visitNode(child)) return true;
+      }
+    }
+    return false;
+  };
+  for (const step of document.steps ?? []) {
+    if (visitNode(step)) return true;
+  }
+  return false;
+}
+
 /** Counts behaviors elsewhere in the document that reference the given node id.
  *  Excludes listeners owned by the queried node itself.
  */
 export function countListenersReferencingNode(document: AuthoringDocument, nodeId: string): number {
-  if (!nodeId) return 0;
-  let count = 0;
+  return findListenersReferencingNode(document, nodeId).length;
+}
+
+export interface ReferencingListenerInfo {
+  listenerId: string;
+  label: string;
+  scopeLabel: string; // e.g., "ZIP code (field)" or "Form-level"
+}
+
+/**
+ * Returns info objects for all listeners (elsewhere in the document) that reference
+ * the given node id. Excludes listeners owned by the queried node itself.
+ */
+export function findListenersReferencingNode(document: AuthoringDocument, nodeId: string): ReferencingListenerInfo[] {
+  if (!nodeId) return [];
+  const results: ReferencingListenerInfo[] = [];
   const matchesRef = (listener: RuntimeListenerDefinition): boolean => {
     return (
       listener.source?.id === nodeId ||
@@ -111,41 +248,71 @@ export function countListenersReferencingNode(document: AuthoringDocument, nodeI
       listener.targetNodeId === nodeId
     );
   };
+  const listenerLabel = (listener: RuntimeListenerDefinition): string => {
+    const eventName = listener.eventName ?? "unknown event";
+    const actionCount = listener.actions?.length ?? 0;
+    return actionCount > 0
+      ? `When ${eventName} · ${actionCount} action${actionCount === 1 ? "" : "s"}`
+      : `When ${eventName} · (no actions)`;
+  };
   // Form-level listeners
   for (const listener of document.runtime?.formListeners ?? []) {
-    if (matchesRef(listener)) count++;
+    if (matchesRef(listener)) {
+      results.push({
+        listenerId: listener.id,
+        label: listenerLabel(listener),
+        scopeLabel: "Form-level",
+      });
+    }
   }
   // Walk node tree; exclude listeners owned by the queried node itself.
-  const visit = (node: AuthoringStep | AuthoringSection | AuthoringGroup | AuthoringField | undefined): void => {
+  const visit = (
+    node: AuthoringStep | AuthoringSection | AuthoringGroup | AuthoringField | undefined,
+    parentScopeLabel: string,
+  ): void => {
     if (!node) return;
     const ownerId = (node as { id?: string }).id;
+    const nodeLabel =
+      (node as Partial<AuthoringField>).label ??
+      (node as Partial<AuthoringStep>).title ??
+      (node as { name?: string }).name ??
+      ownerId ??
+      "unknown";
+    const nodeKind = "sections" in node ? "step" : "groups" in node ? "section" : "fields" in node ? "group" : "field";
+    const selfScopeLabel = `${nodeLabel} (${nodeKind})`;
     const listeners = (node as { runtime?: { listeners?: RuntimeListenerDefinition[] } }).runtime?.listeners ?? [];
     if (ownerId !== nodeId) {
       for (const listener of listeners) {
-        if (matchesRef(listener)) count++;
+        if (matchesRef(listener)) {
+          results.push({
+            listenerId: listener.id,
+            label: listenerLabel(listener),
+            scopeLabel: selfScopeLabel,
+          });
+        }
       }
     }
     const asStep = node as Partial<AuthoringStep>;
     if (Array.isArray(asStep.sections)) {
       for (const child of asStep.sections) {
-        visit(child);
+        visit(child, selfScopeLabel);
       }
     }
     const asSection = node as Partial<AuthoringSection>;
     if (Array.isArray(asSection.groups)) {
       for (const child of asSection.groups) {
-        visit(child);
+        visit(child, selfScopeLabel);
       }
     }
     const asHasFields = node as Partial<AuthoringSection | AuthoringGroup>;
     if (Array.isArray(asHasFields.fields)) {
       for (const child of asHasFields.fields) {
-        visit(child);
+        visit(child, selfScopeLabel);
       }
     }
   };
   for (const step of document.steps ?? []) {
-    visit(step);
+    visit(step, "");
   }
-  return count;
+  return results;
 }

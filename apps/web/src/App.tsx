@@ -95,6 +95,8 @@ import {
   BehaviorInspectorPanel,
   BehaviorManager,
   countListenersReferencingNode,
+  findListenersReferencingNode,
+  computeBrokenRefs,
   BehaviorQuickToolbar,
   BehaviorStudioModal,
   BehaviorWorkspace,
@@ -1664,6 +1666,100 @@ function buildLibraryRegistry(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Pre-flight delete modal
+// ---------------------------------------------------------------------------
+
+function PreFlightDeleteModal({
+  preFlightDelete,
+  onClose,
+}: {
+  preFlightDelete: {
+    nodeId: string;
+    nodeLabel: string;
+    referenceCount: number;
+    referencingListeners: { listenerId: string; label: string; scopeLabel: string }[];
+    onConfirm: () => void;
+  };
+  onClose: () => void;
+}) {
+  const cancelRef = useRef<HTMLButtonElement | null>(null);
+
+  // ESC to close + focus restoration
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    // Initial focus on Cancel button
+    cancelRef.current?.focus();
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      previouslyFocused?.focus?.();
+    };
+  }, [onClose]);
+
+  const { nodeLabel, referenceCount, referencingListeners, onConfirm } = preFlightDelete;
+  const listToShow = referencingListeners.slice(0, 5);
+  const overflow = referencingListeners.length - listToShow.length;
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/40 p-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="preflight-delete-title"
+        className="relative flex w-full max-w-[26rem] flex-col overflow-hidden rounded-[1.15rem] border border-slate-200 bg-[#f5f7fb] shadow-[0_24px_64px_rgba(15,23,42,0.24)]"
+      >
+        <div className="shrink-0 border-b border-slate-200 bg-white/96 px-4 py-3 backdrop-blur">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">Confirm delete</p>
+              <h3 id="preflight-delete-title" className="mt-0.5 text-lg font-semibold text-slate-950">
+                {nodeLabel}
+              </h3>
+            </div>
+            <button type="button" aria-label="Cancel delete" onClick={onClose} className={iconButtonClass()}>
+              ×
+            </button>
+          </div>
+        </div>
+        <div className="space-y-4 px-4 py-4">
+          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800">
+            <strong>
+              {referenceCount} behavior{referenceCount === 1 ? "" : "s"}
+            </strong>{" "}
+            reference this node. Deleting it will leave those behaviors with broken references (highlighted with a
+            warning pill). You can fix or remove them after deletion.
+            <ul className="mt-2 space-y-1 text-sm">
+              {listToShow.map((info) => (
+                <li key={info.listenerId} className="flex gap-2">
+                  <span className="text-red-600">{info.scopeLabel}</span>
+                  <span>· {info.label}</span>
+                </li>
+              ))}
+              {overflow > 0 && <li className="text-red-600">+ {overflow} more</li>}
+            </ul>
+          </div>
+          <p className="text-sm text-slate-600">
+            The &quot;Re-point to&quot; option (substituting a replacement node in all referencing behaviors) is
+            deferred to a future release.
+          </p>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-slate-200 px-4 py-3">
+          <button ref={cancelRef} type="button" onClick={onClose} className={actionButtonClass("secondary")}>
+            Cancel
+          </button>
+          <button type="button" onClick={onConfirm} className={actionButtonClass("danger")}>
+            Delete + leave broken refs
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const jsonInputRef = useRef<HTMLInputElement | null>(null);
@@ -1829,6 +1925,20 @@ export default function App() {
   const [saveToLibraryDescription, setSaveToLibraryDescription] = useState("");
   const [saveToLibraryCategory, setSaveToLibraryCategory] = useState("custom");
   const [isSavingLibraryEntry, setIsSavingLibraryEntry] = useState(false);
+
+  // Tombstone map: records { lastSeenLabel } for nodes that have been deleted.
+  // Used by broken-ref computation so we can show the old label in the warning.
+  const [nodeTombstones, setNodeTombstones] = useState<Record<string, { lastSeenLabel?: string }>>({});
+
+  // Pre-flight delete modal state — set when a delete is intercepted and the
+  // node has at least one behavior referencing it.
+  const [preFlightDelete, setPreFlightDelete] = useState<{
+    nodeId: string;
+    nodeLabel: string;
+    referenceCount: number;
+    referencingListeners: { listenerId: string; label: string; scopeLabel: string }[];
+    onConfirm: () => void;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -2362,6 +2472,7 @@ export default function App() {
         stepId: null,
         selection: null,
         graphSelection: createListenerGraphSelection(listener),
+        provenance: listener.provenance,
       })) ?? [];
 
     const steps = activeDocument.steps.map<LogicMapStepEntry>((step) => {
@@ -2383,6 +2494,7 @@ export default function App() {
             stepId: step.id,
             selection: { kind: "step", stepId: step.id } as AuthoringSelection,
             graphSelection: createListenerGraphSelection(listener),
+            provenance: listener.provenance,
           })),
         );
       }
@@ -2403,6 +2515,7 @@ export default function App() {
               stepId: step.id,
               selection: { kind: "section", stepId: step.id, sectionId: section.id } as AuthoringSelection,
               graphSelection: createListenerGraphSelection(listener),
+              provenance: listener.provenance,
             })),
           );
         }
@@ -2451,6 +2564,7 @@ export default function App() {
                   fieldId: field.id,
                 } as AuthoringSelection,
                 graphSelection: createListenerGraphSelection(listener),
+                provenance: listener.provenance,
               })),
             );
           }
@@ -2477,6 +2591,7 @@ export default function App() {
                   groupId: group.id,
                 } as AuthoringSelection,
                 graphSelection: createListenerGraphSelection(listener),
+                provenance: listener.provenance,
               })),
             );
           }
@@ -2531,6 +2646,7 @@ export default function App() {
                     fieldId: field.id,
                   } as AuthoringSelection,
                   graphSelection: createListenerGraphSelection(listener),
+                  provenance: listener.provenance,
                 })),
               );
             }
@@ -2632,6 +2748,18 @@ export default function App() {
     if (!activeDocument || !activeSelectionNodeId) return 0;
     return countListenersReferencingNode(activeDocument, activeSelectionNodeId);
   }, [activeDocument, activeSelectionNodeId]);
+  /** Broken refs per listener id, for the current scope. */
+  const brokenRefsByListenerId = useMemo(() => {
+    if (!activeDocument || scopeListeners.length === 0) return {};
+    const result: Record<string, import("./features/behavior/stack/runtime-stack-helpers").BrokenRefEntry[]> = {};
+    for (const listener of scopeListeners) {
+      const refs = computeBrokenRefs(listener, activeDocument, projectLibrary, nodeTombstones);
+      if (refs.length > 0) {
+        result[listener.id] = refs;
+      }
+    }
+    return result;
+  }, [activeDocument, scopeListeners, projectLibrary, nodeTombstones]);
   const runtimeTraceEntries = useMemo(() => {
     if (!activeDocument) {
       return [];
@@ -7557,57 +7685,103 @@ export default function App() {
     );
   }
 
+  /** Record a node into the tombstone map before deletion (for broken-ref display). */
+  function recordTombstone(nodeId: string, nodeLabel?: string) {
+    setNodeTombstones((prev) => ({ ...prev, [nodeId]: { lastSeenLabel: nodeLabel } }));
+  }
+
+  /** Run pre-flight check: if the node has referencing behaviors, show the modal;
+   *  otherwise call the deletion callback immediately. */
+  function runPreFlightDelete(nodeId: string, nodeLabel: string, deleteFn: () => void) {
+    if (!activeDocument) {
+      deleteFn();
+      return;
+    }
+    const referencingListeners = findListenersReferencingNode(activeDocument, nodeId);
+    const refCount = referencingListeners.length;
+    if (refCount === 0) {
+      recordTombstone(nodeId, nodeLabel);
+      deleteFn();
+    } else {
+      setPreFlightDelete({
+        nodeId,
+        nodeLabel,
+        referenceCount: refCount,
+        referencingListeners,
+        onConfirm: () => {
+          recordTombstone(nodeId, nodeLabel);
+          deleteFn();
+          setPreFlightDelete(null);
+        },
+      });
+    }
+  }
+
   function handleRemoveStep(stepId: string) {
     if (!activeDocument) {
       return;
     }
-    const index = activeDocument.steps.findIndex((step) => step.id === stepId);
+    const step = activeDocument.steps.find((candidate) => candidate.id === stepId);
+    const stepLabel = step?.title ?? `Step ${stepId}`;
+    const index = activeDocument.steps.findIndex((candidate) => candidate.id === stepId);
     const nextStep = activeDocument.steps[index + 1] ?? activeDocument.steps[index - 1] ?? null;
-    updateAuthoringDocument(
-      (document) => {
-        const currentIndex = document.steps.findIndex((step) => step.id === stepId);
-        if (currentIndex >= 0) {
-          document.steps.splice(currentIndex, 1);
-        }
-      },
-      nextStep ? { kind: "step", stepId: nextStep.id } : null,
-    );
+    runPreFlightDelete(stepId, stepLabel, () => {
+      updateAuthoringDocument(
+        (document) => {
+          const currentIndex = document.steps.findIndex((candidate) => candidate.id === stepId);
+          if (currentIndex >= 0) {
+            document.steps.splice(currentIndex, 1);
+          }
+        },
+        nextStep ? { kind: "step", stepId: nextStep.id } : null,
+      );
+    });
   }
 
   function handleRemoveSection(stepId: string, sectionId: string) {
     const step = activeDocument?.steps.find((candidate) => candidate.id === stepId);
-    const index = step?.sections.findIndex((section) => section.id === sectionId) ?? -1;
+    const section = step?.sections.find((candidate) => candidate.id === sectionId);
+    const sectionLabel = section?.title ?? `Section ${sectionId}`;
+    const index = step?.sections.findIndex((candidate) => candidate.id === sectionId) ?? -1;
     const nextSection = index >= 0 ? (step?.sections[index + 1] ?? step?.sections[index - 1] ?? null) : null;
-    updateAuthoringDocument(
-      (document) => {
-        const currentStep = document.steps.find((candidate) => candidate.id === stepId);
-        const currentIndex = currentStep?.sections.findIndex((section) => section.id === sectionId) ?? -1;
-        if (currentStep && currentIndex >= 0) {
-          currentStep.sections.splice(currentIndex, 1);
-        }
-      },
-      nextSection ? { kind: "section", stepId, sectionId: nextSection.id } : { kind: "step", stepId },
-    );
+    runPreFlightDelete(sectionId, sectionLabel, () => {
+      updateAuthoringDocument(
+        (document) => {
+          const currentStep = document.steps.find((candidate) => candidate.id === stepId);
+          const currentIndex = currentStep?.sections.findIndex((candidate) => candidate.id === sectionId) ?? -1;
+          if (currentStep && currentIndex >= 0) {
+            currentStep.sections.splice(currentIndex, 1);
+          }
+        },
+        nextSection ? { kind: "section", stepId, sectionId: nextSection.id } : { kind: "step", stepId },
+      );
+    });
   }
 
   function handleRemoveGroup(stepId: string, sectionId: string, groupId: string) {
     const section = activeDocument?.steps
       .find((candidate) => candidate.id === stepId)
       ?.sections.find((candidate) => candidate.id === sectionId);
-    const index = section?.groups.findIndex((group) => group.id === groupId) ?? -1;
+    const group = section?.groups.find((candidate) => candidate.id === groupId);
+    const groupLabel = group?.label ?? `Group ${groupId}`;
+    const index = section?.groups.findIndex((candidate) => candidate.id === groupId) ?? -1;
     const nextGroup = index >= 0 ? (section?.groups[index + 1] ?? section?.groups[index - 1] ?? null) : null;
-    updateAuthoringDocument(
-      (document) => {
-        const currentSection = document.steps
-          .find((candidate) => candidate.id === stepId)
-          ?.sections.find((candidate) => candidate.id === sectionId);
-        const currentIndex = currentSection?.groups.findIndex((group) => group.id === groupId) ?? -1;
-        if (currentSection && currentIndex >= 0) {
-          currentSection.groups.splice(currentIndex, 1);
-        }
-      },
-      nextGroup ? { kind: "group", stepId, sectionId, groupId: nextGroup.id } : { kind: "section", stepId, sectionId },
-    );
+    runPreFlightDelete(groupId, groupLabel, () => {
+      updateAuthoringDocument(
+        (document) => {
+          const currentSection = document.steps
+            .find((candidate) => candidate.id === stepId)
+            ?.sections.find((candidate) => candidate.id === sectionId);
+          const currentIndex = currentSection?.groups.findIndex((candidate) => candidate.id === groupId) ?? -1;
+          if (currentSection && currentIndex >= 0) {
+            currentSection.groups.splice(currentIndex, 1);
+          }
+        },
+        nextGroup
+          ? { kind: "group", stepId, sectionId, groupId: nextGroup.id }
+          : { kind: "section", stepId, sectionId },
+      );
+    });
   }
 
   function handleRemoveField(stepId: string, sectionId: string, fieldId: string, groupId?: string) {
@@ -7615,27 +7789,31 @@ export default function App() {
       .find((candidate) => candidate.id === stepId)
       ?.sections.find((candidate) => candidate.id === sectionId);
     const fields = groupId ? section?.groups.find((group) => group.id === groupId)?.fields : section?.fields;
-    const index = fields?.findIndex((field) => field.id === fieldId) ?? -1;
+    const field = fields?.find((candidate) => candidate.id === fieldId);
+    const fieldLabel = field?.label ?? `Field ${fieldId}`;
+    const index = fields?.findIndex((candidate) => candidate.id === fieldId) ?? -1;
     const nextField = index >= 0 ? (fields?.[index + 1] ?? fields?.[index - 1] ?? null) : null;
-    updateAuthoringDocument(
-      (document) => {
-        const currentSection = document.steps
-          .find((candidate) => candidate.id === stepId)
-          ?.sections.find((candidate) => candidate.id === sectionId);
-        const currentFields = groupId
-          ? currentSection?.groups.find((group) => group.id === groupId)?.fields
-          : currentSection?.fields;
-        const currentIndex = currentFields?.findIndex((field) => field.id === fieldId) ?? -1;
-        if (currentFields && currentIndex >= 0) {
-          currentFields.splice(currentIndex, 1);
-        }
-      },
-      nextField
-        ? { kind: "field", stepId, sectionId, ...(groupId ? { groupId } : {}), fieldId: nextField.id }
-        : groupId
-          ? { kind: "group", stepId, sectionId, groupId }
-          : { kind: "section", stepId, sectionId },
-    );
+    runPreFlightDelete(fieldId, fieldLabel, () => {
+      updateAuthoringDocument(
+        (document) => {
+          const currentSection = document.steps
+            .find((candidate) => candidate.id === stepId)
+            ?.sections.find((candidate) => candidate.id === sectionId);
+          const currentFields = groupId
+            ? currentSection?.groups.find((group) => group.id === groupId)?.fields
+            : currentSection?.fields;
+          const currentIndex = currentFields?.findIndex((candidate) => candidate.id === fieldId) ?? -1;
+          if (currentFields && currentIndex >= 0) {
+            currentFields.splice(currentIndex, 1);
+          }
+        },
+        nextField
+          ? { kind: "field", stepId, sectionId, ...(groupId ? { groupId } : {}), fieldId: nextField.id }
+          : groupId
+            ? { kind: "group", stepId, sectionId, groupId }
+            : { kind: "section", stepId, sectionId },
+      );
+    });
   }
 
   function handleSelectionDragStart(event: DragEvent<HTMLElement>, payload: DragPayload) {
@@ -9231,6 +9409,7 @@ export default function App() {
             }
           : undefined
       }
+      brokenRefsByListenerId={brokenRefsByListenerId}
     />
   ) : null;
   const mapContent = logicMapData ? (
@@ -11176,6 +11355,11 @@ export default function App() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {/* Pre-flight delete modal — shown when the node being deleted has referencing behaviors */}
+      {preFlightDelete !== null ? (
+        <PreFlightDeleteModal preFlightDelete={preFlightDelete} onClose={() => setPreFlightDelete(null)} />
       ) : null}
     </main>
   );

@@ -4,6 +4,7 @@ import type { RuntimeTraceEntry } from "@form-builder/runtime";
 import type {
   AuthoringDocument,
   AuthoringField,
+  BehaviorProvenance,
   RuntimeActionDefinition,
   RuntimeActionKind,
   RuntimeConditionDefinition,
@@ -287,6 +288,7 @@ export interface LogicMapListenerEntry {
   stepId?: string | null;
   selection: AuthoringSelection | null;
   graphSelection: BehaviorGraphSelection;
+  provenance?: BehaviorProvenance;
 }
 
 export type BehaviorGraphSelection =

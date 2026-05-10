@@ -1,4 +1,11 @@
-import type { AuthoringField, RuntimeEventDefinition, RuntimeListenerDefinition } from "@form-builder/schema";
+import { useState } from "react";
+import type {
+  AuthoringField,
+  BehaviorSafetyClass,
+  RuntimeEventDefinition,
+  RuntimeListenerDefinition,
+} from "@form-builder/schema";
+import { runtimeActionSafetyClass } from "@form-builder/schema";
 import type { AuthoringSelection } from "../../../lib/authoring-utils";
 import { runtimeEventDefinitionType } from "../utils/runtime-helpers";
 import type {
@@ -80,6 +87,12 @@ export interface BehaviorManagerProps {
   onHandleTestSelectedChain: (listener: RuntimeListenerDefinition | null) => void;
 }
 
+type ManagerFilterState = {
+  provenance: "all" | "extraction" | "library" | "manual";
+  safetyClass: "all" | "safe" | "destructive" | "host";
+  brokenRefsOnly: boolean;
+};
+
 type BehaviorIndexObject = {
   id: string;
   kind: "rule" | "flow" | "event";
@@ -103,6 +116,9 @@ type BehaviorIndexObject = {
   listener: LogicMapListenerEntry | null;
   event: RuntimeEventDefinition | null;
   eventSource: RuntimeEventSourceCandidate | null;
+  provenance: "extraction" | "library" | "manual" | null;
+  worstSafetyClass: BehaviorSafetyClass;
+  hasBrokenRef: boolean;
 };
 
 export function BehaviorManager({
@@ -160,6 +176,11 @@ export function BehaviorManager({
   onHandleTestSelectedRule,
   onHandleTestSelectedChain,
 }: BehaviorManagerProps) {
+  const [managerFilters, setManagerFilters] = useState<ManagerFilterState>({
+    provenance: "all",
+    safetyClass: "all",
+    brokenRefsOnly: false,
+  });
   const scopeListeners = activeRuntimeScope?.listeners ?? [];
   const scopeEvents = activeRuntimeScope?.eventSources ?? [];
   const currentScopeTitle =
@@ -196,6 +217,17 @@ export function BehaviorManager({
     return haystack.includes(managerQuery);
   });
   const behaviorIndexFieldId = selectedAuthoring?.kind === "field" ? selectedAuthoring.fieldId : null;
+  const worstSafetyClassFor = (
+    actionKinds: import("@form-builder/schema").RuntimeActionKind[],
+  ): BehaviorSafetyClass => {
+    let worst: BehaviorSafetyClass = "safe";
+    for (const kind of actionKinds) {
+      const cls = runtimeActionSafetyClass(kind);
+      if (cls === "destructive") return "destructive";
+      if (cls === "host") worst = "host";
+    }
+    return worst;
+  };
   const allRuleObjects =
     logicMapData?.steps.flatMap((step) =>
       step.conditionalBehavior.map((rule) => ({
@@ -221,41 +253,52 @@ export function BehaviorManager({
         listener: null,
         event: null,
         eventSource: null,
+        provenance: null as "extraction" | "library" | "manual" | null,
+        worstSafetyClass: "safe" as BehaviorSafetyClass,
+        hasBrokenRef: !runtimeNodeLabelById.has(rule.sourceFieldId) || !runtimeNodeLabelById.has(rule.targetFieldId),
       })),
     ) ?? [];
   const allFlowObjects = [
     ...(logicMapData?.formListeners ?? []),
     ...(logicMapData?.steps.flatMap((step) => step.runtimeListeners) ?? []),
-  ].map((listener) => ({
-    id: listener.id,
-    kind: "flow" as const,
-    objectLabel: "Listener",
-    title: `When ${formatLabel(listener.eventName)}`,
-    detail: listener.actionsSummary,
-    stepId: listener.stepId ?? "form",
-    stepTitle: listener.stepId
-      ? (logicMapData?.steps.find((step) => step.id === listener.stepId)?.title ?? "Step")
-      : "Form runtime",
-    scopeLabel: listener.scopeLabel,
-    triggerType: listener.eventName,
-    effectType: listener.actionKinds.length ? listener.actionKinds.map(formatLabel).join(", ") : "No actions",
-    status: listener.enabled ? ("enabled" as const) : ("disabled" as const),
-    startedIds: [
-      listener.sourceNodeId,
-      listener.selection?.kind === "field" ? listener.selection.fieldId : null,
-    ].filter((value): value is string => Boolean(value)),
-    impactsIds: listener.targetNodeIds,
-    startedLabel: listener.scopeLabel,
-    impactsLabel:
-      listener.targetNodeIds.map((id) => runtimeNodeLabelById.get(id) ?? id).join(", ") || listener.actionsSummary,
-    selection: listener.selection,
-    graphSelection: listener.graphSelection,
-    ruleIndex: null,
-    rule: null,
-    listener,
-    event: null,
-    eventSource: null,
-  }));
+  ].map((listener) => {
+    const hasBrokenRef =
+      (listener.sourceNodeId != null && !runtimeNodeLabelById.has(listener.sourceNodeId)) ||
+      listener.targetNodeIds.some((id) => !runtimeNodeLabelById.has(id));
+    return {
+      id: listener.id,
+      kind: "flow" as const,
+      objectLabel: "Listener",
+      title: `When ${formatLabel(listener.eventName)}`,
+      detail: listener.actionsSummary,
+      stepId: listener.stepId ?? "form",
+      stepTitle: listener.stepId
+        ? (logicMapData?.steps.find((step) => step.id === listener.stepId)?.title ?? "Step")
+        : "Form runtime",
+      scopeLabel: listener.scopeLabel,
+      triggerType: listener.eventName,
+      effectType: listener.actionKinds.length ? listener.actionKinds.map(formatLabel).join(", ") : "No actions",
+      status: listener.enabled ? ("enabled" as const) : ("disabled" as const),
+      startedIds: [
+        listener.sourceNodeId,
+        listener.selection?.kind === "field" ? listener.selection.fieldId : null,
+      ].filter((value): value is string => Boolean(value)),
+      impactsIds: listener.targetNodeIds,
+      startedLabel: listener.scopeLabel,
+      impactsLabel:
+        listener.targetNodeIds.map((id) => runtimeNodeLabelById.get(id) ?? id).join(", ") || listener.actionsSummary,
+      selection: listener.selection,
+      graphSelection: listener.graphSelection,
+      ruleIndex: null,
+      rule: null,
+      listener,
+      event: null,
+      eventSource: null,
+      provenance: (listener.provenance ?? null) as "extraction" | "library" | "manual" | null,
+      worstSafetyClass: worstSafetyClassFor(listener.actionKinds),
+      hasBrokenRef,
+    };
+  });
   const runtimeSelectionForCandidate = (candidate: RuntimeEventSourceCandidate): AuthoringSelection | null => {
     if (candidate.nodeType === "form") {
       return null;
@@ -309,6 +352,9 @@ export function BehaviorManager({
         listener: null,
         event: eventDefinition,
         eventSource: source,
+        provenance: null as "extraction" | "library" | "manual" | null,
+        worstSafetyClass: "safe" as BehaviorSafetyClass,
+        hasBrokenRef: false,
       };
     });
   });
@@ -353,7 +399,24 @@ export function BehaviorManager({
       (behaviorIndexObjectView === "impacts"
         ? item.impactsIds.includes(behaviorIndexFieldId)
         : item.startedIds.includes(behaviorIndexFieldId));
-    return queryMatch && stepMatch && scopeMatch && triggerMatch && effectMatch && statusMatch && objectViewMatch;
+    const provenanceMatch =
+      managerFilters.provenance === "all" ||
+      (managerFilters.provenance === "manual" && item.provenance == null) ||
+      item.provenance === managerFilters.provenance;
+    const safetyMatch = managerFilters.safetyClass === "all" || item.worstSafetyClass === managerFilters.safetyClass;
+    const brokenMatch = !managerFilters.brokenRefsOnly || item.hasBrokenRef;
+    return (
+      queryMatch &&
+      stepMatch &&
+      scopeMatch &&
+      triggerMatch &&
+      effectMatch &&
+      statusMatch &&
+      objectViewMatch &&
+      provenanceMatch &&
+      safetyMatch &&
+      brokenMatch
+    );
   });
   const openBehaviorIndexObject = (item: BehaviorIndexObject) => {
     if (item.kind === "event") {
@@ -891,6 +954,70 @@ export function BehaviorManager({
                 </button>
               ))}
             </div>
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                Provenance
+                <select
+                  value={managerFilters.provenance}
+                  onChange={(event) =>
+                    setManagerFilters((prev) => ({
+                      ...prev,
+                      provenance: event.target.value as ManagerFilterState["provenance"],
+                    }))
+                  }
+                  className="mt-1 w-full rounded-2xl border border-soft bg-slate-50 px-3 py-2.5 text-sm normal-case tracking-normal text-slate-800"
+                >
+                  <option value="all">All provenances</option>
+                  <option value="manual">Manual</option>
+                  <option value="extraction">Extraction</option>
+                  <option value="library">Library</option>
+                </select>
+              </label>
+              <label className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                Safety class
+                <select
+                  value={managerFilters.safetyClass}
+                  onChange={(event) =>
+                    setManagerFilters((prev) => ({
+                      ...prev,
+                      safetyClass: event.target.value as ManagerFilterState["safetyClass"],
+                    }))
+                  }
+                  className="mt-1 w-full rounded-2xl border border-soft bg-slate-50 px-3 py-2.5 text-sm normal-case tracking-normal text-slate-800"
+                >
+                  <option value="all">All classes</option>
+                  <option value="safe">Safe</option>
+                  <option value="host">Host</option>
+                  <option value="destructive">Destructive</option>
+                </select>
+                {managerFilters.safetyClass !== "all" && (
+                  <span className="mt-1 block text-xs normal-case tracking-normal text-slate-500">
+                    Filters listener actions only — rules and events not shown.
+                  </span>
+                )}
+              </label>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setManagerFilters((prev) => ({ ...prev, brokenRefsOnly: !prev.brokenRefsOnly }))}
+                className={actionButtonClass(managerFilters.brokenRefsOnly ? "primary" : "secondary")}
+              >
+                {managerFilters.brokenRefsOnly ? "Broken refs only (on)" : "Broken refs only"}
+              </button>
+              {managerFilters.provenance !== "all" ||
+              managerFilters.safetyClass !== "all" ||
+              managerFilters.brokenRefsOnly ? (
+                <button
+                  type="button"
+                  onClick={() => setManagerFilters({ provenance: "all", safetyClass: "all", brokenRefsOnly: false })}
+                  className={actionButtonClass("secondary")}
+                >
+                  Clear extra filters
+                </button>
+              ) : null}
+            </div>
           </div>
 
           <div className="mt-4 space-y-3">
@@ -910,6 +1037,37 @@ export function BehaviorManager({
                           <span className="app-pill">{item.objectLabel}</span>
                           <span className="app-pill">{item.status}</span>
                           <span className="app-pill">{item.stepTitle}</span>
+                          {item.provenance != null ? (
+                            <span
+                              className={`app-pill ${
+                                item.provenance === "extraction"
+                                  ? "bg-slate-100 text-slate-600"
+                                  : item.provenance === "library"
+                                    ? "bg-amber-100 text-amber-700"
+                                    : "bg-slate-100 text-slate-600"
+                              }`}
+                              title={`Provenance: ${item.provenance}`}
+                            >
+                              {item.provenance}
+                            </span>
+                          ) : null}
+                          {item.worstSafetyClass !== "safe" ? (
+                            <span
+                              className={`app-pill ${
+                                item.worstSafetyClass === "destructive"
+                                  ? "bg-rose-100 text-rose-700"
+                                  : "bg-amber-100 text-amber-700"
+                              }`}
+                              title={`Safety: ${item.worstSafetyClass}`}
+                            >
+                              {item.worstSafetyClass}
+                            </span>
+                          ) : null}
+                          {item.hasBrokenRef ? (
+                            <span className="app-pill bg-red-100 text-red-700" title="Has broken reference">
+                              broken ref
+                            </span>
+                          ) : null}
                         </div>
                         <p className="mt-3 font-semibold text-slate-950">{item.title}</p>
                         <p className="mt-2 text-sm leading-6 text-slate-600">{item.detail}</p>

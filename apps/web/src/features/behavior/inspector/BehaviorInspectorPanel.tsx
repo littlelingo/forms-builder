@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import type { AuthoringDocument, RuntimeListenerDefinition } from "@form-builder/schema";
 
+import type { BrokenRefEntry } from "../stack/runtime-stack-helpers";
 import { BehaviorStackList } from "../index";
 
 export interface BehaviorInspectorPanelProps {
@@ -22,6 +23,8 @@ export interface BehaviorInspectorPanelProps {
   composer?: ReactNode;
   /** When provided, shows an "Open in advanced studio" link while the inline editor is active. */
   onOpenInAdvancedStudio?: () => void;
+  /** Broken refs keyed by listener id, computed by parent. */
+  brokenRefsByListenerId?: Record<string, BrokenRefEntry[]>;
 }
 
 export function BehaviorInspectorPanel({
@@ -39,6 +42,7 @@ export function BehaviorInspectorPanel({
   editingListenerId,
   composer,
   onOpenInAdvancedStudio,
+  brokenRefsByListenerId,
 }: BehaviorInspectorPanelProps) {
   return (
     <div className="space-y-4">
@@ -55,6 +59,7 @@ export function BehaviorInspectorPanel({
         onSaveToLibrary={onSaveToLibrary}
         editingListenerId={editingListenerId}
         composer={composer}
+        brokenRefsByListenerId={brokenRefsByListenerId}
       />
 
       {editingListenerId && onOpenInAdvancedStudio ? (

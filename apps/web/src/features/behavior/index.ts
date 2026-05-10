@@ -39,7 +39,14 @@ export { BehaviorStackList } from "./stack/BehaviorStackList";
 export type { BehaviorStackListProps } from "./stack/BehaviorStackList";
 export { BehaviorStackRow } from "./stack/BehaviorStackRow";
 export type { BehaviorStackRowProps } from "./stack/BehaviorStackRow";
-export { summariseListener, listenerTriggerPill, countListenersReferencingNode } from "./stack/runtime-stack-helpers";
+export {
+  summariseListener,
+  listenerTriggerPill,
+  countListenersReferencingNode,
+  findListenersReferencingNode,
+  computeBrokenRefs,
+} from "./stack/runtime-stack-helpers";
+export type { BrokenRefEntry, ReferencingListenerInfo } from "./stack/runtime-stack-helpers";
 export { SYSTEM_LIBRARY, getSystemEntry } from "./library/system-library";
 export { validateParams, applyEntryToListener, defaultParamsForEntry } from "./library/library-helpers";
 export type { LibraryParamValidationResult } from "./library/library-helpers";

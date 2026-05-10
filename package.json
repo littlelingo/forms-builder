@@ -25,9 +25,12 @@
     "validate:corpus": "PYTHONPATH=apps/api/src ./.venv/bin/python3 scripts/validate_form_samples.py",
     "build:schema": "npm run build --workspace @form-builder/schema",
     "build:runtime": "npm run build --workspace @form-builder/runtime",
-    "generate:schema-types": "npm run generate --workspace @form-builder/schema"
+    "generate:schema-types": "npm run generate --workspace @form-builder/schema",
+    "a11y:smoke": "npm run build:web && node tools/a11y-smoke/orchestrate.mjs"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "playwright": "^1.59.1",
     "prettier": "^3.8.3"
   }
 }

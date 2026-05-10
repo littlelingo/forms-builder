@@ -7,6 +7,7 @@ import type { AuthoringDocument, RuntimeListenerDefinition } from "@form-builder
 import { actionButtonClass } from "../../../lib/ui-utils";
 
 import { BehaviorStackRow } from "./BehaviorStackRow";
+import type { BrokenRefEntry } from "./runtime-stack-helpers";
 import { listenerTriggerPill, summariseListener } from "./runtime-stack-helpers";
 
 export interface BehaviorStackListProps {
@@ -26,6 +27,8 @@ export interface BehaviorStackListProps {
   editingListenerId?: string | null;
   /** Composer node mounted in place of the editing row, or in place of the empty state when editingListenerId === "__new__". */
   composer?: ReactNode;
+  /** Map from listener id to its broken refs array, computed by the parent. */
+  brokenRefsByListenerId?: Record<string, BrokenRefEntry[]>;
 }
 
 export function BehaviorStackList({
@@ -41,6 +44,7 @@ export function BehaviorStackList({
   onSaveToLibrary,
   editingListenerId,
   composer,
+  brokenRefsByListenerId,
 }: BehaviorStackListProps) {
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -144,6 +148,7 @@ export function BehaviorStackList({
                   onEdit={onEditListener}
                   onToggleEnabled={onToggleListenerEnabled}
                   onSaveToLibrary={onSaveToLibrary}
+                  brokenRefs={brokenRefsByListenerId?.[listener.id]}
                 />
               </div>
             );

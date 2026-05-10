@@ -6,6 +6,7 @@ import type {
   RuntimeListenerDefinition,
   RuntimePayloadMode,
 } from "@form-builder/schema";
+import { runtimeActionSafetyClass } from "@form-builder/schema";
 import {
   describeRuntimeAction,
   getRuntimeActionEventType,
@@ -402,7 +403,18 @@ export function ActionEditor({
   defaultRuntimeActionConfigForScope,
   firstListenerPayloadReference,
 }: ActionEditorProps) {
-  const actionTone = options?.highlighted ? "border-blue-300 bg-blue-50/60" : "border-soft bg-white";
+  const safetyClassName = (() => {
+    switch (runtimeActionSafetyClass(action.kind)) {
+      case "destructive":
+        return "border-rose-300 bg-rose-50";
+      case "host":
+        return "border-amber-300 bg-amber-50";
+      case "safe":
+      default:
+        return "";
+    }
+  })();
+  const actionTone = options?.highlighted ? "border-blue-300 bg-blue-50/60" : safetyClassName || "border-soft bg-white";
   const structuredPayloadEntries = runtimePayloadEntries(getRuntimeActionPayload(action));
   const payloadIssues = runtimePayloadIssues(structuredPayloadEntries);
   const emittedEventIssue =
