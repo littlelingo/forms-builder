@@ -1613,3 +1613,307 @@ test("resolveNodeDescriptor returns lastSeenLabel from tombstone map when id mis
   assert.equal(descriptor.broken, true);
   assert.equal(descriptor.lastSeenLabel, "Old Field");
 });
+
+// ── T7 tests: NodeRef + EventRef resolution in dispatch path ──────────────────
+
+test("listener with source: NodeRef matches events from that node id", () => {
+  // Form-level listener with source: { id: "field-name" } — no legacy eventSourceNodeId.
+  // A field.change event targeting field-name should cause the listener to fire.
+  const document = createDocument();
+  document.runtime!.formListeners.push({
+    id: "listener-source-noderef",
+    label: "Source NodeRef match",
+    type: "field.change",
+    dispatcherId: "form-test",
+    dispatcherType: "form",
+    useCapture: true,
+    priority: 0,
+    eventName: "field.change",
+    source: { id: "field-name" },
+    enabled: true,
+    conditions: [],
+    actions: [
+      {
+        id: "action-source-noderef",
+        kind: "dispatch_event",
+        config: { eventType: "noderef.matched", payload: {} },
+        continueOnError: false,
+      },
+    ],
+  });
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const report = engine.dispatchWithReport(fieldChangeEvent("field-name", "hello"));
+  const listener = report.listeners.find((entry) => entry.listenerId === "listener-source-noderef");
+  assert.ok(listener, "listener should appear in report");
+  assert.equal(listener.matched, true, "listener should match when source node matches event target");
+  assert.equal(
+    report.emittedEvents.some((e) => e.type === "noderef.matched"),
+    true,
+    "action should have executed",
+  );
+});
+
+test("listener with source: NodeRef does not match events from other nodes", () => {
+  // Form-level listener with source: { id: "field-name" }.
+  // A field.change event targeting button-next should NOT fire the listener.
+  const document = createDocument();
+  document.runtime!.formListeners.push({
+    id: "listener-source-noderef-no-match",
+    label: "Source NodeRef no match",
+    type: "field.change",
+    dispatcherId: "form-test",
+    dispatcherType: "form",
+    useCapture: true,
+    priority: 0,
+    eventName: "field.change",
+    source: { id: "field-name" },
+    enabled: true,
+    conditions: [],
+    actions: [
+      {
+        id: "action-source-noderef-no-match",
+        kind: "dispatch_event",
+        config: { eventType: "noderef.should_not_emit", payload: {} },
+        continueOnError: false,
+      },
+    ],
+  });
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const report = engine.dispatchWithReport(fieldChangeEvent("button-next", "clicked"));
+  const listener = report.listeners.find((entry) => entry.listenerId === "listener-source-noderef-no-match");
+  assert.ok(listener, "listener should appear in report");
+  assert.equal(listener.matched, false, "listener should not match when source node does not match event target");
+  assert.equal(
+    report.emittedEvents.some((e) => e.type === "noderef.should_not_emit"),
+    false,
+    "action should not have executed",
+  );
+});
+
+test("listener with target: NodeRef sets resolved descriptor on dispatch report", () => {
+  // Form-level listener with target: { id: "field-name" } (which has a dispatchKey).
+  // After dispatching a matching event, report.listeners[n].resolvedTarget includes dispatchKey + labelHint.
+  const document = createDocument();
+  const field = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "field-name");
+  assert.ok(field);
+  field.dispatchKey = "p1.text.applicant-name";
+  field.label = "Applicant Name";
+
+  document.runtime!.formListeners.push({
+    id: "listener-target-noderef",
+    label: "Target NodeRef descriptor",
+    type: "field.change",
+    dispatcherId: "form-test",
+    dispatcherType: "form",
+    useCapture: true,
+    priority: 0,
+    eventName: "field.change",
+    target: { id: "field-name" },
+    enabled: true,
+    conditions: [],
+    actions: [],
+  });
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const report = engine.dispatchWithReport(fieldChangeEvent("field-name", "Jane"));
+  const listener = report.listeners.find((entry) => entry.listenerId === "listener-target-noderef");
+  assert.ok(listener, "listener should appear in report");
+  assert.equal(listener.matched, true);
+  assert.ok(listener.resolvedTarget, "resolvedTarget should be present on the diagnostic");
+  assert.equal(listener.resolvedTarget?.id, "field-name");
+  assert.equal(listener.resolvedTarget?.dispatchKey, "p1.text.applicant-name");
+  assert.equal(listener.resolvedTarget?.labelHint, "Applicant Name");
+});
+
+test("listener with eventRef matches the corresponding event definition by id", () => {
+  // Document has runtime.formEvents containing { id: "evt-zip", type: "zipResolved" }.
+  // Listener has eventRef: { id: "evt-zip" }, no legacy type/eventName type filter.
+  // Dispatching an event with type "zipResolved" should match the listener.
+  const document = createDocument();
+  document.runtime!.formEvents.push({
+    id: "evt-zip",
+    type: "zipResolved",
+    description: "ZIP code resolved",
+  });
+  document.runtime!.formListeners.push({
+    id: "listener-eventref",
+    label: "EventRef match",
+    dispatcherId: "form-test",
+    dispatcherType: "form",
+    useCapture: true,
+    priority: 0,
+    eventName: "zipResolved",
+    eventRef: { id: "evt-zip" },
+    enabled: true,
+    conditions: [],
+    actions: [
+      {
+        id: "action-eventref",
+        kind: "dispatch_event",
+        config: { eventType: "eventref.matched", payload: {} },
+        continueOnError: false,
+      },
+    ],
+  });
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const zipEvent: RuntimeEventEnvelope = {
+    type: "zipResolved",
+    version: "1.0",
+    source: {
+      runtimeId: "runtime-test",
+      formId: "form-test",
+      projectId: "project-test",
+      nodeId: "form-test",
+      nodeType: "form",
+    },
+    payload: {},
+    correlationId: "corr-zip",
+    timestamp: "2026-05-01T12:00:05.000Z",
+  };
+
+  const report = engine.dispatchWithReport(zipEvent);
+  const listener = report.listeners.find((entry) => entry.listenerId === "listener-eventref");
+  assert.ok(listener, "listener should appear in report");
+  assert.equal(listener.matched, true, "listener should match via eventRef resolution");
+  assert.equal(
+    report.emittedEvents.some((e) => e.type === "eventref.matched"),
+    true,
+    "action should have executed",
+  );
+});
+
+test("listener with eventRef.id pointing to missing def is reported skipped with reason 'broken_event_ref'", () => {
+  // Listener has eventRef: { id: "evt-missing" } which doesn't exist in formEvents or node eventSources.
+  // dispatchWithReport should show the listener as skipped with reason "broken_event_ref".
+  const document = createDocument();
+  document.runtime!.formListeners.push({
+    id: "listener-broken-eventref",
+    label: "Broken EventRef",
+    dispatcherId: "form-test",
+    dispatcherType: "form",
+    useCapture: true,
+    priority: 0,
+    eventName: "anything",
+    eventRef: { id: "evt-missing" },
+    enabled: true,
+    conditions: [],
+    actions: [
+      {
+        id: "action-broken-eventref",
+        kind: "dispatch_event",
+        config: { eventType: "broken.should_not_emit", payload: {} },
+        continueOnError: false,
+      },
+    ],
+  });
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const anyEvent: RuntimeEventEnvelope = {
+    type: "anything",
+    version: "1.0",
+    source: {
+      runtimeId: "runtime-test",
+      formId: "form-test",
+      projectId: "project-test",
+      nodeId: "form-test",
+      nodeType: "form",
+    },
+    payload: {},
+    correlationId: "corr-broken",
+    timestamp: "2026-05-01T12:00:06.000Z",
+  };
+
+  const report = engine.dispatchWithReport(anyEvent);
+  const listener = report.listeners.find((entry) => entry.listenerId === "listener-broken-eventref");
+  assert.ok(listener, "listener should appear in report");
+  assert.equal(listener.matched, false);
+  assert.equal(listener.skippedReason, "broken_event_ref", "should report broken_event_ref reason");
+  assert.equal(
+    report.emittedEvents.some((e) => e.type === "broken.should_not_emit"),
+    false,
+    "action should not have executed",
+  );
+});
+
+test("legacy eventSourceNodeId continues to work alongside new source field", () => {
+  // Listener has only eventSourceNodeId (no source: NodeRef).
+  // It should still fire when the event targets that node id.
+  const document = createDocument();
+  document.runtime!.formListeners.push({
+    id: "listener-legacy-source",
+    label: "Legacy eventSourceNodeId",
+    type: "field.change",
+    dispatcherId: "form-test",
+    dispatcherType: "form",
+    useCapture: true,
+    priority: 0,
+    eventName: "field.change",
+    eventSourceNodeId: "field-name",
+    enabled: true,
+    conditions: [],
+    actions: [
+      {
+        id: "action-legacy-source",
+        kind: "dispatch_event",
+        config: { eventType: "legacy.matched", payload: {} },
+        continueOnError: false,
+      },
+    ],
+  });
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const report = engine.dispatchWithReport(fieldChangeEvent("field-name", "value"));
+  const listener = report.listeners.find((entry) => entry.listenerId === "listener-legacy-source");
+  assert.ok(listener, "listener should appear in report");
+  assert.equal(listener.matched, true, "legacy eventSourceNodeId should still match");
+  assert.equal(
+    report.emittedEvents.some((e) => e.type === "legacy.matched"),
+    true,
+    "action should have executed",
+  );
+});

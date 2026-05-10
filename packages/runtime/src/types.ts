@@ -57,7 +57,8 @@ export interface RuntimeListenerDiagnostic {
   eventPhase: RuntimeEventEnvelope["eventPhase"];
   enabled: boolean;
   matched: boolean;
-  skippedReason?: "disabled" | "event_type" | "conditions_failed";
+  skippedReason?: "disabled" | "event_type" | "conditions_failed" | "source_mismatch" | "broken_event_ref";
+  resolvedTarget?: NodeDescriptor;
   conditions: RuntimeConditionDiagnostic[];
   actions: RuntimeActionDiagnostic[];
 }

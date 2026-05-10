@@ -248,20 +248,102 @@ export function createRuntimeEngine(): RuntimeEngine {
     };
   };
 
+  const resolveEventRefType = (eventRefId: string): string | null => {
+    if (!document) return null;
+    // Scan form-scope events first
+    for (const def of document.runtime?.formEvents ?? []) {
+      if (def.id === eventRefId) return def.type ?? def.name ?? null;
+    }
+    // Scan node-scope eventSources
+    for (const step of document.steps) {
+      for (const section of step.sections) {
+        for (const field of section.fields) {
+          for (const def of field.runtime?.eventSources ?? []) {
+            if (def.id === eventRefId) return def.type ?? def.name ?? null;
+          }
+        }
+        for (const group of section.groups) {
+          for (const field of group.fields) {
+            for (const def of field.runtime?.eventSources ?? []) {
+              if (def.id === eventRefId) return def.type ?? def.name ?? null;
+            }
+          }
+        }
+      }
+    }
+    return null;
+  };
+
   const evaluateListenerDiagnostic = (
     indexedListener: IndexedRuntimeListener,
     event: RuntimeEventEnvelope,
   ): RuntimeListenerDiagnostic => {
     const listener = indexedListener.listener;
-    const type = listenerEventType(listener);
     const enabled = listener.enabled !== false;
+
+    // Resolve event type: prefer eventRef lookup, fall back to legacy type/eventName.
+    let type: string;
+    let brokenEventRef = false;
+    if (listener.eventRef) {
+      const resolved = resolveEventRefType(listener.eventRef.id);
+      if (resolved === null) {
+        brokenEventRef = true;
+        type = listenerEventType(listener); // placeholder; listener will be skipped
+      } else {
+        type = resolved;
+      }
+    } else {
+      type = listenerEventType(listener);
+    }
+
+    if (brokenEventRef) {
+      const resolvedTarget = listener.target?.id && index
+        ? index.resolveNodeDescriptor(listener.target.id)
+        : undefined;
+      return {
+        listenerId: listener.id,
+        label: listener.label ?? null,
+        type,
+        dispatcherId: indexedListener.dispatcherId,
+        dispatcherType: indexedListener.dispatcherType,
+        eventPhase: event.eventPhase,
+        enabled,
+        matched: false,
+        skippedReason: "broken_event_ref",
+        conditions: [],
+        actions: [],
+        ...(resolvedTarget ? { resolvedTarget } : {}),
+      };
+    }
+
     const typeMatches = type === event.type;
+
+    // Source-node filter: prefer listener.source?.id, fall back to eventSourceNodeId.
+    const sourceFilterId = listener.source?.id ?? listener.eventSourceNodeId ?? null;
+    const eventTargetNodeId = event.target?.nodeId ?? null;
+    const sourceMismatch = sourceFilterId !== null && sourceFilterId !== eventTargetNodeId;
+
     const conditions =
-      enabled && typeMatches
+      enabled && typeMatches && !sourceMismatch
         ? (listener.conditions ?? []).map((condition) => evaluateConditionDiagnostic(condition, event))
         : [];
     const conditionsPassed = conditions.every((condition) => condition.passed);
-    const matched = enabled && typeMatches && conditionsPassed;
+    const matched = enabled && typeMatches && !sourceMismatch && conditionsPassed;
+
+    // Resolve target descriptor when listener.target?.id is set.
+    const resolvedTarget =
+      listener.target?.id && index ? index.resolveNodeDescriptor(listener.target.id) : undefined;
+
+    const skippedReason = matched
+      ? undefined
+      : !enabled
+        ? "disabled"
+        : !typeMatches
+          ? "event_type"
+          : sourceMismatch
+            ? "source_mismatch"
+            : "conditions_failed";
+
     return {
       listenerId: listener.id,
       label: listener.label ?? null,
@@ -271,9 +353,10 @@ export function createRuntimeEngine(): RuntimeEngine {
       eventPhase: event.eventPhase,
       enabled,
       matched,
-      skippedReason: matched ? undefined : !enabled ? "disabled" : !typeMatches ? "event_type" : "conditions_failed",
+      skippedReason,
       conditions,
       actions: [],
+      ...(resolvedTarget ? { resolvedTarget } : {}),
     };
   };
 
