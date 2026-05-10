@@ -10,6 +10,7 @@ import type { AuthoringSelection } from "../../../lib/authoring-utils";
 import { runtimeEventDefinitionType } from "../utils/runtime-helpers";
 import type {
   BehaviorGraphSelection,
+  BehaviorIndexLayout,
   BehaviorIndexObjectView,
   BehaviorIndexStatusFilter,
   BehaviorStudioManagerMode,
@@ -47,6 +48,7 @@ export interface BehaviorManagerProps {
   behaviorIndexEffectFilter: string;
   behaviorIndexStatusFilter: BehaviorIndexStatusFilter;
   behaviorIndexObjectView: BehaviorIndexObjectView;
+  behaviorIndexLayout: BehaviorIndexLayout;
   expandedBehaviorIndexObjectKey: string | null;
   conditionalGroups: LegacyConditionalRuleGroup[];
   currentBehaviorSelectionSummary: () => string;
@@ -75,6 +77,7 @@ export interface BehaviorManagerProps {
   onSetBehaviorIndexEffectFilter: (filter: string) => void;
   onSetBehaviorIndexStatusFilter: (filter: BehaviorIndexStatusFilter) => void;
   onSetBehaviorIndexObjectView: (view: BehaviorIndexObjectView) => void;
+  onSetBehaviorIndexLayout: (layout: BehaviorIndexLayout) => void;
   onToggleLegacyConditionalRuleForSelection: (selection: AuthoringSelection, ruleId: string) => void;
   onDuplicateLegacyConditionalRuleForSelection: (selection: AuthoringSelection, ruleId: string) => void;
   onRemoveLegacyConditionalRuleForSelection: (selection: AuthoringSelection, ruleId: string) => void;
@@ -137,6 +140,7 @@ export function BehaviorManager({
   behaviorIndexEffectFilter,
   behaviorIndexStatusFilter,
   behaviorIndexObjectView,
+  behaviorIndexLayout,
   expandedBehaviorIndexObjectKey,
   conditionalGroups,
   currentBehaviorSelectionSummary,
@@ -165,6 +169,7 @@ export function BehaviorManager({
   onSetBehaviorIndexEffectFilter,
   onSetBehaviorIndexStatusFilter,
   onSetBehaviorIndexObjectView,
+  onSetBehaviorIndexLayout,
   onToggleLegacyConditionalRuleForSelection,
   onDuplicateLegacyConditionalRuleForSelection,
   onRemoveLegacyConditionalRuleForSelection,
@@ -953,6 +958,21 @@ export function BehaviorManager({
                       : "Started from this field"}
                 </button>
               ))}
+              {(["table", "by_event"] as const).map((layout) => (
+                <button
+                  key={`behavior-layout-${layout}`}
+                  type="button"
+                  onClick={() => onSetBehaviorIndexLayout(layout)}
+                  className={actionButtonClass(behaviorIndexLayout === layout ? "primary" : "secondary")}
+                  title={
+                    layout === "by_event"
+                      ? "Group behaviors by event type — see who raises and consumes each event"
+                      : "Flat list of every behavior matching the filters"
+                  }
+                >
+                  {layout === "table" ? "Table" : "By event"}
+                </button>
+              ))}
             </div>
 
             <div className="grid gap-2 sm:grid-cols-2">
@@ -1020,7 +1040,149 @@ export function BehaviorManager({
             </div>
           </div>
 
-          <div className="mt-4 space-y-3">
+          {behaviorIndexLayout === "by_event" && visibleBehaviorIndexObjects.length
+            ? (() => {
+                const groups = new Map<
+                  string,
+                  { triggerType: string; raisedBy: BehaviorIndexObject[]; consumedBy: BehaviorIndexObject[] }
+                >();
+                for (const item of visibleBehaviorIndexObjects) {
+                  const triggerType = item.triggerType || "(unspecified)";
+                  const group = groups.get(triggerType) ?? {
+                    triggerType,
+                    raisedBy: [],
+                    consumedBy: [],
+                  };
+                  if (item.kind === "event") {
+                    group.raisedBy.push(item);
+                  } else {
+                    group.consumedBy.push(item);
+                  }
+                  groups.set(triggerType, group);
+                }
+                const sorted = Array.from(groups.values()).sort((left, right) =>
+                  left.triggerType.localeCompare(right.triggerType),
+                );
+                return (
+                  <div className="mt-4 space-y-4">
+                    {sorted.map((group) => (
+                      <div
+                        key={`behavior-by-event-${group.triggerType}`}
+                        className="rounded-[1.05rem] border border-soft bg-slate-50 p-4"
+                      >
+                        <div className="flex flex-wrap items-baseline justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-[0.66rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                              Event type
+                            </p>
+                            <h6 className="mt-1 text-base font-semibold text-slate-950">
+                              {formatLabel(group.triggerType)}
+                            </h6>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <span className="app-pill">
+                              Raised by {group.raisedBy.length} source{group.raisedBy.length === 1 ? "" : "s"}
+                            </span>
+                            <span className="app-pill">
+                              Consumed by {group.consumedBy.length} listener
+                              {group.consumedBy.length === 1 ? "" : "s"}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                          <div>
+                            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Raised by</p>
+                            {group.raisedBy.length ? (
+                              <div className="mt-2 space-y-2">
+                                {group.raisedBy.map((item) => {
+                                  const canTest = item.graphSelection !== null;
+                                  return (
+                                    <div
+                                      key={`raised-${behaviorIndexObjectKey(item)}`}
+                                      className="rounded-[0.85rem] border border-soft bg-white p-3"
+                                    >
+                                      <p className="text-sm font-semibold text-slate-950">{item.scopeLabel}</p>
+                                      <p className="mt-1 text-xs text-slate-600">{item.detail}</p>
+                                      <div className="mt-2 flex flex-wrap gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => openBehaviorIndexObject(item)}
+                                          className={actionButtonClass("primary")}
+                                        >
+                                          Open
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => openBehaviorIndexObjectInSimulator(item)}
+                                          className={actionButtonClass("secondary")}
+                                          disabled={!canTest}
+                                        >
+                                          Trace from event
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <p className="mt-2 text-sm text-slate-500">No declared sources for this event yet.</p>
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Consumed by</p>
+                            {group.consumedBy.length ? (
+                              <div className="mt-2 space-y-2">
+                                {group.consumedBy.map((item) => {
+                                  const canTest = item.graphSelection !== null;
+                                  return (
+                                    <div
+                                      key={`consumed-${behaviorIndexObjectKey(item)}`}
+                                      className="rounded-[0.85rem] border border-soft bg-white p-3"
+                                    >
+                                      <div className="flex flex-wrap gap-2">
+                                        <span className="app-pill">{item.objectLabel}</span>
+                                        <span className="app-pill">{item.status}</span>
+                                        <span className="app-pill">{item.stepTitle}</span>
+                                        {item.hasBrokenRef ? (
+                                          <span className="app-pill bg-red-100 text-red-700">broken ref</span>
+                                        ) : null}
+                                      </div>
+                                      <p className="mt-2 text-sm font-semibold text-slate-950">{item.title}</p>
+                                      <p className="mt-1 text-xs text-slate-600">{item.detail}</p>
+                                      <div className="mt-2 flex flex-wrap gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => openBehaviorIndexObject(item)}
+                                          className={actionButtonClass("primary")}
+                                        >
+                                          Open in studio
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => openBehaviorIndexObjectInSimulator(item)}
+                                          className={actionButtonClass("secondary")}
+                                          disabled={!canTest}
+                                        >
+                                          Test
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <p className="mt-2 text-sm text-slate-500">No listeners react to this event yet.</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()
+            : null}
+
+          <div className={`mt-4 space-y-3 ${behaviorIndexLayout === "by_event" ? "hidden" : ""}`}>
             {visibleBehaviorIndexObjects.length ? (
               visibleBehaviorIndexObjects.map((item) => {
                 const itemKey = behaviorIndexObjectKey(item);

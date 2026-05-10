@@ -249,6 +249,12 @@ export type BehaviorStudioPositionLayout = {
   anchored: boolean;
 };
 export type BehaviorIndexObjectView = "all" | "impacts" | "started";
+/**
+ * Phase 2C: Manager layout switcher. `table` is the legacy flat list;
+ * `by_event` groups behaviors by event-type so reverse-index queries
+ * ("who raises X?", "who consumes X?") read at a glance.
+ */
+export type BehaviorIndexLayout = "table" | "by_event";
 export type BehaviorIndexStatusFilter = "all" | "enabled" | "disabled";
 export type DocumentBehaviorSurfaceMode = "board" | "minimap" | "canvas";
 export type DocumentBehaviorClusterFocus = "all" | "field" | "group" | "section" | "step";

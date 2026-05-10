@@ -181,6 +181,7 @@ import type {
   BehaviorGraphFilter,
   BehaviorGraphMode,
   BehaviorGraphSelection,
+  BehaviorIndexLayout,
   BehaviorIndexObjectView,
   BehaviorIndexStatusFilter,
   BehaviorListenerSourceType,
@@ -1861,6 +1862,7 @@ export default function App() {
   const [behaviorIndexEffectFilter, setBehaviorIndexEffectFilter] = useState("all");
   const [behaviorIndexStatusFilter, setBehaviorIndexStatusFilter] = useState<BehaviorIndexStatusFilter>("all");
   const [behaviorIndexObjectView, setBehaviorIndexObjectView] = useState<BehaviorIndexObjectView>("all");
+  const [behaviorIndexLayout, setBehaviorIndexLayout] = useState<BehaviorIndexLayout>("table");
   const [expandedBehaviorIndexObjectKey, setExpandedBehaviorIndexObjectKey] = useState<string | null>(null);
   const [behaviorWorkspaceMode, setBehaviorWorkspaceMode] = useState<BehaviorWorkspaceMode>("authoring");
   const [behaviorGraphFilter, setBehaviorGraphFilter] = useState<BehaviorGraphFilter>("all");
@@ -10090,6 +10092,7 @@ export default function App() {
                         behaviorIndexEffectFilter={behaviorIndexEffectFilter}
                         behaviorIndexStatusFilter={behaviorIndexStatusFilter}
                         behaviorIndexObjectView={behaviorIndexObjectView}
+                        behaviorIndexLayout={behaviorIndexLayout}
                         expandedBehaviorIndexObjectKey={expandedBehaviorIndexObjectKey}
                         conditionalGroups={
                           selectedAuthoring?.kind === "field" && activeBuilderField
@@ -10122,6 +10125,7 @@ export default function App() {
                         onSetBehaviorIndexEffectFilter={setBehaviorIndexEffectFilter}
                         onSetBehaviorIndexStatusFilter={setBehaviorIndexStatusFilter}
                         onSetBehaviorIndexObjectView={setBehaviorIndexObjectView}
+                        onSetBehaviorIndexLayout={setBehaviorIndexLayout}
                         onToggleLegacyConditionalRuleForSelection={toggleLegacyConditionalRuleForSelection}
                         onDuplicateLegacyConditionalRuleForSelection={duplicateLegacyConditionalRuleForSelection}
                         onRemoveLegacyConditionalRuleForSelection={removeLegacyConditionalRuleForSelection}
