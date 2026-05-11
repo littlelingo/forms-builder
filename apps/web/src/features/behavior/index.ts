@@ -42,8 +42,6 @@ export type {
   ReverseIndexConsumedEntry,
   ReverseIndexRaisedEntry,
 } from "./inspector/reverse-index-helpers";
-export { SimulatorPanel } from "./test/SimulatorPanel";
-export type { SimulatorPanelProps } from "./test/SimulatorPanel";
 export { PreviewTestRecorder } from "./test/PreviewTestRecorder";
 export type { PreviewTestRecorderProps } from "./test/PreviewTestRecorder";
 export { BehaviorStudioModal } from "./BehaviorStudioModal";
