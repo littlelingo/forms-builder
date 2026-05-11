@@ -1,6 +1,8 @@
 export { createRuntimeEngine } from "./engine";
 export { applyTemplateTokens } from "./template-tokens";
 export { resolveRuntimeToken } from "./tokens";
+export { lintRuntimeListener, lintRuntimeDocument } from "./authoring-lints";
+export type { AuthoringLintCode, AuthoringLintFinding } from "./authoring-lints";
 export type {
   BehaviorExecutedEvent,
   BehaviorLibraryRegistry,
