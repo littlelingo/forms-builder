@@ -466,6 +466,96 @@ test("Phase 3 Stage D: onError continue advances past the erroring action", asyn
   assert.equal(state.values["field-counter"], "after-error");
 });
 
+test("Phase 3 #18: $runtime current.response.* resolves after host_call_await resumes", async () => {
+  const document = createDocument();
+  document.runtime!.formEvents = [
+    { id: "evt-tick", type: "form.tick", dispatcherId: "form-async", dispatcherType: "form", bubbles: false, description: "" },
+  ];
+  document.runtime!.formListeners = [
+    {
+      id: "listener-await-response",
+      label: "Await host then write response.city",
+      eventName: "form.tick",
+      enabled: true,
+      conditions: [],
+      actions: [
+        {
+          id: "act-await",
+          kind: "host_call_await",
+          target: null,
+          config: { handlerKey: "lookup_city", correlationId: "corr-resp-1", timeoutMs: 1000 },
+          continueOnError: false,
+        },
+        {
+          id: "act-set-city",
+          kind: "set_field_value",
+          target: { nodeId: "field-counter", nodeType: "field" },
+          config: { fieldId: "field-counter", value: { $runtime: "current.response.city" } },
+          continueOnError: false,
+        },
+      ],
+    },
+  ];
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-async",
+    projectId: "project-async",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const inflight = engine.dispatchAsync(buildTickEvent(0));
+  // Give continuation a tick to register, then dispatch the response.
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  engine.dispatch({
+    type: "host.action_response",
+    version: "1.0",
+    source: { runtimeId: "runtime-async", formId: "form-async", projectId: "project-async", nodeId: null, nodeType: null },
+    payload: { correlationId: "corr-resp-1", city: "Springfield" },
+    correlationId: "corr-resp-1",
+    timestamp: "2026-06-01T00:01:00.000Z",
+  });
+
+  const state = await inflight;
+  assert.equal(
+    state.values["field-counter"],
+    "Springfield",
+    "set_field_value should resolve $runtime current.response.city from the resumed scope",
+  );
+});
+
+test("Phase 3 #18: $runtime current.response.* without async context resolves to null", () => {
+  const document = createDocument();
+  document.runtime!.formListeners = [
+    {
+      id: "listener-sync-noscope",
+      label: "Sync listener using $response without preceding await",
+      eventName: "form.tick",
+      enabled: true,
+      conditions: [],
+      actions: [
+        {
+          id: "act-set-from-response",
+          kind: "set_field_value",
+          target: { nodeId: "field-counter", nodeType: "field" },
+          config: { fieldId: "field-counter", value: { $runtime: "current.response.city" } },
+          continueOnError: false,
+        },
+      ],
+    },
+  ];
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-async",
+    projectId: "project-async",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+  const state = engine.dispatch(buildTickEvent(0));
+  // No host_call_await ran, so the response scope is empty; resolver returns null.
+  assert.equal(state.values["field-counter"], null);
+});
+
 test("Phase 3 Stage F: engine-level debounce defers listener execution to a single fire after the window", async () => {
   const document = createDocument();
   document.runtime!.formListeners = [

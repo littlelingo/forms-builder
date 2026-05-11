@@ -63,7 +63,11 @@ const runtimePayloadReferenceKeys = [
   "current.runtime.value",
 ] as const;
 
-type RuntimePayloadReferenceKey = (typeof runtimePayloadReferenceKeys)[number] | `current.event.payload.${string}`;
+type RuntimePayloadReferenceKey =
+  | (typeof runtimePayloadReferenceKeys)[number]
+  | `current.event.payload.${string}`
+  | `current.response.${string}`
+  | "current.response";
 
 interface RuntimeDispatchReportDraft {
   event: RuntimeEventEnvelope | null;
@@ -572,7 +576,14 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
                 ? action.target.nodeId
                 : null;
           if (targetFieldId) {
-            const value = resolveRuntimePayloadValue(action.config.value, event, document, index, state);
+            const value = resolveRuntimePayloadValue(
+              action.config.value,
+              event,
+              document,
+              index,
+              state,
+              asyncContext?.responseScope,
+            );
             state = {
               ...state,
               values: {
@@ -653,6 +664,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
             document,
             index,
             state,
+            asyncContext?.responseScope,
           );
           routeEvent(
             buildEvent(eventType, payload, "outbound", {
@@ -674,6 +686,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
             document,
             index,
             state,
+            asyncContext?.responseScope,
           );
           const config = structuredClone(action.config);
           config.payload = resolvedPayload;
@@ -1013,6 +1026,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
       document!,
       index!,
       state,
+      asyncContext.responseScope,
     );
 
     if (pendingContinuations.has(correlationId)) {
@@ -1884,7 +1898,9 @@ function isRuntimePayloadReference(value: unknown): value is { $runtime: Runtime
     isRecord(value) &&
     typeof value.$runtime === "string" &&
     (runtimePayloadReferenceKeys.includes(value.$runtime as (typeof runtimePayloadReferenceKeys)[number]) ||
-      /^current\.event\.payload\.[A-Za-z0-9_.-]+$/.test(value.$runtime))
+      /^current\.event\.payload\.[A-Za-z0-9_.-]+$/.test(value.$runtime) ||
+      // Phase 3: $response references — fully scoped (no path) or dotted path.
+      /^current\.response(\.[A-Za-z0-9_.-]+)?$/.test(value.$runtime))
   );
 }
 
@@ -1894,11 +1910,12 @@ function resolveRuntimePayload(
   document: AuthoringDocument,
   index: RuntimeDocumentIndex,
   state: RuntimeSessionState,
+  responseScope?: Record<string, unknown>,
 ): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(payload).map(([key, value]) => [
       key,
-      resolveRuntimePayloadValue(value, event, document, index, state),
+      resolveRuntimePayloadValue(value, event, document, index, state, responseScope),
     ]),
   );
 }
@@ -1909,18 +1926,19 @@ function resolveRuntimePayloadValue(
   document: AuthoringDocument,
   index: RuntimeDocumentIndex,
   state: RuntimeSessionState,
+  responseScope?: Record<string, unknown>,
 ): unknown {
   if (isRuntimePayloadReference(value)) {
-    return resolveRuntimePayloadReference(value.$runtime, event, document, index, state);
+    return resolveRuntimePayloadReference(value.$runtime, event, document, index, state, responseScope);
   }
   if (Array.isArray(value)) {
-    return value.map((entry) => resolveRuntimePayloadValue(entry, event, document, index, state));
+    return value.map((entry) => resolveRuntimePayloadValue(entry, event, document, index, state, responseScope));
   }
   if (isRecord(value)) {
     return Object.fromEntries(
       Object.entries(value).map(([key, entry]) => [
         key,
-        resolveRuntimePayloadValue(entry, event, document, index, state),
+        resolveRuntimePayloadValue(entry, event, document, index, state, responseScope),
       ]),
     );
   }
@@ -1933,6 +1951,7 @@ function resolveRuntimePayloadReference(
   document: AuthoringDocument,
   index: RuntimeDocumentIndex,
   state: RuntimeSessionState,
+  responseScope?: Record<string, unknown>,
 ): unknown {
   const sourceNodeId =
     typeof event.target?.nodeId === "string"
@@ -1986,6 +2005,15 @@ function resolveRuntimePayloadReference(
     default:
       if (referenceKey.startsWith("current.event.payload.")) {
         return structuredClone(readPath(event.payload, referenceKey.replace("current.event.payload.", "")));
+      }
+      if (referenceKey === "current.response") {
+        return responseScope === undefined ? null : structuredClone(responseScope);
+      }
+      if (referenceKey.startsWith("current.response.")) {
+        if (responseScope === undefined) {
+          return null;
+        }
+        return structuredClone(readPath(responseScope, referenceKey.replace("current.response.", "")));
       }
       return null;
   }
