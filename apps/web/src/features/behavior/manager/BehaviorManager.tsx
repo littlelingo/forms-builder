@@ -205,6 +205,16 @@ export function BehaviorManager({
     safetyClass: "all",
     brokenRefsOnly: false,
   });
+  // #20 bulk-grouping: multi-select state keyed by behaviorIndexObjectKey.
+  const [bulkSelectedKeys, setBulkSelectedKeys] = useState<Set<string>>(() => new Set());
+  const toggleBulkSelect = (key: string) =>
+    setBulkSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const clearBulkSelection = () => setBulkSelectedKeys(new Set());
   const scopeListeners = activeRuntimeScope?.listeners ?? [];
   const scopeEvents = activeRuntimeScope?.eventSources ?? [];
   const currentScopeTitle =
@@ -1364,6 +1374,51 @@ export function BehaviorManager({
               })()
             : null}
 
+          {/* #20 bulk-grouping toolbar — only visible when one or more selected and we're in table layout */}
+          {behaviorIndexLayout === "table" && bulkSelectedKeys.size > 0 ? (
+            <div className="mt-4 flex flex-wrap items-center gap-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+              <span className="font-semibold">{bulkSelectedKeys.size} selected</span>
+              <button
+                type="button"
+                className={actionButtonClass("secondary")}
+                onClick={() => {
+                  for (const item of visibleBehaviorIndexObjects) {
+                    if (item.kind !== "flow") continue;
+                    if (!bulkSelectedKeys.has(behaviorIndexObjectKey(item))) continue;
+                    if (item.status === "enabled") {
+                      onToggleRuntimeListenerForSelection(item.selection ?? null, item.id);
+                    }
+                  }
+                  clearBulkSelection();
+                }}
+              >
+                Disable selected
+              </button>
+              <button
+                type="button"
+                className={actionButtonClass("secondary")}
+                onClick={() => {
+                  for (const item of visibleBehaviorIndexObjects) {
+                    if (item.kind !== "flow") continue;
+                    if (!bulkSelectedKeys.has(behaviorIndexObjectKey(item))) continue;
+                    if (item.status === "disabled") {
+                      onToggleRuntimeListenerForSelection(item.selection ?? null, item.id);
+                    }
+                  }
+                  clearBulkSelection();
+                }}
+              >
+                Enable selected
+              </button>
+              <button type="button" className={actionButtonClass("secondary")} onClick={clearBulkSelection}>
+                Clear selection
+              </button>
+              <span className="text-[0.7rem] text-blue-700">
+                Bulk delete is per-item only (each surfaces a confirm dialog).
+              </span>
+            </div>
+          ) : null}
+
           <div className={`mt-4 space-y-3 ${behaviorIndexLayout !== "table" ? "hidden" : ""}`}>
             {visibleBehaviorIndexObjects.length ? (
               visibleBehaviorIndexObjects.map((item) => {
@@ -1378,6 +1433,18 @@ export function BehaviorManager({
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap gap-2">
+                          {/* #20 bulk-select checkbox — flow rows only (rules/events have no bulk handlers yet) */}
+                          {item.kind === "flow" ? (
+                            <label className="inline-flex items-center gap-1 text-[0.7rem] text-slate-600">
+                              <input
+                                type="checkbox"
+                                checked={bulkSelectedKeys.has(itemKey)}
+                                onChange={() => toggleBulkSelect(itemKey)}
+                                aria-label={`Select ${item.title} for bulk actions`}
+                              />
+                              <span className="sr-only">Select for bulk action</span>
+                            </label>
+                          ) : null}
                           <span className="app-pill">{item.objectLabel}</span>
                           <span className="app-pill">{item.status}</span>
                           <span className="app-pill">{item.stepTitle}</span>
