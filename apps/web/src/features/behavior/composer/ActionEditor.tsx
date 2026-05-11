@@ -29,6 +29,7 @@ import type {
 } from "../utils/runtime-helpers";
 import { SuggestionChips } from "./SuggestionChips";
 import { actionButtonClass } from "../../../lib/ui-utils";
+import { BranchActionCard } from "../cards/BranchActionCard";
 
 function renderRuntimePayloadTemplates(config: {
   label: string;
@@ -898,20 +899,21 @@ export function ActionEditor({
           </div>
         ) : null}
 
-        {/* Phase 3: branch — minimal placeholder; nested-action editing is a follow-up */}
+        {/* Phase 3 #17: branch editor — conditions, then-arm, optional else-arm, depth-aware. */}
         {action.kind === "branch" ? (
-          <div className="grid gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-3 text-[0.78rem] text-sky-900">
-            <p>
-              Branch: evaluates conditions and runs <strong>then</strong> or <strong>else</strong> arms. Nested-action
-              authoring is a follow-up surface; for now configure via the action's JSON config (max nesting depth 3
-              enforced by the engine).
-            </p>
-            <p className="text-[0.7rem] text-sky-700">
-              Conditions: {Array.isArray((action.config as Record<string, unknown>).conditions) ? ((action.config as { conditions: unknown[] }).conditions.length) : 0} ·
-              Then actions: {Array.isArray((action.config as Record<string, unknown>).actions) ? ((action.config as { actions: unknown[] }).actions.length) : 0} ·
-              Else actions: {Array.isArray((action.config as Record<string, unknown>).else) ? ((action.config as { else: unknown[] }).else.length) : 0}
-            </p>
-          </div>
+          <BranchActionCard
+            action={action}
+            depth={0}
+            availableActionKinds={runtimeActionOptions}
+            onUpdate={(mutate) =>
+              onUpdateRuntimeAction(listener.id, action.id, (current) => {
+                if (typeof current.config !== "object" || current.config === null) {
+                  current.config = {};
+                }
+                mutate(current.config as Record<string, unknown>);
+              })
+            }
+          />
         ) : null}
 
         {/* Phase 3: per-action error policy. Applies to every kind. */}
