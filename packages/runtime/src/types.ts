@@ -76,8 +76,21 @@ export interface RuntimeActionDiagnostic {
   kind: RuntimeActionDefinition["kind"];
   target?: RuntimeActionDefinition["target"] | null;
   config: Record<string, unknown>;
-  status: "executed" | "error";
+  status: "executed" | "error" | "skipped";
   errorMessage?: string;
+  /**
+   * Value/property snapshot before action ran (when meaningful — e.g., field value,
+   * visibility flag, property value, or for `submit_form` the submit-lifecycle
+   * status `"idle"` / `"submitting"` / `"success"` / `"error"`).
+   */
+  before?: unknown;
+  /**
+   * Value/property snapshot after action ran. Mirrors `before` — for `submit_form`
+   * carries the post-action submit-lifecycle status, not a field-value snapshot.
+   */
+  after?: unknown;
+  /** Reason when status is `"skipped"`. */
+  skippedReason?: "missing-target" | "no-op" | string;
 }
 
 export interface RuntimeListenerDiagnostic {
@@ -174,6 +187,14 @@ export interface RuntimeEngine {
   dispatchWithReportAsync(event: RuntimeEventEnvelope): Promise<RuntimeDispatchReport>;
   invoke(action: RuntimeActionDefinition): RuntimeSessionState;
   subscribe(handler: RuntimeEventHandler): () => void;
+  /**
+   * Subscribe to dispatch reports. Every `dispatchWithReport` and
+   * `dispatchWithReportAsync` call broadcasts the resulting report to all
+   * subscribers. Returns an unsubscribe function. Used by the unified
+   * TestPanel's live-record mode and any other observer that needs the
+   * full diagnostic envelope (not just the event).
+   */
+  subscribeReports(handler: (report: RuntimeDispatchReport) => void): () => void;
   getState(): RuntimeSessionState;
   setState(partial: Partial<RuntimeSessionState>): RuntimeSessionState;
   validate(): RuntimeValidationState;

@@ -1,5 +1,5 @@
 import type { CSSProperties, ChangeEvent, DragEvent, MouseEvent, PointerEvent, ReactNode } from "react";
-import { Fragment, startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { createRuntimeEngine } from "@form-builder/runtime";
 import type { BehaviorLibraryRegistry, RuntimeDispatchReport, RuntimeTraceEntry } from "@form-builder/runtime";
@@ -95,11 +95,14 @@ import {
   validateExportEnvelope,
 } from "./lib/behavior-export";
 import { useIsViewerMode } from "./lib/viewer-mode";
+import { TestPanel, useTestPanelState } from "./features/test-panel";
+import type { TestPanelSelection } from "./features/test-panel";
 import { HomeStage, badgeToneFromProjectStatus } from "./features/project";
 import { ReviewStage } from "./features/review/ReviewStage";
 import { badgeToneFromReview, badgeToneFromStatus, overlayRects } from "./features/review/utils/review-utils";
 import { InspectorRail } from "./features/inspector";
 import type { InspectorTab } from "./features/inspector";
+import { WalkthroughRoute } from "./features/walkthrough";
 import {
   ActionEditor,
   ApplyParametersDialog,
@@ -115,13 +118,11 @@ import {
   CreationGuide,
   CrossItemEventPicker,
   EventCreationForm,
-  EventFlowStudio,
   LegacyConditionalRuleEditor,
   LibraryPage,
   LibraryPicker,
   ListenerCreationForm,
   MapGraphOverview,
-  PreviewTestRecorder,
   RuntimeReactionProperties,
   SYSTEM_LIBRARY,
   applyEntryToListener,
@@ -214,7 +215,6 @@ import type {
   DocumentBehaviorClusterFocus,
   DocumentBehaviorExpandedTarget,
   DocumentBehaviorSurfaceMode,
-  EventFlowPayloadValues,
   LegacyConditionalRule,
   LegacyRuleField,
   LegacyConditionalRuleGroup,
@@ -240,7 +240,7 @@ import type {
   RuntimeSourceEventOption,
 } from "./features/behavior";
 
-type AppStage = "home" | "review" | "workspace";
+type AppStage = "home" | "review" | "workspace" | "walkthrough";
 type ReviewPreviewMode = "overlay" | "pdf";
 type ReviewFlowMode = "new_project" | "resume_import";
 type WorkspaceLandingMode = "promoted_import" | "reopened_import";
@@ -1920,16 +1920,6 @@ export default function App() {
   const [openedRevisionView, setOpenedRevisionView] = useState<OpenedRevisionView | null>(null);
   const [pendingWorkspaceTransition, setPendingWorkspaceTransition] = useState<WorkspaceTransitionRequest | null>(null);
   const [runtimePayloadEditors, setRuntimePayloadEditors] = useState<Record<string, RuntimePayloadEditorState>>({});
-  const [listenerTestValues, setListenerTestValues] = useState<Record<string, unknown>>({});
-  const [eventFlowSourceId, setEventFlowSourceId] = useState("");
-  const [eventFlowEventType, setEventFlowEventType] = useState("");
-  const [eventFlowPayloadValues, setEventFlowPayloadValues] = useState<EventFlowPayloadValues>({});
-  const [lastDispatchReport, setLastDispatchReport] = useState<RuntimeDispatchReport | null>(null);
-  /** Best-Next-3: preview-based test mode — capture dispatch reports from real preview interactions. */
-  const [previewTestRecordingOn, setPreviewTestRecordingOn] = useState(false);
-  const [previewTestReports, setPreviewTestReports] = useState<
-    { id: string; timestamp: string; report: RuntimeDispatchReport }[]
-  >([]);
   const [traceFromEventReport, setTraceFromEventReport] = useState<{
     eventType: string;
     sourceId: string;
@@ -2791,6 +2781,130 @@ export default function App() {
     () => activeRuntimeScope?.listeners ?? activeDocument?.runtime?.formListeners ?? [],
     [activeRuntimeScope, activeDocument],
   );
+  /** All runtime listeners across the active document, indexed by id. Used by the TestPanel selection mirror. */
+  const runtimeListenerById = useMemo(() => {
+    const map = new Map<string, RuntimeListenerDefinition>();
+    if (!activeDocument) return map;
+    const addAll = (listeners: readonly RuntimeListenerDefinition[] | undefined) => {
+      for (const listener of listeners ?? []) {
+        map.set(listener.id, listener);
+      }
+    };
+    addAll(activeDocument.runtime?.formListeners);
+    for (const step of activeDocument.steps) {
+      addAll(step.runtime?.listeners);
+      for (const section of step.sections) {
+        addAll(section.runtime?.listeners);
+        for (const group of section.groups) {
+          addAll(group.runtime?.listeners);
+          for (const field of group.fields) {
+            addAll(field.runtime?.listeners);
+          }
+        }
+        for (const field of section.fields) {
+          addAll(field.runtime?.listeners);
+        }
+      }
+    }
+    return map;
+  }, [activeDocument]);
+  const testPanel = useTestPanelState(runtimeEngineRef.current);
+
+  /**
+   * Derive the TestPanel selection (source + event) from the current authoring
+   * selection or a selected listener id. Used both for the auto-mirror effect
+   * (Task 7.2) and any explicit "open test panel" trigger that reuses the
+   * current selection context.
+   */
+  const deriveSelectionFromAuthoring = useCallback(
+    (authoring: AuthoringSelection | null, listenerId: string | null): TestPanelSelection => {
+      const listener = listenerId ? (runtimeListenerById.get(listenerId) ?? null) : null;
+      const sourceId =
+        (listener ? (listener.eventSourceNodeId ?? null) : null) ??
+        (authoring?.kind === "field" ? authoring.fieldId : null) ??
+        null;
+      const candidate = sourceId ? (runtimeEventSourceCandidateById.get(sourceId) ?? null) : null;
+      const eventType =
+        (listener ? getRuntimeListenerEventType(listener) : null) ??
+        (candidate?.eventDefinitions[0] ? runtimeEventDefinitionType(candidate.eventDefinitions[0]) : null) ??
+        null;
+      return { sourceId, eventType, payload: {}, payloadEdited: false };
+    },
+    [runtimeListenerById, runtimeEventSourceCandidateById],
+  );
+
+  const openTestPanelFromSelection = useCallback(() => {
+    testPanel.open(deriveSelectionFromAuthoring(selectedAuthoring, selectedBehaviorListenerId));
+  }, [testPanel, deriveSelectionFromAuthoring, selectedAuthoring, selectedBehaviorListenerId]);
+
+  /** Opens the unified TestPanel pre-filled for the given listener (Phase 8 Task 8.2). */
+  const openTestPanelForListener = useCallback(
+    (listenerId: string) => {
+      const listener = runtimeListenerById.get(listenerId);
+      if (!listener) return;
+      testPanel.open({
+        sourceId: listener.eventSourceNodeId ?? listener.dispatcherId ?? null,
+        eventType: getRuntimeListenerEventType(listener),
+        payload: {},
+        payloadEdited: false,
+      });
+    },
+    [runtimeListenerById, testPanel],
+  );
+
+  /** Opens the unified TestPanel pre-filled for the given field (Phase 8 Task 8.3). */
+  const openTestPanelForField = useCallback(
+    (fieldId: string) => {
+      const candidate = runtimeEventSourceCandidateById.get(fieldId);
+      const firstEvent = candidate?.eventDefinitions[0];
+      testPanel.open({
+        sourceId: fieldId,
+        eventType: firstEvent ? runtimeEventDefinitionType(firstEvent) : "field.change",
+        payload: {},
+        payloadEdited: false,
+      });
+    },
+    [runtimeEventSourceCandidateById, testPanel],
+  );
+
+  const deriveTestPanelSelectionFromSelection = useCallback(
+    (): TestPanelSelection => deriveSelectionFromAuthoring(selectedAuthoring, selectedBehaviorListenerId),
+    [deriveSelectionFromAuthoring, selectedAuthoring, selectedBehaviorListenerId],
+  );
+
+  // Auto-mirror authoring / listener selection into the panel while it's open in synth mode.
+  // The reducer keeps user-edited payloads and user-picked sources intact, so this only
+  // refreshes source + event when the user hasn't taken manual control yet.
+  //
+  // Dependencies are pinned to primitives + the stable `mirrorSelection` callback so the
+  // effect only re-runs when something material changes — not on every parent render. The
+  // `testPanel` object identity changes each render (the hook returns a fresh wrapper), so
+  // depending on it would loop and clobber any in-flight user pick.
+  const testPanelOpen = testPanel.state.open;
+  const testPanelMode = testPanel.state.mode;
+  const testPanelMirrorSelection = testPanel.mirrorSelection;
+  useEffect(() => {
+    if (!testPanelOpen || testPanelMode !== "synth") return;
+    testPanelMirrorSelection(deriveSelectionFromAuthoring(selectedAuthoring, selectedBehaviorListenerId));
+  }, [
+    deriveSelectionFromAuthoring,
+    selectedAuthoring,
+    selectedBehaviorListenerId,
+    testPanelOpen,
+    testPanelMode,
+    testPanelMirrorSelection,
+  ]);
+  // Global Cmd/Ctrl+K — open the unified TestPanel pre-filled from current selection.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        openTestPanelFromSelection();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openTestPanelFromSelection]);
   const activeSelectionNodeId: string | null = useMemo(() => {
     if (!selectedAuthoring) return null;
     if (selectedAuthoring.kind === "field") return selectedAuthoring.fieldId;
@@ -2845,18 +2959,6 @@ export default function App() {
     beginBehaviorEventCreationPath(eventDefinition);
     setPendingBehaviorEventEditId(null);
   }, [activeRuntimeScope, pendingBehaviorEventEditId]);
-
-  useEffect(() => {
-    if (!activeRuntimeTarget) {
-      if (eventFlowSourceId) {
-        setEventFlowSourceId("");
-      }
-      return;
-    }
-    if (!eventFlowSourceId || !runtimeEventSourceCandidateById.has(eventFlowSourceId)) {
-      setEventFlowSourceId(activeRuntimeTarget.id);
-    }
-  }, [activeRuntimeTarget, eventFlowSourceId, runtimeEventSourceCandidateById]);
 
   useEffect(() => {
     setSelectedRuntimeEvidenceKey(null);
@@ -4461,7 +4563,6 @@ export default function App() {
     const nextState = runtimeEngineRef.current.invoke(action);
     runtimeSessionRef.current = nextState;
     setRuntimeSessionState(nextState);
-    setLastDispatchReport(null);
   }
 
   /**
@@ -4496,39 +4597,11 @@ export default function App() {
   }
 
   function dispatchRuntimeEvent(event: RuntimeEventEnvelope) {
-    if (previewTestRecordingOn) {
-      try {
-        const report = runtimeEngineRef.current.dispatchWithReport(event);
-        runtimeSessionRef.current = report.stateAfter;
-        setRuntimeSessionState(report.stateAfter);
-        setLastDispatchReport(report);
-        setPreviewTestReports((prev) => [
-          ...prev,
-          { id: crypto.randomUUID(), timestamp: new Date().toISOString(), report },
-        ]);
-        return;
-      } catch (err) {
-        if (err instanceof Error && /dispatchAsync/.test(err.message)) {
-          void runtimeEngineRef.current.dispatchWithReportAsync(event).then((report) => {
-            runtimeSessionRef.current = report.stateAfter;
-            setRuntimeSessionState(report.stateAfter);
-            setLastDispatchReport(report);
-            setPreviewTestReports((prev) => [
-              ...prev,
-              { id: crypto.randomUUID(), timestamp: new Date().toISOString(), report },
-            ]);
-          });
-          return;
-        }
-        throw err;
-      }
-    }
     const nextState = safeDispatch(event);
     if (nextState) {
       runtimeSessionRef.current = nextState;
       setRuntimeSessionState(nextState);
     }
-    setLastDispatchReport(null);
   }
 
   function handleRuntimeFieldValueChange(field: AuthoringField, nextValue: unknown) {
@@ -5309,9 +5382,7 @@ export default function App() {
         }, selection);
         setEditingRuleIndex(null);
         setExpandedBehaviorIndexObjectKey((current) => (current === `rule:${ruleId}` ? null : current));
-        setSelectedBehaviorNode((current) =>
-          current?.kind === "rule" && current.ruleId === ruleId ? null : current,
-        );
+        setSelectedBehaviorNode((current) => (current?.kind === "rule" && current.ruleId === ruleId ? null : current));
         setMessage("Condition rule deleted.");
       },
     });
@@ -6266,7 +6337,6 @@ export default function App() {
       behaviorStudioMode === "listener" ||
       behaviorStudioMode === "action" ||
       behaviorStudioMode === "graph" ||
-      (behaviorStudioMode === "test" && behaviorStudioView === "advanced" && behaviorStudioAnchor === null) ||
       (behaviorStudioMode === "manage" && behaviorStudioManagerMode === "index" && behaviorStudioAnchor === null)
     );
   }
@@ -6277,22 +6347,13 @@ export default function App() {
     }
     const usesWorkspaceShell = behaviorStudioUsesWorkspaceShell();
     const viewportGutter = window.innerWidth < 760 ? 16 : 32;
-    const width =
-      behaviorStudioMode === "graph"
-        ? 1120
-        : behaviorStudioMode === "test" && behaviorStudioView === "advanced" && behaviorStudioAnchor === null
-          ? 960
-          : usesWorkspaceShell
-            ? 1120
-            : 896;
+    const width = behaviorStudioMode === "graph" ? 1120 : usesWorkspaceShell ? 1120 : 896;
     const height =
       behaviorStudioMode === "graph"
         ? Math.min(window.innerHeight * 0.86, 760)
-        : behaviorStudioMode === "test" && behaviorStudioView === "advanced" && behaviorStudioAnchor === null
-          ? Math.min(window.innerHeight * 0.82, 672)
-          : usesWorkspaceShell
-            ? Math.min(window.innerHeight * 0.84, 736)
-            : Math.min(window.innerHeight * 0.78, 624);
+        : usesWorkspaceShell
+          ? Math.min(window.innerHeight * 0.84, 736)
+          : Math.min(window.innerHeight * 0.78, 624);
 
     return {
       width: Math.min(width, window.innerWidth - viewportGutter),
@@ -6403,13 +6464,6 @@ export default function App() {
     setBehaviorStudioView("studio");
   }
 
-  function openBehaviorStudioTestSection() {
-    setBehaviorStudioCreating(false);
-    setBehaviorFocusTarget(null);
-    setBehaviorStudioMode("test");
-    setBehaviorStudioView("studio");
-  }
-
   function openBehaviorNodeInStudio(node: BehaviorGraphSelection, ruleIndex?: number | null) {
     setEditingListenerId(null);
     setBehaviorStudioCreating(false);
@@ -6510,218 +6564,12 @@ export default function App() {
     } as NonNullable<RuntimeEventEnvelope["target"]>;
   }
 
-  function handleTestSelectedRule(rule: LegacyConditionalRule | null) {
-    if (!activeDocument || !rule) {
-      setMessage("Select a behavior before running a targeted behavior test.");
-      return;
-    }
-    const sourceField = findAuthoringFieldById(activeDocument, rule.whenFieldId);
-    const nextValue =
-      sourceField?.semanticType === "checkbox" && rule.operator === "contains"
-        ? [rule.expectedValue ?? fieldFirstOptionValue(sourceField)]
-        : (rule.expectedValue ?? "");
-    dispatchRuntimeEvent({
-      type: "field.change",
-      version: "1.0",
-      target: {
-        runtimeId: "builder-simulator",
-        formId: activeDocument.id,
-        projectId: activeProjectDetail?.project.id ?? null,
-        nodeId: rule.whenFieldId,
-        nodeKey: sourceField?.dispatchKey ?? null,
-        nodeType: "field",
-      },
-      source: {
-        runtimeId: "builder-simulator",
-        formId: activeDocument.id,
-        projectId: activeProjectDetail?.project.id ?? null,
-        nodeId: rule.whenFieldId,
-        nodeKey: sourceField?.dispatchKey ?? null,
-        nodeType: "field",
-      },
-      payload: {
-        eventType: "field.change",
-        sourceNodeId: rule.whenFieldId,
-        sourceNodeKey: sourceField?.dispatchKey ?? null,
-        sourceNodeType: "field",
-        targetNodeId: rule.whenFieldId,
-        targetNodeKey: sourceField?.dispatchKey ?? null,
-        targetNodeType: "field",
-        metadata: "{}",
-        fieldId: rule.whenFieldId,
-        nextValue,
-        testedRuleId: rule.ruleId,
-      },
-      correlationId: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-    });
-    setSelectedRuntimeEvidenceKey(null);
-    setMessage("Behavior test dispatched a field.change event through the simulator.");
-  }
-
-  function resolveListenerTestSource(listener: RuntimeListenerDefinition): RuntimeEventSourceCandidate | null {
-    return (
-      (listener.eventSourceNodeId ? (runtimeEventSourceCandidateById.get(listener.eventSourceNodeId) ?? null) : null) ??
-      (listener.dispatcherId ? (runtimeEventSourceCandidateById.get(listener.dispatcherId) ?? null) : null) ??
-      (listener.targetNodeId ? (runtimeEventSourceCandidateById.get(listener.targetNodeId) ?? null) : null) ??
-      activeRuntimeTarget ??
-      (activeDocument ? (runtimeEventSourceCandidateById.get(activeDocument.id) ?? null) : null)
-    );
-  }
-
-  function defaultListenerTestValue(listener: RuntimeListenerDefinition, sourceField: AuthoringField | null): unknown {
-    if (!sourceField || sourceField.rendererHints.component === "button" || sourceField.semanticType === "statement") {
-      return "";
-    }
-    const conditionValue = flattenRuntimeConditionAtoms(listener.conditions).find(
-      (condition) =>
-        condition.enabled !== false &&
-        condition.source.kind === "field_value" &&
-        condition.source.fieldId === sourceField.id &&
-        condition.expectedValue !== undefined &&
-        condition.expectedValue !== null &&
-        String(condition.expectedValue).length > 0,
-    )?.expectedValue;
-    const optionValue = conditionValue !== undefined ? String(conditionValue) : fieldFirstOptionValue(sourceField);
-    if (sourceField.semanticType === "checkbox") {
-      return optionValue ? [optionValue] : [];
-    }
-    if (sourceField.semanticType === "radio" || sourceField.semanticType === "select") {
-      return optionValue;
-    }
-    return conditionValue !== undefined ? String(conditionValue) : "Test value";
-  }
-
-  function listenerTestValue(listener: RuntimeListenerDefinition, sourceField: AuthoringField | null): unknown {
-    return listenerTestValues[listener.id] ?? defaultListenerTestValue(listener, sourceField);
-  }
-
-  function updateListenerTestValue(listenerId: string, nextValue: unknown) {
-    setListenerTestValues((current) => ({
-      ...current,
-      [listenerId]: nextValue,
-    }));
-  }
-
-  function buildGuidedListenerTestEvent(listener: RuntimeListenerDefinition): RuntimeEventEnvelope | null {
-    if (!activeDocument) {
-      return null;
-    }
-    const source = resolveListenerTestSource(listener);
-    if (!source) {
-      return null;
-    }
-    const sourceField =
-      source.nodeType === "field" || source.nodeType === "component"
-        ? findAuthoringFieldById(activeDocument, source.id)
-        : null;
-    const nextValue = listenerTestValue(listener, sourceField);
-    const eventType = getRuntimeListenerEventType(listener);
-    const sourceEvent = source.events.find((eventOption) => eventOption.type === eventType);
-    const target: NonNullable<RuntimeEventEnvelope["target"]> = {
-      runtimeId: "builder-simulator",
-      formId: activeDocument.id,
-      projectId: activeProjectDetail?.project.id ?? null,
-      nodeId: source.id,
-      nodeKey: source.dispatchKey ?? null,
-      nodeType: source.nodeType,
-    };
-    const payload: Record<string, unknown> = {
-      listenerId: listener.id,
-      testOrigin: "behavior_studio",
-      eventType,
-      sourceNodeId: source.id,
-      sourceNodeKey: source.dispatchKey ?? null,
-      sourceNodeType: source.nodeType,
-      sourceLabel: source.label,
-      targetNodeId: target.nodeId,
-      targetNodeKey: target.nodeKey ?? null,
-      targetNodeType: target.nodeType,
-      metadata: "{}",
-      nextValue,
-      value: nextValue,
-    };
-    if (sourceField) {
-      const selectedValues =
-        sourceField.semanticType === "checkbox"
-          ? Array.isArray(nextValue)
-            ? nextValue
-            : nextValue
-              ? [String(nextValue)]
-              : []
-          : undefined;
-      payload.fieldId = sourceField.id;
-      payload.componentType = sourceField.semanticType;
-      payload.selectionMode = fieldSelectionMode(sourceField);
-      payload.selectedValues = selectedValues;
-      payload.selectedValue =
-        sourceField.semanticType === "radio" || sourceField.semanticType === "select" ? nextValue : undefined;
-      payload.changedOption = Array.isArray(selectedValues)
-        ? (selectedValues[0] ?? null)
-        : fieldFirstOptionValue(sourceField) || null;
-    }
-    return {
-      type: eventType,
-      version: "1.0",
-      target,
-      source: target,
-      bubbles: sourceEvent?.bubbles ?? true,
-      payload,
-      correlationId: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-    };
-  }
-
-  function handleRunGuidedListenerTest(listener: RuntimeListenerDefinition | null) {
-    if (!activeDocument || !listener) {
-      setMessage("Select a behavior before running a targeted behavior test.");
-      return;
-    }
-    const event = buildGuidedListenerTestEvent(listener);
-    if (!event) {
-      setMessage("Choose a source item before running this behavior test.");
-      return;
-    }
-    try {
-      const report = runtimeEngineRef.current.dispatchWithReport(event);
-      runtimeSessionRef.current = report.stateAfter;
-      setRuntimeSessionState(report.stateAfter);
-      setLastDispatchReport(report);
-      setSelectedRuntimeEvidenceKey(null);
-      const selectedListenerReport = report.listeners.find((entry) => entry.listenerId === listener.id);
-      if (!selectedListenerReport) {
-        setMessage(
-          `${event.type} dispatched from ${event.target?.nodeKey ?? event.target?.nodeId ?? "the source"}, but this behavior was not reached.`,
-        );
-        return;
-      }
-      if (!selectedListenerReport.matched) {
-        setMessage(
-          `${event.type} reached the behavior but did not run because ${formatLabel(selectedListenerReport.skippedReason ?? "conditions_failed")}.`,
-        );
-        return;
-      }
-      setMessage(
-        `${event.type} reached the behavior and ran ${selectedListenerReport.actions.length} action${selectedListenerReport.actions.length === 1 ? "" : "s"}.`,
-      );
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Guided behavior test failed.");
-    }
-  }
-
-  function handleTestSelectedChain(listener: RuntimeListenerDefinition | null) {
-    handleRunGuidedListenerTest(listener);
-  }
-
   function handleExportDocumentBehaviors() {
     if (!activeDocument) {
       setMessage("Open a project before exporting behaviors.");
       return;
     }
-    const envelope = buildDocumentExportEnvelope(
-      activeDocument,
-      activeProjectDetail?.project ?? null,
-    );
+    const envelope = buildDocumentExportEnvelope(activeDocument, activeProjectDetail?.project ?? null);
     if (envelope.entries.length === 0) {
       setMessage("Nothing to export — this document has no authored behaviors yet.");
       return;
@@ -6732,11 +6580,7 @@ export default function App() {
 
   function handleExportListenerBehavior(listenerId: string) {
     if (!activeDocument) return;
-    const envelope = buildListenerExportEnvelope(
-      activeDocument,
-      activeProjectDetail?.project ?? null,
-      listenerId,
-    );
+    const envelope = buildListenerExportEnvelope(activeDocument, activeProjectDetail?.project ?? null, listenerId);
     if (!envelope) {
       setErrorMessage(`Could not find listener ${listenerId} to export.`);
       return;
@@ -6848,378 +6692,6 @@ export default function App() {
     setTraceFromEventReport(null);
   }
 
-  function eventFlowOptionsForSource(source: RuntimeEventSourceCandidate): RuntimeSourceEventOption[] {
-    const options = new Map<string, RuntimeSourceEventOption>();
-    source.events.forEach((eventOption) => {
-      options.set(eventOption.type, eventOption);
-    });
-    source.eventDefinitions.forEach((eventDefinition) => {
-      const eventType = runtimeEventDefinitionType(eventDefinition);
-      if (!eventType || options.has(eventType)) {
-        return;
-      }
-      options.set(eventType, {
-        type: eventType,
-        label: formatLabel(eventType),
-        bubbles: eventDefinition.bubbles ?? runtimeCoreEventType(eventType)?.bubbles ?? true,
-        description: eventDefinition.description ?? null,
-      });
-    });
-    return Array.from(options.values());
-  }
-
-  function defaultEventFlowPayloadValue(
-    field: RuntimePayloadField,
-    source: RuntimeEventSourceCandidate,
-    sourceField: AuthoringField | null,
-    eventType: string,
-    target: RuntimeEventSourceCandidate | null,
-  ): string {
-    const firstOptionValue = fieldFirstOptionValue(sourceField);
-    const authoredExampleValue = source.eventDefinitions.find(
-      (eventDefinition) => runtimeEventDefinitionType(eventDefinition) === eventType,
-    )?.payloadShape?.example?.[field.name];
-    if (authoredExampleValue !== undefined) {
-      return typeof authoredExampleValue === "string"
-        ? authoredExampleValue
-        : JSON.stringify(authoredExampleValue, null, 2);
-    }
-    switch (field.name) {
-      case "eventType":
-        return eventType;
-      case "fieldId":
-      case "componentId":
-      case "nodeId":
-      case "sourceNodeId":
-        return source.id;
-      case "targetNodeId":
-        return target?.id ?? source.id;
-      case "fieldKey":
-      case "componentKey":
-      case "nodeKey":
-      case "sourceNodeKey":
-        return source.dispatchKey ?? "";
-      case "targetNodeKey":
-        return target?.dispatchKey ?? "";
-      case "fieldLabel":
-      case "label":
-      case "sourceLabel":
-        return source.label;
-      case "nodeType":
-      case "sourceNodeType":
-      case "componentType":
-        return sourceField?.semanticType ?? source.nodeType;
-      case "targetNodeType":
-        return target?.nodeType ?? source.nodeType;
-      case "metadata":
-        return "{}";
-      case "selectedValue":
-      case "changedOption":
-      case "optionValue":
-      case "value":
-      case "nextValue":
-        return firstOptionValue || (field.valueType === "number" ? "0" : "Test value");
-      case "selectedValues":
-        return JSON.stringify(firstOptionValue ? [firstOptionValue] : []);
-      default:
-        if (field.valueType === "boolean") {
-          return "false";
-        }
-        if (field.valueType === "number") {
-          return "0";
-        }
-        if (field.valueType === "object") {
-          return "{}";
-        }
-        if (field.valueType === "array") {
-          return "[]";
-        }
-        return "";
-    }
-  }
-
-  function eventFlowPayloadRawValue(
-    field: RuntimePayloadField,
-    source: RuntimeEventSourceCandidate,
-    sourceField: AuthoringField | null,
-    eventType: string,
-    target: RuntimeEventSourceCandidate | null,
-  ): string {
-    return (
-      eventFlowPayloadValues[field.name] ?? defaultEventFlowPayloadValue(field, source, sourceField, eventType, target)
-    );
-  }
-
-  function coerceEventFlowPayloadValue(field: RuntimePayloadField, rawValue: string): unknown {
-    if (field.valueType === "boolean") {
-      return rawValue === "true";
-    }
-    if (field.valueType === "number") {
-      const nextValue = Number(rawValue);
-      if (Number.isNaN(nextValue)) {
-        throw new Error(`${field.label ?? field.name} must be a number.`);
-      }
-      return nextValue;
-    }
-    if (field.valueType === "object" || field.valueType === "array") {
-      try {
-        const parsed = JSON.parse(rawValue || (field.valueType === "array" ? "[]" : "{}"));
-        if (field.valueType === "array" && !Array.isArray(parsed)) {
-          throw new Error("Expected an array.");
-        }
-        if (field.valueType === "object" && (!isRecord(parsed) || Array.isArray(parsed))) {
-          throw new Error("Expected an object.");
-        }
-        return parsed;
-      } catch (error) {
-        throw new Error(
-          `${field.label ?? field.name} must be valid JSON${error instanceof Error ? `: ${error.message}` : "."}`,
-        );
-      }
-    }
-    return rawValue;
-  }
-
-  function buildEventFlowPayload(
-    source: RuntimeEventSourceCandidate,
-    eventType: string,
-    payloadFields: RuntimePayloadField[],
-  ): Record<string, unknown> {
-    const sourceField =
-      activeDocument && (source.nodeType === "field" || source.nodeType === "component")
-        ? findAuthoringFieldById(activeDocument, source.id)
-        : null;
-    const target = activeRuntimeTarget ?? source;
-    const payload = Object.fromEntries(
-      payloadFields.map((field) => [
-        field.name,
-        coerceEventFlowPayloadValue(field, eventFlowPayloadRawValue(field, source, sourceField, eventType, target)),
-      ]),
-    );
-    payload.eventType ??= eventType;
-    payload.sourceNodeId ??= source.id;
-    payload.sourceNodeKey ??= source.dispatchKey ?? null;
-    payload.sourceNodeType ??= source.nodeType;
-    payload.sourceLabel ??= source.label;
-    payload.targetNodeId ??= target.id;
-    payload.targetNodeKey ??= target.dispatchKey ?? null;
-    payload.targetNodeType ??= target.nodeType;
-    payload.metadata ??= "{}";
-    if (sourceField) {
-      const firstOptionValue = fieldFirstOptionValue(sourceField);
-      payload.fieldId ??= sourceField.id;
-      payload.fieldKey ??= sourceField.dispatchKey ?? null;
-      payload.componentType ??= sourceField.semanticType;
-      payload.value ??= firstOptionValue || "Test value";
-      payload.nextValue ??= payload.value;
-      if (sourceField.semanticType === "radio" || sourceField.semanticType === "select") {
-        payload.selectedValue ??= firstOptionValue;
-      }
-      if (sourceField.semanticType === "checkbox") {
-        payload.selectedValues ??= firstOptionValue ? [firstOptionValue] : [];
-      }
-      payload.changedOption ??= firstOptionValue || null;
-    }
-    return payload;
-  }
-
-  function buildEventFlowTestEvent(
-    source: RuntimeEventSourceCandidate,
-    eventType: string,
-    payloadFields: RuntimePayloadField[],
-  ): RuntimeEventEnvelope | null {
-    if (!activeDocument || !eventType) {
-      return null;
-    }
-    const eventOption = source.events.find((candidate) => candidate.type === eventType);
-    const target: NonNullable<RuntimeEventEnvelope["target"]> = {
-      runtimeId: "builder-simulator",
-      formId: activeDocument.id,
-      projectId: activeProjectDetail?.project.id ?? null,
-      nodeId: source.id,
-      nodeKey: source.dispatchKey ?? null,
-      nodeType: source.nodeType,
-    };
-    return {
-      type: eventType,
-      version: "1.0",
-      target,
-      source: target,
-      bubbles: eventOption?.bubbles ?? runtimeEventBubblesForSource(source, eventType),
-      payload: buildEventFlowPayload(source, eventType, payloadFields),
-      correlationId: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-    };
-  }
-
-  function runEventFlowDispatch(
-    source: RuntimeEventSourceCandidate,
-    eventType: string,
-    payloadFields: RuntimePayloadField[],
-  ) {
-    const event = buildEventFlowTestEvent(source, eventType, payloadFields);
-    if (!event) {
-      setMessage("Choose an event source and event type before firing the event.");
-      return;
-    }
-    try {
-      const report = runtimeEngineRef.current.dispatchWithReport(event);
-      runtimeSessionRef.current = report.stateAfter;
-      setRuntimeSessionState(report.stateAfter);
-      setLastDispatchReport(report);
-      setSelectedRuntimeEvidenceKey(null);
-      const matchedCount = report.listeners.filter((listener) => listener.matched).length;
-      setErrorMessage(null);
-      setMessage(
-        `${event.type} fired from ${source.label}; ${matchedCount} of ${report.listeners.length} listener${report.listeners.length === 1 ? "" : "s"} ran.`,
-      );
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Test dispatch failed.");
-    }
-  }
-
-  function saveEventFlowEvent(
-    source: RuntimeEventSourceCandidate,
-    eventType: string,
-    payloadFields: RuntimePayloadField[],
-  ): boolean {
-    const eventIssue = validateRuntimeIdentifier(eventType, "Event type", defaultBehaviorTriggerName());
-    const payloadIssue = payloadFields.find((field) => validateRuntimeIdentifier(field.name, "Payload field", "value"));
-    if (eventIssue) {
-      setErrorMessage(eventIssue);
-      return false;
-    }
-    if (payloadIssue) {
-      setErrorMessage(validateRuntimeIdentifier(payloadIssue.name, "Payload field", "value"));
-      return false;
-    }
-    const selection = authoringSelectionForRuntimeCandidate(source);
-    const scope: RuntimeEditorScope = {
-      scopeKind: source.nodeType === "component" ? "component" : source.nodeType,
-      label: source.label,
-      description: "",
-      eventSources: [],
-      listeners: [],
-    };
-    let status: "created" | "updated" | null = null;
-    updateAuthoringDocument((document) => {
-      const eventSources = mutableRuntimeEventSourcesForSelection(document, selection);
-      if (!eventSources) {
-        return;
-      }
-      status = upsertRuntimeEventSource(
-        eventSources,
-        createRuntimeEventSource(eventType, scope, source.id, {
-          bubbles: runtimeEventBubblesForSource(source, eventType),
-          payloadShape: createRuntimePayloadShapeFromFields(payloadFields),
-          description: runtimeCoreEventType(eventType)?.description ?? null,
-        }),
-      );
-    });
-    if (!status) {
-      setErrorMessage("Could not save the event on the selected source.");
-      return false;
-    }
-    setEventFlowSourceId(source.id);
-    setEventFlowEventType(eventType);
-    setErrorMessage(null);
-    setMessage(`${formatLabel(eventType)} event ${status} for ${source.label}.`);
-    return true;
-  }
-
-  function addEventFlowListenerReaction(
-    source: RuntimeEventSourceCandidate,
-    eventType: string,
-    payloadFields: RuntimePayloadField[],
-  ) {
-    if (!activeRuntimeTarget) {
-      setMessage("Select the item that should react before adding a listener.");
-      return;
-    }
-    if (!source.eventDefinitions.some((eventDefinition) => runtimeEventDefinitionType(eventDefinition) === eventType)) {
-      const saved = saveEventFlowEvent(source, eventType, payloadFields);
-      if (!saved) {
-        return;
-      }
-    }
-    createAuthoredEventBehaviorListener(source, eventType);
-  }
-
-  function addEventFlowPayloadCondition(listener: RuntimeListenerDefinition, payloadFieldName: string) {
-    updateRuntimeListener(listener.id, (current) => {
-      current.conditions.push(
-        createEventPayloadCondition(payloadFieldName, "exists", undefined, `${formatLabel(payloadFieldName)} exists`),
-      );
-    });
-    setSelectedBehaviorNode({ kind: "listener", listenerId: listener.id, phase: "trigger" });
-    setMessage(`${formatLabel(payloadFieldName)} payload check added.`);
-  }
-
-  function renderGuidedListenerValueControl(listener: RuntimeListenerDefinition, sourceField: AuthoringField | null) {
-    if (!sourceField || sourceField.rendererHints.component === "button" || sourceField.semanticType === "statement") {
-      return (
-        <div className="rounded-[0.85rem] border border-soft bg-slate-50 px-3 py-2 text-sm text-slate-500">
-          This event source does not need a field value.
-        </div>
-      );
-    }
-    const value = listenerTestValue(listener, sourceField);
-    if (sourceField.semanticType === "checkbox") {
-      const selectedValues = Array.isArray(value) ? value.map((entry) => String(entry)) : [];
-      return (
-        <div className="grid gap-2 sm:grid-cols-2">
-          {sourceField.options.map((option) => {
-            const optionValue = option.value || option.label;
-            return (
-              <label
-                key={`${listener.id}-test-checkbox-${optionValue}`}
-                className="flex items-center gap-2 rounded-[0.8rem] border border-soft bg-white px-3 py-2 text-sm text-slate-700"
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedValues.includes(optionValue)}
-                  onChange={(event) => {
-                    const nextValues = event.target.checked
-                      ? [...selectedValues, optionValue]
-                      : selectedValues.filter((entry) => entry !== optionValue);
-                    updateListenerTestValue(listener.id, nextValues);
-                  }}
-                />
-                <span>{option.label || optionValue}</span>
-              </label>
-            );
-          })}
-        </div>
-      );
-    }
-    if (sourceField.semanticType === "radio" || sourceField.semanticType === "select") {
-      return (
-        <select
-          value={typeof value === "string" ? value : ""}
-          onChange={(event) => updateListenerTestValue(listener.id, event.target.value)}
-          className="w-full rounded-2xl border border-soft bg-white px-4 py-3 text-sm text-slate-800"
-        >
-          <option value="">No selection</option>
-          {sourceField.options.map((option) => {
-            const optionValue = option.value || option.label;
-            return (
-              <option key={`${listener.id}-test-option-${optionValue}`} value={optionValue}>
-                {option.label || optionValue}
-              </option>
-            );
-          })}
-        </select>
-      );
-    }
-    return (
-      <input
-        value={typeof value === "string" || typeof value === "number" ? String(value) : ""}
-        onChange={(event) => updateListenerTestValue(listener.id, event.target.value)}
-        className="w-full rounded-2xl border border-soft bg-white px-4 py-3 text-sm text-slate-800"
-      />
-    );
-  }
-
   function beginBehaviorStudioCreation(anchor: BehaviorStudioAnchor | null = null) {
     setBehaviorStudioCreating(true);
     setBehaviorCreationPath("choice");
@@ -7240,10 +6712,6 @@ export default function App() {
   function openBehaviorStudioAddBehavior(anchor: BehaviorStudioAnchor | null = null) {
     setBehaviorStudioCreating(true);
     setBehaviorCreationPath("event");
-    setEventFlowSourceId(activeRuntimeTarget?.id ?? "");
-    setEventFlowEventType("");
-    setEventFlowPayloadValues({});
-    setLastDispatchReport(null);
     setSelectedBehaviorNode(null);
     setEditingRuleIndex(null);
     setBehaviorFocusTarget(null);
@@ -7685,6 +7153,9 @@ export default function App() {
     setErrorMessage(null);
     setFlashMessage(null);
   }
+
+  const enterWalkthrough = useCallback(() => setStage("walkthrough"), []);
+  const exitWalkthrough = useCallback(() => setStage("workspace"), []);
 
   async function executeWorkspaceTransition(transition: WorkspaceTransitionRequest): Promise<void> {
     if (transition.kind === "open_project") {
@@ -8610,6 +8081,7 @@ export default function App() {
               onSetBehaviorFocusTarget={setBehaviorFocusTarget}
               onOpenBehaviorStudio={openBehaviorStudio}
               onCreateBehaviorStudioAnchor={createBehaviorStudioAnchor}
+              onOpenTestPanel={openTestPanelFromSelection}
             />
           ) : null
         }
@@ -9330,42 +8802,14 @@ export default function App() {
             />
           </div>
         ) : (
-          <EventFlowStudio
-            eventFlowSourceId={eventFlowSourceId}
-            eventFlowEventType={eventFlowEventType}
-            activeRuntimeTarget={activeRuntimeTarget}
-            activeRuntimeScope={activeRuntimeScope}
-            activeDocument={activeDocument}
-            runtimeEventSourceCandidates={runtimeEventSourceCandidates}
-            runtimeEventSourceCandidateById={runtimeEventSourceCandidateById}
-            runtimeNodeLabelById={runtimeNodeLabelById}
-            selectedBehaviorNode={selectedBehaviorNode}
-            lastDispatchReport={lastDispatchReport}
-            logicMapData={logicMapData}
-            eventFlowOptionsForSource={eventFlowOptionsForSource}
-            eventFlowPayloadRawValue={eventFlowPayloadRawValue}
-            defaultBehaviorTriggerName={defaultBehaviorTriggerName}
-            onRunEventFlowDispatch={runEventFlowDispatch}
-            onSaveEventFlowEvent={saveEventFlowEvent}
-            onAddEventFlowPayloadCondition={addEventFlowPayloadCondition}
-            onOpenBehaviorStudioListenerSection={openBehaviorStudioListenerSection}
-            onOpenRuntimeEventEditorForSelection={openRuntimeEventEditorForSelection}
-            onSetEventFlowSourceId={setEventFlowSourceId}
-            onSetEventFlowEventType={setEventFlowEventType}
-            onSetEventFlowPayloadValues={setEventFlowPayloadValues}
-            onSetSelectedBehaviorNode={setSelectedBehaviorNode}
-            onSetLastDispatchReport={setLastDispatchReport}
-            onSetSelectedAuthoring={setSelectedAuthoring}
-            onSetBehaviorStudioCreating={setBehaviorStudioCreating}
-            onSetBehaviorStudioManagerMode={setBehaviorStudioManagerMode}
-            onSetBehaviorStudioMode={setBehaviorStudioMode}
-            onSetBehaviorEventType={setBehaviorEventType}
-            onSetBehaviorEventBubbles={setBehaviorEventBubbles}
-            onSetBehaviorEventDescription={setBehaviorEventDescription}
-            onSetBehaviorEventPayloadFields={setBehaviorEventPayloadFields}
-            onSetBehaviorEventMetadataExample={setBehaviorEventMetadataExample}
-            onSetBehaviorCreationPath={setBehaviorCreationPath}
-          />
+          // Phase 10 — the legacy EventFlowStudio surface has been deleted. When
+          // "create" mode opens without an active creation flow or a selected
+          // legacy rule, surface a hint to drive authors back to the manager /
+          // creation flow rather than rendering a defunct simulator.
+          <div className="rounded-[1.05rem] border border-soft bg-white p-4 text-sm text-slate-600">
+            Pick a behavior from the Behavior Manager, start a new flow, or test from the unified Test Panel
+            (Cmd/Ctrl+K).
+          </div>
         )}
       </div>
     );
@@ -9795,6 +9239,7 @@ export default function App() {
         }
         onAddFromLibrary={isViewerMode ? undefined : () => setLibraryPickerOpen(true)}
         onExportListener={handleExportListenerBehavior}
+        onOpenTestPanel={openTestPanelForListener}
         onSaveToLibrary={(listenerId) => {
           setSavingFromExistingListenerId(listenerId);
           setSaveToLibraryName("");
@@ -9816,12 +9261,6 @@ export default function App() {
         projectEvents={projectEventCatalog}
         reverseIndexNodeId={activeSelectionNodeId}
         onOpenManagerByEvent={openManagerByEvent}
-      />
-      <PreviewTestRecorder
-        recordingOn={previewTestRecordingOn}
-        reports={previewTestReports}
-        onToggleRecording={setPreviewTestRecordingOn}
-        onClear={() => setPreviewTestReports([])}
       />
     </div>
   ) : null;
@@ -10080,6 +9519,14 @@ export default function App() {
     </div>
   );
 
+  // Walkthrough takes over the full viewport — render it as the entire
+  // tree so it sits above any app shell chrome. The dialogs/modals that
+  // would normally be siblings of the workspace stage are not surfaced
+  // from inside walkthrough; exiting returns to the workspace stage.
+  if (stage === "walkthrough") {
+    return <WalkthroughRoute document={activeDocument} onExit={exitWalkthrough} />;
+  }
+
   return (
     <main className="min-h-screen">
       <div className="mx-auto flex max-w-[1720px] flex-col gap-3 px-3 py-3 sm:px-5 lg:px-6">
@@ -10209,8 +9656,8 @@ export default function App() {
             role="status"
             className="rounded-[1.2rem] border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900"
           >
-            <strong className="font-semibold">Viewer mode</strong> · this URL hides save, publish, and behavior
-            mutation controls. Remove <code>?role=viewer</code> from the address to edit.
+            <strong className="font-semibold">Viewer mode</strong> · this URL hides save, publish, and behavior mutation
+            controls. Remove <code>?role=viewer</code> from the address to edit.
           </div>
         ) : null}
 
@@ -10365,6 +9812,9 @@ export default function App() {
               ) : null}
               <BuilderStage
                 expandedRailWidth={editingListenerId ? 540 : undefined}
+                onOpenTestPanel={testPanel.open}
+                deriveTestPanelSelection={deriveTestPanelSelectionFromSelection}
+                onEnterWalkthrough={activeDocument ? enterWalkthrough : undefined}
                 stepStrip={
                   <StepStrip
                     activeDocument={activeDocument}
@@ -10459,6 +9909,7 @@ export default function App() {
                         onSetBehaviorFocusTarget={setBehaviorFocusTarget}
                         onOpenBehaviorStudio={openBehaviorStudio}
                         onCreateBehaviorStudioAnchor={createBehaviorStudioAnchor}
+                        onOpenTestPanel={openTestPanelFromSelection}
                       />
                     )}
                     renderDispatchKeyBadge={renderDispatchKeyBadge}
@@ -10496,6 +9947,7 @@ export default function App() {
                     onAddGroupToSection={handleAddGroupToSection}
                     onAddField={handleAddField}
                     onOpenBehaviorTab={() => setInspectorTab("behavior")}
+                    onOpenTestPanelForField={openTestPanelForField}
                     getButtonBehaviorSummary={getButtonBehaviorSummary}
                     isViewerMode={isViewerMode}
                   />
@@ -10571,8 +10023,8 @@ export default function App() {
                         onRemoveRuntimeListenerForSelection={removeRuntimeListenerForSelection}
                         onDuplicateRuntimeEventSourceForSelection={duplicateRuntimeEventSourceForSelection}
                         onRemoveRuntimeEventSourceForSelection={removeRuntimeEventSourceForSelection}
-                        onHandleTestSelectedRule={handleTestSelectedRule}
-                        onHandleTestSelectedChain={handleTestSelectedChain}
+                        onOpenTestPanelForListener={openTestPanelForListener}
+                        onOpenTestPanelFromSelection={openTestPanelFromSelection}
                         onExportDocumentBehaviors={handleExportDocumentBehaviors}
                         onExportListenerBehavior={handleExportListenerBehavior}
                         onRequestImportBehaviors={handleRequestImportBehaviors}
@@ -10586,43 +10038,6 @@ export default function App() {
                       renderBehaviorActionStudio()
                     ) : behaviorStudioMode === "create" ? (
                       renderBehaviorStudioSurface()
-                    ) : behaviorStudioMode === "test" ? (
-                      <EventFlowStudio
-                        eventFlowSourceId={eventFlowSourceId}
-                        eventFlowEventType={eventFlowEventType}
-                        activeRuntimeTarget={activeRuntimeTarget}
-                        activeRuntimeScope={activeRuntimeScope}
-                        activeDocument={activeDocument}
-                        runtimeEventSourceCandidates={runtimeEventSourceCandidates}
-                        runtimeEventSourceCandidateById={runtimeEventSourceCandidateById}
-                        runtimeNodeLabelById={runtimeNodeLabelById}
-                        selectedBehaviorNode={selectedBehaviorNode}
-                        lastDispatchReport={lastDispatchReport}
-                        logicMapData={logicMapData}
-                        eventFlowOptionsForSource={eventFlowOptionsForSource}
-                        eventFlowPayloadRawValue={eventFlowPayloadRawValue}
-                        defaultBehaviorTriggerName={defaultBehaviorTriggerName}
-                        onRunEventFlowDispatch={runEventFlowDispatch}
-                        onSaveEventFlowEvent={saveEventFlowEvent}
-                        onAddEventFlowPayloadCondition={addEventFlowPayloadCondition}
-                        onOpenBehaviorStudioListenerSection={openBehaviorStudioListenerSection}
-                        onOpenRuntimeEventEditorForSelection={openRuntimeEventEditorForSelection}
-                        onSetEventFlowSourceId={setEventFlowSourceId}
-                        onSetEventFlowEventType={setEventFlowEventType}
-                        onSetEventFlowPayloadValues={setEventFlowPayloadValues}
-                        onSetSelectedBehaviorNode={setSelectedBehaviorNode}
-                        onSetLastDispatchReport={setLastDispatchReport}
-                        onSetSelectedAuthoring={setSelectedAuthoring}
-                        onSetBehaviorStudioCreating={setBehaviorStudioCreating}
-                        onSetBehaviorStudioManagerMode={setBehaviorStudioManagerMode}
-                        onSetBehaviorStudioMode={setBehaviorStudioMode}
-                        onSetBehaviorEventType={setBehaviorEventType}
-                        onSetBehaviorEventBubbles={setBehaviorEventBubbles}
-                        onSetBehaviorEventDescription={setBehaviorEventDescription}
-                        onSetBehaviorEventPayloadFields={setBehaviorEventPayloadFields}
-                        onSetBehaviorEventMetadataExample={setBehaviorEventMetadataExample}
-                        onSetBehaviorCreationPath={setBehaviorCreationPath}
-                      />
                     ) : (
                       <BehaviorWorkspace
                         selectedAuthoring={selectedAuthoring}
@@ -10671,8 +10086,8 @@ export default function App() {
                         onOpenBehaviorStudioAddBehavior={openBehaviorStudioAddBehavior}
                         onOpenBehaviorStudioReactToAnotherItem={openBehaviorStudioReactToAnotherItem}
                         onCloseBehaviorStudio={closeBehaviorStudio}
-                        onHandleTestSelectedRule={handleTestSelectedRule}
-                        onHandleTestSelectedChain={handleTestSelectedChain}
+                        onOpenTestPanelForListener={openTestPanelForListener}
+                        onOpenTestPanelFromSelection={openTestPanelFromSelection}
                         onHandleResetRuntimeSession={handleResetRuntimeSession}
                         onHandlePopulateRequiredRuntimeValues={handlePopulateRequiredRuntimeValues}
                         onHandleRunCurrentRuntimeStep={handleRunCurrentRuntimeStep}
@@ -10717,7 +10132,6 @@ export default function App() {
                   onOpenBehaviorStudioEventSection={openBehaviorStudioEventSection}
                   onOpenBehaviorStudioListenerSection={openBehaviorStudioListenerSection}
                   onOpenBehaviorStudioActionSection={openBehaviorStudioActionSection}
-                  onOpenBehaviorStudioTestSection={openBehaviorStudioTestSection}
                   onSetBehaviorStudioCreating={setBehaviorStudioCreating}
                   onSetBehaviorFocusTarget={setBehaviorFocusTarget}
                   onSetBehaviorStudioManagerMode={setBehaviorStudioManagerMode}
@@ -11827,9 +11241,71 @@ export default function App() {
       ) : null}
 
       {/* Generic confirm dialog — destructive operations (behavior delete, library delete) */}
-      {confirmDialog !== null ? (
-        <ConfirmDialog state={confirmDialog} onClose={() => setConfirmDialog(null)} />
-      ) : null}
+      {confirmDialog !== null ? <ConfirmDialog state={confirmDialog} onClose={() => setConfirmDialog(null)} /> : null}
+
+      {/* Unified TestPanel — synth/record modes, docked or floating. Trigger lands in Phase 8. */}
+      <TestPanel
+        open={testPanel.state.open}
+        mode={testPanel.state.mode}
+        dockSide={testPanel.state.dockSide}
+        selection={testPanel.state.selection}
+        lastReport={testPanel.state.lastReport}
+        recordedReports={testPanel.state.recordedReports}
+        candidates={runtimeEventSourceCandidates}
+        nodeLabelById={runtimeNodeLabelById}
+        onClose={testPanel.close}
+        onSetMode={testPanel.setMode}
+        onSetDock={testPanel.setDock}
+        onSelectSource={(id) => {
+          const candidate = runtimeEventSourceCandidateById.get(id);
+          const nextEventType = candidate?.eventDefinitions[0]
+            ? runtimeEventDefinitionType(candidate.eventDefinitions[0])
+            : null;
+          // Mark the selection as user-edited so the auto-mirror effect won't clobber it.
+          testPanel.mirrorSelection({
+            sourceId: id,
+            eventType: nextEventType,
+            payload: {},
+            payloadEdited: testPanel.state.selection.payloadEdited,
+            sourceEditedByUser: true,
+          });
+        }}
+        onSelectEvent={(type) =>
+          // Treat an explicit event pick as a manual edit too — keeps source+event stable
+          // even if the user only changed the event type for the current source.
+          testPanel.mirrorSelection({
+            ...testPanel.state.selection,
+            eventType: type,
+            sourceEditedByUser: true,
+          })
+        }
+        onEditPayload={testPanel.editPayload}
+        onResetPayload={testPanel.resetPayload}
+        onFire={({ sourceId, eventType, payload }) => {
+          const source = runtimeEventSourceCandidateById.get(sourceId);
+          if (!source || !activeDocument) return;
+          const target: NonNullable<RuntimeEventEnvelope["target"]> = {
+            runtimeId: "builder-simulator",
+            formId: activeDocument.id,
+            projectId: activeProjectDetail?.project.id ?? null,
+            nodeId: source.id,
+            nodeKey: source.dispatchKey ?? null,
+            nodeType: source.nodeType,
+          };
+          const envelope: RuntimeEventEnvelope = {
+            type: eventType,
+            version: "1.0",
+            source: target,
+            target,
+            payload: { ...payload, eventType, sourceNodeId: source.id, targetNodeId: source.id },
+            correlationId: crypto.randomUUID(),
+            timestamp: new Date().toISOString(),
+          };
+          const report = runtimeEngineRef.current?.dispatchWithReport(envelope) ?? null;
+          testPanel.setLastReport(report);
+        }}
+        onClearRecorded={testPanel.clearRecorded}
+      />
     </main>
   );
 }

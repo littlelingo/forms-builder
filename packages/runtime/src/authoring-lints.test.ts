@@ -80,7 +80,13 @@ test("authoring-lints: blank/missing correlationId never flags collision", () =>
   const listener = makeListener([
     { id: "a1", kind: "host_call_await", target: null, config: { handlerKey: "h" }, continueOnError: false },
     { id: "a2", kind: "host_call_await", target: null, config: { handlerKey: "h" }, continueOnError: false },
-    { id: "a3", kind: "host_call_await", target: null, config: { handlerKey: "h", correlationId: "" }, continueOnError: false },
+    {
+      id: "a3",
+      kind: "host_call_await",
+      target: null,
+      config: { handlerKey: "h", correlationId: "" },
+      continueOnError: false,
+    },
   ]);
   assert.deepEqual(lintRuntimeListener(listener), []);
 });

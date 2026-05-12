@@ -19,7 +19,6 @@ export interface BehaviorStudioModalProps {
   onOpenBehaviorStudioEventSection: () => void;
   onOpenBehaviorStudioListenerSection: () => void;
   onOpenBehaviorStudioActionSection: () => void;
-  onOpenBehaviorStudioTestSection: () => void;
   onSetBehaviorStudioCreating: (creating: boolean) => void;
   onSetBehaviorFocusTarget: (target: "simulator" | null) => void;
   onSetBehaviorStudioManagerMode: (mode: BehaviorStudioManagerMode) => void;
@@ -38,7 +37,6 @@ export function BehaviorStudioModal({
   onOpenBehaviorStudioEventSection,
   onOpenBehaviorStudioListenerSection,
   onOpenBehaviorStudioActionSection,
-  onOpenBehaviorStudioTestSection,
   onSetBehaviorStudioCreating,
   onSetBehaviorFocusTarget,
   onSetBehaviorStudioManagerMode,
@@ -71,9 +69,7 @@ export function BehaviorStudioModal({
           behaviorStudioMode === "graph"
             ? "h-[min(86dvh,47.5rem)] max-w-[70rem]"
             : behaviorStudioWorkspaceShell
-              ? behaviorStudioMode === "test"
-                ? "h-[min(82dvh,42rem)] max-w-[60rem]"
-                : "h-[min(84dvh,46rem)] max-w-[70rem]"
+              ? "h-[min(84dvh,46rem)] max-w-[70rem]"
               : "h-[min(78dvh,39rem)] max-w-[56rem]"
         }`}
       >
@@ -104,9 +100,7 @@ export function BehaviorStudioModal({
                           ? "Behavior editor"
                           : behaviorStudioMode === "manage"
                             ? "Behavior Manager"
-                            : behaviorStudioMode === "test"
-                              ? "Test"
-                              : "Graph view"}
+                            : "Graph view"}
                 </h3>
                 <span className="app-pill max-w-[22rem] truncate">{currentBehaviorSelectionSummary()}</span>
               </div>
@@ -132,13 +126,6 @@ export function BehaviorStudioModal({
                 className={actionButtonClass(behaviorStudioMode === "action" ? "primary" : "secondary")}
               >
                 Action
-              </button>
-              <button
-                type="button"
-                onClick={onOpenBehaviorStudioTestSection}
-                className={actionButtonClass(behaviorStudioMode === "test" ? "primary" : "secondary")}
-              >
-                Test
               </button>
               <button
                 type="button"

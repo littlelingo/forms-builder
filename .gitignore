@@ -29,5 +29,5 @@ uploads/
 data/projects/*/migration-backup/
 data/projects/*/migration-log.json
 
-# E2E debug artefacts (apps/web/e2e/orchestrate.mjs writes a failure.png on test failure)
-apps/web/e2e/failure.png
+# E2E debug artefacts — each run script writes a failure*.png on test failure
+apps/web/e2e/failure*.png

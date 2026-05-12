@@ -38,6 +38,7 @@ Ranked by leverage-to-effort, biased toward unblocking real authoring use rather
 ### 1. Browser-side end-to-end of the Phase 3 composer
 
 Half-shipped: the composer surfaces are in place (Stage G + Stage #2 BranchActionCard), but **no live E2E test confirms author → engine → preview round-trip** for a branch/wait/host_call_await chain. A small Playwright spec under `apps/web/e2e/` would lock the contract that:
+
 - author can compose a host_call_await chain in the inspector;
 - save + reload preserves the chain;
 - preview dispatch suspends and resumes when a mocked host responds.
@@ -53,6 +54,7 @@ Effort: ~1 day. Unblocks any "two-person review" workflow.
 ### 3. Behavior export/import (#5) — one-way export first
 
 Behavior export as a JSON artifact (single listener or full listener tree) unlocks:
+
 - a real story for copy-paste between projects (today only the Behavior Library supports this, and only at the entry granularity);
 - bug-report attachments (author exports a listener, files an issue);
 - offline test fixtures (writer can hand-craft listeners outside the UI).

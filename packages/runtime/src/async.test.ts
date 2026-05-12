@@ -370,7 +370,13 @@ test("Phase 3 Stage D: host_call_await suspends and resumes on host.action_respo
   engine.dispatch({
     type: "host.action_response",
     version: "1.0",
-    source: { runtimeId: "runtime-async", formId: "form-async", projectId: "project-async", nodeId: null, nodeType: null },
+    source: {
+      runtimeId: "runtime-async",
+      formId: "form-async",
+      projectId: "project-async",
+      nodeId: null,
+      nodeType: null,
+    },
     payload: { correlationId: "corr-fixed-1", city: "Springfield" },
     correlationId: "corr-fixed-1",
     timestamp: "2026-06-01T00:01:00.000Z",
@@ -391,7 +397,13 @@ test("Phase 3 Stage D: host_call_await emits continuation_mismatch on unknown co
   engine.dispatch({
     type: "host.action_response",
     version: "1.0",
-    source: { runtimeId: "runtime-async", formId: "form-async", projectId: "project-async", nodeId: null, nodeType: null },
+    source: {
+      runtimeId: "runtime-async",
+      formId: "form-async",
+      projectId: "project-async",
+      nodeId: null,
+      nodeType: null,
+    },
     payload: { correlationId: "no-such-id" },
     correlationId: "no-such-id",
     timestamp: "2026-06-01T00:02:00.000Z",
@@ -469,7 +481,14 @@ test("Phase 3 Stage D: onError continue advances past the erroring action", asyn
 test("Phase 3 #18: $runtime current.response.* resolves after host_call_await resumes", async () => {
   const document = createDocument();
   document.runtime!.formEvents = [
-    { id: "evt-tick", type: "form.tick", dispatcherId: "form-async", dispatcherType: "form", bubbles: false, description: "" },
+    {
+      id: "evt-tick",
+      type: "form.tick",
+      dispatcherId: "form-async",
+      dispatcherType: "form",
+      bubbles: false,
+      description: "",
+    },
   ];
   document.runtime!.formListeners = [
     {
@@ -510,7 +529,13 @@ test("Phase 3 #18: $runtime current.response.* resolves after host_call_await re
   engine.dispatch({
     type: "host.action_response",
     version: "1.0",
-    source: { runtimeId: "runtime-async", formId: "form-async", projectId: "project-async", nodeId: null, nodeType: null },
+    source: {
+      runtimeId: "runtime-async",
+      formId: "form-async",
+      projectId: "project-async",
+      nodeId: null,
+      nodeType: null,
+    },
     payload: { correlationId: "corr-resp-1", city: "Springfield" },
     correlationId: "corr-resp-1",
     timestamp: "2026-06-01T00:01:00.000Z",

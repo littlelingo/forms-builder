@@ -26,6 +26,8 @@ export interface PropertiesTabProps {
   onAddGroupToSection: (stepId: string, sectionId: string) => void;
   onAddField: (container: "section" | "group") => void;
   onOpenBehaviorTab: () => void;
+  /** Opens the unified TestPanel pre-filled for the given field (Phase 8). */
+  onOpenTestPanelForField?: (fieldId: string) => void;
   getButtonBehaviorSummary: (field: AuthoringField) => { action: string; eventName: string | null };
   /** When true, all form controls are disabled (viewer role, #2). */
   isViewerMode?: boolean;
@@ -46,6 +48,7 @@ export function PropertiesTab({
   onAddGroupToSection,
   onAddField,
   onOpenBehaviorTab,
+  onOpenTestPanelForField,
   getButtonBehaviorSummary,
   isViewerMode = false,
 }: PropertiesTabProps) {
@@ -199,21 +202,34 @@ export function PropertiesTab({
 
       {selectedAuthoring?.kind === "field" && activeBuilderField ? (
         <div className="space-y-4 rounded-[1.15rem] border border-soft bg-white p-4">
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={() =>
-                onRemoveField(
-                  selectedAuthoring.stepId,
-                  selectedAuthoring.sectionId,
-                  selectedAuthoring.fieldId,
-                  selectedAuthoring.groupId,
-                )
-              }
-              className={actionButtonClass("danger")}
-            >
-              Remove field
-            </button>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Properties</p>
+            <div className="flex items-center gap-2">
+              {onOpenTestPanelForField ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenTestPanelForField(activeBuilderField.id)}
+                  className={actionButtonClass()}
+                  title="Open TestPanel for this field"
+                >
+                  Test
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() =>
+                  onRemoveField(
+                    selectedAuthoring.stepId,
+                    selectedAuthoring.sectionId,
+                    selectedAuthoring.fieldId,
+                    selectedAuthoring.groupId,
+                  )
+                }
+                className={actionButtonClass("danger")}
+              >
+                Remove field
+              </button>
+            </div>
           </div>
           <div>
             <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Field label</label>

@@ -87,6 +87,17 @@ class HaltChainError extends Error {
   }
 }
 
+/**
+ * Phase 1 helper: mark an action diagnostic as skipped with a reason.
+ * Centralises the missing-target / no-op patterns so each action kind
+ * only needs a single call instead of three lines of inline state.
+ */
+function markSkipped(d: RuntimeActionDiagnostic | undefined, reason: "missing-target" | "no-op" | string): void {
+  if (!d) return;
+  d.status = "skipped";
+  d.skippedReason = reason;
+}
+
 export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): RuntimeEngine {
   const libraryRegistry: BehaviorLibraryRegistry | undefined = options?.libraryRegistry;
   const telemetrySink: TelemetrySink | undefined = options?.telemetrySink;
@@ -125,6 +136,20 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
   // dedicated debounce listener test) will land that wiring once the
   // semantic shift is intentional.
   const listenerScheduler: ListenerScheduler = createListenerScheduler();
+  // Subscribers to dispatch reports. Broadcast after every dispatchWithReport
+  // and dispatchWithReportAsync. Failures inside a handler must not break
+  // the dispatch path or starve sibling handlers.
+  const reportHandlers: Set<(report: RuntimeDispatchReport) => void> = new Set();
+  const broadcastReport = (report: RuntimeDispatchReport): void => {
+    for (const handler of reportHandlers) {
+      try {
+        handler(report);
+      } catch {
+        // Subscriber errors are swallowed; the dispatch contract should not be
+        // affected by observer faults.
+      }
+    }
+  };
   // Promise-chain serialization: every dispatchAsync invocation is appended to
   // the tail. The next call's `fn` only starts after the current tail settles,
   // so concurrent callers see FIFO semantics regardless of how many awaits
@@ -521,6 +546,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
     event: RuntimeEventEnvelope,
     report?: RuntimeDispatchReportDraft,
     asyncContext?: AsyncChainContext,
+    diagnostic?: RuntimeActionDiagnostic,
   ): void | Promise<void> => {
     if (!document || !index) {
       return;
@@ -543,17 +569,25 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
         case "go_to_next_step": {
           const currentIndex = state.currentStepId ? index.stepOrder.indexOf(state.currentStepId) : -1;
           const nextStepId = index.stepOrder[currentIndex + 1];
-          if (nextStepId) {
-            transitionToStep(nextStepId, "go_to_next_step", event, report);
+          if (diagnostic) diagnostic.before = state.currentStepId ?? null;
+          if (!nextStepId) {
+            markSkipped(diagnostic, "no-op");
+            break;
           }
+          transitionToStep(nextStepId, "go_to_next_step", event, report);
+          if (diagnostic) diagnostic.after = state.currentStepId ?? null;
           break;
         }
         case "go_to_previous_step": {
           const currentIndex = state.currentStepId ? index.stepOrder.indexOf(state.currentStepId) : -1;
           const previousStepId = currentIndex > 0 ? index.stepOrder[currentIndex - 1] : null;
-          if (previousStepId) {
-            transitionToStep(previousStepId, "go_to_previous_step", event, report);
+          if (diagnostic) diagnostic.before = state.currentStepId ?? null;
+          if (!previousStepId) {
+            markSkipped(diagnostic, "no-op");
+            break;
           }
+          transitionToStep(previousStepId, "go_to_previous_step", event, report);
+          if (diagnostic) diagnostic.after = state.currentStepId ?? null;
           break;
         }
         case "go_to_step": {
@@ -563,9 +597,13 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
               : typeof action.target?.nodeId === "string"
                 ? action.target.nodeId
                 : null;
-          if (targetStepId) {
-            transitionToStep(targetStepId, "go_to_step", event, report);
+          if (diagnostic) diagnostic.before = state.currentStepId ?? null;
+          if (!targetStepId || !index.stepOrder.includes(targetStepId)) {
+            markSkipped(diagnostic, "missing-target");
+            break;
           }
+          transitionToStep(targetStepId, "go_to_step", event, report);
+          if (diagnostic) diagnostic.after = state.currentStepId ?? null;
           break;
         }
         case "set_field_value": {
@@ -575,23 +613,27 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
               : typeof action.target?.nodeId === "string"
                 ? action.target.nodeId
                 : null;
-          if (targetFieldId) {
-            const value = resolveRuntimePayloadValue(
-              action.config.value,
-              event,
-              document,
-              index,
-              state,
-              asyncContext?.responseScope,
-            );
-            state = {
-              ...state,
-              values: {
-                ...state.values,
-                [targetFieldId]: structuredClone(value),
-              },
-            };
+          if (!targetFieldId || !index.nodes.has(targetFieldId)) {
+            markSkipped(diagnostic, "missing-target");
+            break;
           }
+          if (diagnostic) diagnostic.before = structuredClone(state.values[targetFieldId]);
+          const value = resolveRuntimePayloadValue(
+            action.config.value,
+            event,
+            document,
+            index,
+            state,
+            asyncContext?.responseScope,
+          );
+          state = {
+            ...state,
+            values: {
+              ...state.values,
+              [targetFieldId]: structuredClone(value),
+            },
+          };
+          if (diagnostic) diagnostic.after = structuredClone(state.values[targetFieldId]);
           break;
         }
         case "clear_field_value": {
@@ -601,11 +643,15 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
               : typeof action.target?.nodeId === "string"
                 ? action.target.nodeId
                 : null;
-          if (targetFieldId) {
-            const nextValues = { ...state.values };
-            delete nextValues[targetFieldId];
-            state = { ...state, values: nextValues };
+          if (!targetFieldId || !index.nodes.has(targetFieldId)) {
+            markSkipped(diagnostic, "missing-target");
+            break;
           }
+          if (diagnostic) diagnostic.before = structuredClone(state.values[targetFieldId]);
+          const nextValues = { ...state.values };
+          delete nextValues[targetFieldId];
+          state = { ...state, values: nextValues };
+          if (diagnostic) diagnostic.after = structuredClone(state.values[targetFieldId]);
           break;
         }
         case "show_node":
@@ -620,32 +666,42 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
               : typeof action.config.nodeId === "string"
                 ? action.config.nodeId
                 : null;
-          if (targetNodeId && state.nodes[targetNodeId]) {
-            const currentNodeState = state.nodes[targetNodeId];
-            state = {
-              ...state,
-              nodes: {
-                ...state.nodes,
-                [targetNodeId]: {
-                  ...currentNodeState,
-                  visible:
-                    action.kind === "show_node" ? true : action.kind === "hide_node" ? false : currentNodeState.visible,
-                  enabled:
-                    action.kind === "enable_node"
-                      ? true
-                      : action.kind === "disable_node"
-                        ? false
-                        : currentNodeState.enabled,
-                  required:
-                    action.kind === "mark_required"
-                      ? true
-                      : action.kind === "mark_optional"
-                        ? false
-                        : currentNodeState.required,
-                },
-              },
-            };
+          if (!targetNodeId || !state.nodes[targetNodeId]) {
+            markSkipped(diagnostic, "missing-target");
+            break;
           }
+          const currentNodeState = state.nodes[targetNodeId];
+          const flagKey: keyof typeof currentNodeState =
+            action.kind === "show_node" || action.kind === "hide_node"
+              ? "visible"
+              : action.kind === "enable_node" || action.kind === "disable_node"
+                ? "enabled"
+                : "required";
+          if (diagnostic) diagnostic.before = currentNodeState[flagKey];
+          state = {
+            ...state,
+            nodes: {
+              ...state.nodes,
+              [targetNodeId]: {
+                ...currentNodeState,
+                visible:
+                  action.kind === "show_node" ? true : action.kind === "hide_node" ? false : currentNodeState.visible,
+                enabled:
+                  action.kind === "enable_node"
+                    ? true
+                    : action.kind === "disable_node"
+                      ? false
+                      : currentNodeState.enabled,
+                required:
+                  action.kind === "mark_required"
+                    ? true
+                    : action.kind === "mark_optional"
+                      ? false
+                      : currentNodeState.required,
+              },
+            },
+          };
+          if (diagnostic) diagnostic.after = state.nodes[targetNodeId]?.[flagKey];
           break;
         }
         case "dispatch_event":
@@ -712,6 +768,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
           break;
         }
         case "submit_form": {
+          if (diagnostic) diagnostic.before = state.submit.status;
           const validation = validate();
           if (!validation.valid) {
             state = {
@@ -742,6 +799,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
               false,
               report,
             );
+            if (diagnostic) diagnostic.after = state.submit.status;
             break;
           }
 
@@ -766,6 +824,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
             },
           };
           routeEvent(submitEvent, true, false, report);
+          if (diagnostic) diagnostic.after = state.submit.status;
           break;
         }
         case "branch": {
@@ -904,7 +963,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
           const ret = executeAction(action, event, report);
           if (ret && typeof (ret as Promise<void>).then === "function") {
             // executeAction guarded async kinds upstream, so a Promise here is a contract bug.
-            throw new Error('Internal: sync action chain produced a Promise.');
+            throw new Error("Internal: sync action chain produced a Promise.");
           }
         }
       } catch (err) {
@@ -1342,7 +1401,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
             };
             listenerDiagnostic.actions.push(actionDiagnostic);
             try {
-              executeAction(action, listenerInvocation.event, report);
+              executeAction(action, listenerInvocation.event, report, undefined, actionDiagnostic);
             } catch (error) {
               if (error instanceof HaltChainError) {
                 break;
@@ -1429,7 +1488,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
             };
             listenerDiagnostic.actions.push(actionDiagnostic);
             try {
-              const ret = executeAction(action, listenerInvocation.event, report, asyncContext);
+              const ret = executeAction(action, listenerInvocation.event, report, asyncContext, actionDiagnostic);
               if (ret && typeof (ret as Promise<void>).then === "function") {
                 await ret;
               }
@@ -1498,24 +1557,20 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
 
       if (options?.emitLoadEvent !== false) {
         tryRouteOrFallbackAsync(
-          buildEvent(
-            "form.load",
-            { stepId: state.currentStepId },
-            "outbound",
-            { nodeId: document.id, nodeType: "form" },
-          ),
+          buildEvent("form.load", { stepId: state.currentStepId }, "outbound", {
+            nodeId: document.id,
+            nodeType: "form",
+          }),
           false,
         );
       }
 
       if (state.currentStepId) {
         tryRouteOrFallbackAsync(
-          buildEvent(
-            "step.enter",
-            { stepId: state.currentStepId, previousStepId: null, reason: "mount" },
-            "internal",
-            { nodeId: state.currentStepId, nodeType: "step" },
-          ),
+          buildEvent("step.enter", { stepId: state.currentStepId, previousStepId: null, reason: "mount" }, "internal", {
+            nodeId: state.currentStepId,
+            nodeType: "step",
+          }),
           false,
         );
       }
@@ -1569,7 +1624,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
       };
       const stateAfter = routeEvent(structuredClone(event), true, true, reportDraft);
       const traceEntries = structuredClone(trace.slice(reportDraft.traceStartIndex));
-      return {
+      const report: RuntimeDispatchReport = {
         event: reportDraft.event ?? traceEntries[0]?.event ?? structuredClone(event),
         stateBefore: reportDraft.stateBefore,
         stateAfter,
@@ -1578,6 +1633,8 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
         emittedEvents: traceEntries.slice(1).map((entry) => entry.event),
         stateDiff: diffRuntimeSessionState(reportDraft.stateBefore, stateAfter),
       };
+      broadcastReport(report);
+      return report;
     },
     dispatchAsync(event: RuntimeEventEnvelope): Promise<RuntimeSessionState> {
       if (!mounted || !document || !index) {
@@ -1600,7 +1657,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
         };
         const stateAfter = await routeEventAsync(cloned, true, true, reportDraft);
         const traceEntries = structuredClone(trace.slice(reportDraft.traceStartIndex));
-        return {
+        const report: RuntimeDispatchReport = {
           event: reportDraft.event ?? traceEntries[0]?.event ?? structuredClone(event),
           stateBefore: reportDraft.stateBefore,
           stateAfter,
@@ -1609,6 +1666,8 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
           emittedEvents: traceEntries.slice(1).map((entry) => entry.event),
           stateDiff: diffRuntimeSessionState(reportDraft.stateBefore, stateAfter),
         };
+        broadcastReport(report);
+        return report;
       });
     },
     invoke(action: RuntimeActionDefinition): RuntimeSessionState {
@@ -1633,6 +1692,12 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
     },
     subscribe(handler) {
       return eventBus.subscribe(handler);
+    },
+    subscribeReports(handler) {
+      reportHandlers.add(handler);
+      return () => {
+        reportHandlers.delete(handler);
+      };
     },
     getState(): RuntimeSessionState {
       return structuredClone(state);

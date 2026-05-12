@@ -21,11 +21,7 @@
 
 import { chromium } from "playwright";
 
-import {
-  buildProjectDetail,
-  buildProjectRecord,
-  FIXTURE_PROJECT_ID,
-} from "./fixtures.mjs";
+import { buildProjectDetail, buildProjectRecord, FIXTURE_PROJECT_ID } from "./fixtures.mjs";
 
 const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:4174";
 const API_HOST = "http://127.0.0.1:8000";
@@ -51,46 +47,34 @@ async function installApiMocks(page) {
     return route.fulfill(jsonResponse({ detail: "unmocked" }, 404));
   });
 
-  await page.route(`${API_HOST}/conversions`, (route) =>
+  await page.route(`${API_HOST}/conversions`, (route) => route.fulfill(jsonResponse([])));
+
+  await page.route(`${API_HOST}/sample-pdfs`, (route) => route.fulfill(jsonResponse([])));
+
+  await page.route(`${API_HOST}/projects`, (route) => route.fulfill(jsonResponse([projectRecord])));
+
+  await page.route(new RegExp(`^${API_HOST}/projects/${FIXTURE_PROJECT_ID}$`), (route) =>
+    route.fulfill(jsonResponse(detail)),
+  );
+
+  await page.route(new RegExp(`^${API_HOST}/projects/${FIXTURE_PROJECT_ID}/document$`), (route) =>
+    route.fulfill(jsonResponse(detail.document)),
+  );
+
+  await page.route(new RegExp(`^${API_HOST}/projects/${FIXTURE_PROJECT_ID}/source-context$`), (route) =>
+    route.fulfill(jsonResponse(detail.sourceContext)),
+  );
+
+  await page.route(new RegExp(`^${API_HOST}/projects/${FIXTURE_PROJECT_ID}/revisions$`), (route) =>
     route.fulfill(jsonResponse([])),
   );
 
-  await page.route(`${API_HOST}/sample-pdfs`, (route) =>
+  await page.route(new RegExp(`^${API_HOST}/projects/${FIXTURE_PROJECT_ID}/library$`), (route) =>
     route.fulfill(jsonResponse([])),
   );
 
-  await page.route(`${API_HOST}/projects`, (route) =>
-    route.fulfill(jsonResponse([projectRecord])),
-  );
-
-  await page.route(
-    new RegExp(`^${API_HOST}/projects/${FIXTURE_PROJECT_ID}$`),
-    (route) => route.fulfill(jsonResponse(detail)),
-  );
-
-  await page.route(
-    new RegExp(`^${API_HOST}/projects/${FIXTURE_PROJECT_ID}/document$`),
-    (route) => route.fulfill(jsonResponse(detail.document)),
-  );
-
-  await page.route(
-    new RegExp(`^${API_HOST}/projects/${FIXTURE_PROJECT_ID}/source-context$`),
-    (route) => route.fulfill(jsonResponse(detail.sourceContext)),
-  );
-
-  await page.route(
-    new RegExp(`^${API_HOST}/projects/${FIXTURE_PROJECT_ID}/revisions$`),
-    (route) => route.fulfill(jsonResponse([])),
-  );
-
-  await page.route(
-    new RegExp(`^${API_HOST}/projects/${FIXTURE_PROJECT_ID}/library$`),
-    (route) => route.fulfill(jsonResponse([])),
-  );
-
-  await page.route(
-    new RegExp(`^${API_HOST}/projects/${FIXTURE_PROJECT_ID}/project-events$`),
-    (route) => route.fulfill(jsonResponse({ version: "1.0", projectEvents: [] })),
+  await page.route(new RegExp(`^${API_HOST}/projects/${FIXTURE_PROJECT_ID}/project-events$`), (route) =>
+    route.fulfill(jsonResponse({ version: "1.0", projectEvents: [] })),
   );
 }
 

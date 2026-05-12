@@ -8,10 +8,7 @@ import type {
   RuntimeListenerDefinition,
 } from "@form-builder/schema";
 
-import {
-  createRuntimeDocumentBehavior,
-  createRuntimeNodeBehavior,
-} from "../features/behavior/utils/runtime-helpers";
+import { createRuntimeDocumentBehavior, createRuntimeNodeBehavior } from "../features/behavior/utils/runtime-helpers";
 
 /**
  * One-way behavior export (MVP scope assessment #3 — export half).
@@ -61,9 +58,7 @@ function makeAncestry(
   section: AuthoringSection | null,
   group: AuthoringGroup | null,
 ): ExportNodeContext["ancestry"] {
-  const path: ExportNodeContext["ancestry"] = [
-    { kind: "form", id: document.id, label: document.title },
-  ];
+  const path: ExportNodeContext["ancestry"] = [{ kind: "form", id: document.id, label: document.title }];
   if (step) path.push({ kind: "step", id: step.id, label: step.title });
   if (section) path.push({ kind: "section", id: section.id, label: section.title });
   if (group) path.push({ kind: "group", id: group.id, label: group.label });
@@ -174,10 +169,7 @@ export function collectExportEntries(document: AuthoringDocument): BehaviorExpor
   return entries;
 }
 
-function makeSource(
-  document: AuthoringDocument,
-  project: AuthoringProjectRecord | null,
-): ExportSource {
+function makeSource(document: AuthoringDocument, project: AuthoringProjectRecord | null): ExportSource {
   return {
     projectId: project?.id ?? null,
     projectName: project?.name ?? null,
@@ -301,7 +293,10 @@ export function validateExportEnvelope(payload: unknown): BehaviorImportValidati
   }
   const obj = payload as Record<string, unknown>;
   if (obj.version !== BEHAVIOR_EXPORT_VERSION) {
-    return { ok: false, error: `Unsupported version: expected ${BEHAVIOR_EXPORT_VERSION}, got ${String(obj.version)}.` };
+    return {
+      ok: false,
+      error: `Unsupported version: expected ${BEHAVIOR_EXPORT_VERSION}, got ${String(obj.version)}.`,
+    };
   }
   if (!Array.isArray(obj.entries)) {
     return { ok: false, error: "Envelope missing entries[]." };

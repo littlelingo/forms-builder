@@ -172,3 +172,67 @@ export function buildProjectDetail() {
 export function buildProjectRecord() {
   return buildProjectDetail().project;
 }
+
+// ---- TestPanel / Walkthrough E2E ----------------------------------------------
+//
+// Both new suites share a single fixture document on disk
+// (`fixtures/checkbox-to-radio.json`). The helpers below load it and wrap it
+// in the same project-detail shape App.tsx expects from `getProject`. The
+// fixture exercises a checkbox → radio listener: when the checkbox field
+// fires `field.change`, the listener marks the radio as required.
+//
+// Reading the JSON lazily keeps test-panel / walkthrough suites from
+// breaking the existing Phase 3 fixture import shape if it's ever revised.
+
+import { readFileSync } from "node:fs";
+
+const TP_PROJECT_ID = "e2e-project-checkbox-to-radio";
+const TP_FIXTURE_DOC_PATH = new URL("./fixtures/checkbox-to-radio.json", import.meta.url);
+
+export const FIXTURE_TEST_PANEL_PROJECT_ID = TP_PROJECT_ID;
+
+export function loadCheckboxToRadioDocument() {
+  return JSON.parse(readFileSync(TP_FIXTURE_DOC_PATH, "utf-8"));
+}
+
+export function buildCheckboxToRadioProjectDetail() {
+  const document = loadCheckboxToRadioDocument();
+  return {
+    project: {
+      id: TP_PROJECT_ID,
+      name: "Checkbox to Radio E2E",
+      status: "draft",
+      targetRuntime: "va_web_form",
+      visualBaseline: "va.gov",
+      sourceConversionId: "e2e-conversion-cb",
+      documentClass: "acroform_only",
+      currentRevisionId: "rev-1",
+      revisionCount: 1,
+      createdAt: NOW,
+      updatedAt: NOW,
+    },
+    document,
+    sourceContext: {
+      conversionId: "e2e-conversion-cb",
+      filename: "e2e-checkbox-to-radio.pdf",
+      documentClass: "acroform_only",
+      reviewStatus: "ready",
+      confidence: 1,
+      extractorPath: ["e2e"],
+      notes: [],
+      issues: [],
+      importedDraft: {
+        id: `draft-${TP_PROJECT_ID}`,
+        title: document.title,
+        documentClass: "acroform_only",
+        reviewStatus: "ready",
+        pages: [],
+        metadata: {},
+      },
+    },
+  };
+}
+
+export function buildCheckboxToRadioProjectRecord() {
+  return buildCheckboxToRadioProjectDetail().project;
+}

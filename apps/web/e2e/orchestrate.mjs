@@ -1,11 +1,23 @@
 /**
- * Orchestrator for the Phase 3 composer E2E.
+ * Orchestrator for Playwright-based E2E suites.
  *
  * Mirrors tools/a11y-smoke/orchestrate.mjs: boots `vite preview` on a free
- * port, waits for it, runs run.mjs against it, tears the preview down.
+ * port, waits for it, runs the supplied run script against it, tears the
+ * preview down.
  *
  * Usage (via npm script):
- *   npm run e2e:phase3
+ *   npm run e2e:phase3         # uses default ./run.mjs
+ *   npm run e2e:test-panel     # uses ./test-panel.run.mjs
+ *   npm run e2e:walkthrough    # uses ./walkthrough.run.mjs
+ *
+ * Direct invocation:
+ *   node apps/web/e2e/orchestrate.mjs                       # default run.mjs
+ *   node apps/web/e2e/orchestrate.mjs ./other.run.mjs
+ *
+ * The run-script argument is resolved relative to this file, must be a path
+ * (default `./run.mjs`), and is forked as a child process so each suite
+ * runs in an isolated Node process. The orchestrator boots a preview server,
+ * sets E2E_BASE_URL in the child env, and exits with the child's exit code.
  *
  * Assumes the web app is already built (dist/ exists). The npm script
  * runs `build:web` first.
@@ -16,6 +28,7 @@
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 
+const RUN_SCRIPT = process.argv[2] ?? "./run.mjs";
 const PREVIEW_PORT = process.env.E2E_PREVIEW_PORT ?? "4174";
 const BASE_URL = `http://localhost:${PREVIEW_PORT}`;
 const MAX_WAIT_MS = 15_000;
@@ -43,9 +56,9 @@ async function waitForServer(url, timeoutMs) {
   return false;
 }
 
-function runScan(baseUrl) {
+function runScan(baseUrl, runScript) {
   return new Promise((resolve) => {
-    const child = spawn("node", [new URL("run.mjs", import.meta.url).pathname], {
+    const child = spawn("node", [new URL(runScript, import.meta.url).pathname], {
       stdio: "inherit",
       env: { ...process.env, E2E_BASE_URL: baseUrl },
     });
@@ -54,7 +67,7 @@ function runScan(baseUrl) {
 }
 
 async function main() {
-  console.log(`Starting vite preview on port ${PREVIEW_PORT}…`);
+  console.log(`Starting vite preview on port ${PREVIEW_PORT}… (run script: ${RUN_SCRIPT})`);
   const server = startPreview(PREVIEW_PORT);
 
   let serverOut = "";
@@ -77,7 +90,7 @@ async function main() {
 
   let scanExit = 0;
   try {
-    scanExit = await runScan(BASE_URL);
+    scanExit = await runScan(BASE_URL, RUN_SCRIPT);
   } finally {
     server.kill("SIGTERM");
   }

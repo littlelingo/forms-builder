@@ -20,18 +20,18 @@ Goal: **one clean way** to validate event/listener/action wiring (with valid pay
 
 ## Decisions (locked during brainstorm)
 
-| Topic | Decision |
-|---|---|
-| Number of test surfaces | One unified test panel; multiple entry points share one destination. |
-| Panel placement | Floating / dockable (left, right, or detached float). |
-| Layout shape | Stacked vertical (inputs top, trace bottom) — narrow-friendly for dock. |
-| Modes | Toggle: **Synthesize** (manual payload, explicit Fire button) ↔ **Live record** (subscribe to engine reports from real preview interactions; no Fire button — trace appends as user interacts). Switching modes preserves separate state per mode (synth inputs persist across mode flips; record buffer persists). |
-| Auto-bind | On selection change, panel pre-fills source / event / payload. Sticky for user-edited payload. |
-| Walkthrough | Separate route (Build → Walkthrough). Full canvas, step nav, no panel chrome. |
-| Cleanup approach | Replace — delete the four existing UI surfaces; keep underlying engine handlers. |
-| Source/target picker | Hybrid combobox ("C+"): empty input → hierarchical tree; typed → flat ranked list. Breadcrumb chips above input show selected path. Cmd/Ctrl+K opens picker globally. |
-| Action surfacing | Trace shows per-action target, before → after. Two trace views: by listener (default), by receiver tree. |
-| Hierarchy support | Source and target can be any of: form / step / section / group / component / field. Picker renders full hierarchy; trace renders full path. |
+| Topic                   | Decision                                                                                                                                                                                                                                                                                                            |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Number of test surfaces | One unified test panel; multiple entry points share one destination.                                                                                                                                                                                                                                                |
+| Panel placement         | Floating / dockable (left, right, or detached float).                                                                                                                                                                                                                                                               |
+| Layout shape            | Stacked vertical (inputs top, trace bottom) — narrow-friendly for dock.                                                                                                                                                                                                                                             |
+| Modes                   | Toggle: **Synthesize** (manual payload, explicit Fire button) ↔ **Live record** (subscribe to engine reports from real preview interactions; no Fire button — trace appends as user interacts). Switching modes preserves separate state per mode (synth inputs persist across mode flips; record buffer persists). |
+| Auto-bind               | On selection change, panel pre-fills source / event / payload. Sticky for user-edited payload.                                                                                                                                                                                                                      |
+| Walkthrough             | Separate route (Build → Walkthrough). Full canvas, step nav, no panel chrome.                                                                                                                                                                                                                                       |
+| Cleanup approach        | Replace — delete the four existing UI surfaces; keep underlying engine handlers.                                                                                                                                                                                                                                    |
+| Source/target picker    | Hybrid combobox ("C+"): empty input → hierarchical tree; typed → flat ranked list. Breadcrumb chips above input show selected path. Cmd/Ctrl+K opens picker globally.                                                                                                                                               |
+| Action surfacing        | Trace shows per-action target, before → after. Two trace views: by listener (default), by receiver tree.                                                                                                                                                                                                            |
+| Hierarchy support       | Source and target can be any of: form / step / section / group / component / field. Picker renders full hierarchy; trace renders full path.                                                                                                                                                                         |
 
 ## Architecture
 
@@ -64,33 +64,33 @@ Goal: **one clean way** to validate event/listener/action wiring (with valid pay
 
 ### New files
 
-| File | Purpose |
-|---|---|
-| `apps/web/src/features/test-panel/TestPanel.tsx` | Floating dockable container. |
-| `apps/web/src/features/test-panel/TestPanelHeader.tsx` | Title, mode toggle, dock controls (left/right/float), close. |
-| `apps/web/src/features/test-panel/TestPanelInputs.tsx` | Synth-mode inputs: source picker (C+), event picker, payload form. |
-| `apps/web/src/features/test-panel/TestPanelTrace.tsx` | Listener trace + state diff render. Used by both modes. |
-| `apps/web/src/features/test-panel/TestPanelTrigger.tsx` | "Test" button. **Required placements**: (a) BuilderStage toolbar (always visible while in Build), (b) per-listener row in `BehaviorStackList`, (c) per-field row in `InspectorRail` field properties tab. Each placement passes its own selection context to `openTestPanel(selection)`. |
-| `apps/web/src/features/test-panel/SourcePicker.tsx` | Hybrid combobox (tree-when-empty / flat-when-typing). Reusable for source + action target picking. |
-| `apps/web/src/features/test-panel/useTestPanelState.ts` | Hook owning open/close, mode, dock side, source/event/payload, last reports. Mounted at App root. |
-| `apps/web/src/features/test-panel/index.ts` | Public re-exports. |
-| `apps/web/src/features/walkthrough/WalkthroughRoute.tsx` | Full-canvas preview, hosted-user shape. |
-| `apps/web/src/features/walkthrough/WalkthroughHeader.tsx` | Exit, step indicator, restart. |
+| File                                                      | Purpose                                                                                                                                                                                                                                                                                  |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web/src/features/test-panel/TestPanel.tsx`          | Floating dockable container.                                                                                                                                                                                                                                                             |
+| `apps/web/src/features/test-panel/TestPanelHeader.tsx`    | Title, mode toggle, dock controls (left/right/float), close.                                                                                                                                                                                                                             |
+| `apps/web/src/features/test-panel/TestPanelInputs.tsx`    | Synth-mode inputs: source picker (C+), event picker, payload form.                                                                                                                                                                                                                       |
+| `apps/web/src/features/test-panel/TestPanelTrace.tsx`     | Listener trace + state diff render. Used by both modes.                                                                                                                                                                                                                                  |
+| `apps/web/src/features/test-panel/TestPanelTrigger.tsx`   | "Test" button. **Required placements**: (a) BuilderStage toolbar (always visible while in Build), (b) per-listener row in `BehaviorStackList`, (c) per-field row in `InspectorRail` field properties tab. Each placement passes its own selection context to `openTestPanel(selection)`. |
+| `apps/web/src/features/test-panel/SourcePicker.tsx`       | Hybrid combobox (tree-when-empty / flat-when-typing). Reusable for source + action target picking.                                                                                                                                                                                       |
+| `apps/web/src/features/test-panel/useTestPanelState.ts`   | Hook owning open/close, mode, dock side, source/event/payload, last reports. Mounted at App root.                                                                                                                                                                                        |
+| `apps/web/src/features/test-panel/index.ts`               | Public re-exports.                                                                                                                                                                                                                                                                       |
+| `apps/web/src/features/walkthrough/WalkthroughRoute.tsx`  | Full-canvas preview, hosted-user shape.                                                                                                                                                                                                                                                  |
+| `apps/web/src/features/walkthrough/WalkthroughHeader.tsx` | Exit, step indicator, restart.                                                                                                                                                                                                                                                           |
 
 ### Modified files
 
-| File | Change |
-|---|---|
-| `apps/web/src/App.tsx` | Mount `useTestPanelState` at root. Render `<TestPanel>` when open. Add `walkthrough` to stage union; route `WalkthroughRoute`. Delete `previewTestRecordingOn`, `previewTestReports`, `<PreviewTestRecorder>` render. Move dispatch-report subscription into hook. |
-| `apps/web/src/features/behavior/manager/EventFlowStudio.tsx` | **Delete** (test-mode region replaced by TestPanel). |
-| `apps/web/src/features/behavior/test/PreviewTestRecorder.tsx` | **Delete**. |
-| `apps/web/src/features/behavior/manager/BehaviorWorkspace.tsx` | Remove "Test behavior" + "Run behavior test" render blocks (~lines 3770–3935). Replace with `<TestPanelTrigger>` next to selected listener/rule. |
-| `apps/web/src/features/behavior/utils/runtime-helpers.ts` | `BehaviorStudioMode` drops `"test"`. |
-| `apps/web/src/features/behavior/BehaviorStudioModal.tsx` | Remove "test" mode rendering branch. |
-| `apps/web/src/features/behavior/manager/BehaviorManager.tsx` | Remove `onSetBehaviorStudioMode("test")` call sites; replace with `openTestPanel(selection)`. |
-| `apps/web/src/features/builder/BuilderStage.tsx` | Add Walkthrough toolbar button + global "Open test panel" affordance (Cmd/Ctrl+K). |
-| `apps/web/src/features/builder/StepStrip.tsx` | Add "Walkthrough" entry. |
-| `apps/web/src/features/inspector/InspectorRail.tsx` | Add `<TestPanelTrigger>` in inspector context. |
+| File                                                           | Change                                                                                                                                                                                                                                                             |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `apps/web/src/App.tsx`                                         | Mount `useTestPanelState` at root. Render `<TestPanel>` when open. Add `walkthrough` to stage union; route `WalkthroughRoute`. Delete `previewTestRecordingOn`, `previewTestReports`, `<PreviewTestRecorder>` render. Move dispatch-report subscription into hook. |
+| `apps/web/src/features/behavior/manager/EventFlowStudio.tsx`   | **Delete** (test-mode region replaced by TestPanel).                                                                                                                                                                                                               |
+| `apps/web/src/features/behavior/test/PreviewTestRecorder.tsx`  | **Delete**.                                                                                                                                                                                                                                                        |
+| `apps/web/src/features/behavior/manager/BehaviorWorkspace.tsx` | Remove "Test behavior" + "Run behavior test" render blocks (~lines 3770–3935). Replace with `<TestPanelTrigger>` next to selected listener/rule.                                                                                                                   |
+| `apps/web/src/features/behavior/utils/runtime-helpers.ts`      | `BehaviorStudioMode` drops `"test"`.                                                                                                                                                                                                                               |
+| `apps/web/src/features/behavior/BehaviorStudioModal.tsx`       | Remove "test" mode rendering branch.                                                                                                                                                                                                                               |
+| `apps/web/src/features/behavior/manager/BehaviorManager.tsx`   | Remove `onSetBehaviorStudioMode("test")` call sites; replace with `openTestPanel(selection)`.                                                                                                                                                                      |
+| `apps/web/src/features/builder/BuilderStage.tsx`               | Add Walkthrough toolbar button + global "Open test panel" affordance (Cmd/Ctrl+K).                                                                                                                                                                                 |
+| `apps/web/src/features/builder/StepStrip.tsx`                  | Add "Walkthrough" entry.                                                                                                                                                                                                                                           |
+| `apps/web/src/features/inspector/InspectorRail.tsx`            | Add `<TestPanelTrigger>` in inspector context.                                                                                                                                                                                                                     |
 
 Engine handlers (`handleTestSelectedRule`, `handleTestSelectedChain`, `dispatchRuntimeEvent`) are kept and pulled into / referenced from `useTestPanelState`.
 
@@ -217,17 +217,17 @@ Reused for: source picker, action target picker, event reverse-index navigation.
 
 ## Error Handling & Edge Cases
 
-| Case | Behavior |
-|---|---|
-| No selection / no document | Panel opens with empty source picker. Prompt: "Pick a source above or open a project first". Walkthrough route redirects to Build if no `activeDocument`. |
-| Invalid payload (Synth) | Inline validation per field (number, boolean, JSON shape). Red border + helper text. Fire button disabled until valid. "Reset to defaults" link restores derived values. |
-| Event has no listeners | Trace renders "Event fired. No listeners reached." with a "Create listener" link that opens `BehaviorComposer` pre-bound to source + event. |
-| Broken references | Listener row shows "Broken target" warning chip; action row degrades to "Skipped — target missing". Uses existing `brokenRefsByListenerId`. |
-| Live record — engine error | Caught in panel subscription; rendered as red row in trace timeline with message + correlationId. Recording continues. |
-| Action target deleted mid-session | Engine returns `action.status="skipped"`, `skippedReason="missing-target"` (new fields, see Action Surfacing). Trace surfaces as gray row with reason. |
-| Walkthrough submit | `form.submit` event fires. Walkthrough route mocks host bridge: shows toast "Form would submit with payload" + collapsible payload viewer. Same envelope shape as host integration; no network call. |
-| Panel state lifecycle | Survives Build/Map/Map-graph navigation. Resets when stage switches to `home` or `review`. Persisted to `sessionStorage`: mode + dock side only (not last-report). |
-| Selection mirror conflict | If user edited payload, selection change does NOT overwrite payload (sticky). Source + event auto-update; "Reset to selection" affordance appears if values diverge. |
+| Case                              | Behavior                                                                                                                                                                                             |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No selection / no document        | Panel opens with empty source picker. Prompt: "Pick a source above or open a project first". Walkthrough route redirects to Build if no `activeDocument`.                                            |
+| Invalid payload (Synth)           | Inline validation per field (number, boolean, JSON shape). Red border + helper text. Fire button disabled until valid. "Reset to defaults" link restores derived values.                             |
+| Event has no listeners            | Trace renders "Event fired. No listeners reached." with a "Create listener" link that opens `BehaviorComposer` pre-bound to source + event.                                                          |
+| Broken references                 | Listener row shows "Broken target" warning chip; action row degrades to "Skipped — target missing". Uses existing `brokenRefsByListenerId`.                                                          |
+| Live record — engine error        | Caught in panel subscription; rendered as red row in trace timeline with message + correlationId. Recording continues.                                                                               |
+| Action target deleted mid-session | Engine returns `action.status="skipped"`, `skippedReason="missing-target"` (new fields, see Action Surfacing). Trace surfaces as gray row with reason.                                               |
+| Walkthrough submit                | `form.submit` event fires. Walkthrough route mocks host bridge: shows toast "Form would submit with payload" + collapsible payload viewer. Same envelope shape as host integration; no network call. |
+| Panel state lifecycle             | Survives Build/Map/Map-graph navigation. Resets when stage switches to `home` or `review`. Persisted to `sessionStorage`: mode + dock side only (not last-report).                                   |
+| Selection mirror conflict         | If user edited payload, selection change does NOT overwrite payload (sticky). Source + event auto-update; "Reset to selection" affordance appears if values diverge.                                 |
 
 ## Testing
 

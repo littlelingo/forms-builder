@@ -18,11 +18,7 @@
  * findings as warnings without blocking save — they're correctness
  * hints, not hard errors.
  */
-import type {
-  AuthoringDocument,
-  RuntimeActionDefinition,
-  RuntimeListenerDefinition,
-} from "@form-builder/schema";
+import type { AuthoringDocument, RuntimeActionDefinition, RuntimeListenerDefinition } from "@form-builder/schema";
 
 export type AuthoringLintCode = "correlation_id_collision" | "response_token_out_of_scope";
 
