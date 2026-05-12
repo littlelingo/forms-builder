@@ -22,6 +22,7 @@ import {
   validateRuntimeIdentifier,
 } from "../utils/runtime-helpers";
 import type {
+  RuntimeEventSourceCandidate,
   RuntimePayloadEditorState,
   RuntimePayloadEntry,
   RuntimePayloadFieldType,
@@ -30,6 +31,39 @@ import type {
 import { SuggestionChips } from "./SuggestionChips";
 import { actionButtonClass } from "../../../lib/ui-utils";
 import { BranchActionCard } from "../cards/BranchActionCard";
+import { SourcePicker } from "../../test-panel/SourcePicker";
+
+/**
+ * Filter the document's runtime event source candidates down to the subset
+ * appropriate for an action's "target" picker. Kinds without a target picker
+ * return an empty list. The picker won't render when the list is empty, which
+ * matches the prior `<select>` behaviour for those kinds.
+ */
+function candidatesFilteredByActionKind(
+  kind: RuntimeActionKind,
+  all: RuntimeEventSourceCandidate[],
+): RuntimeEventSourceCandidate[] {
+  switch (kind) {
+    case "set_field_value":
+    case "clear_field_value":
+      // Fields and field-like components are valid targets for value mutations.
+      return all.filter((c) => c.nodeType === "field" || c.nodeType === "component");
+    case "go_to_step":
+      return all.filter((c) => c.nodeType === "step");
+    case "show_node":
+    case "hide_node":
+    case "enable_node":
+    case "disable_node":
+    case "mark_required":
+    case "mark_optional":
+      // Authoring nodes inside the form. Exclude the form itself.
+      return all.filter((c) => c.nodeType !== "form");
+    default:
+      // No target picker for: emit_event, dispatch_event, host_action, branch,
+      // wait, host_call_await, submit_form, go_to_next_step, go_to_previous_step.
+      return [];
+  }
+}
 
 function renderRuntimePayloadTemplates(config: {
   label: string;
@@ -347,6 +381,7 @@ export interface ActionEditorProps {
   action: RuntimeActionDefinition;
   actionIndex: number;
   options?: { highlighted?: boolean; actionCount?: number };
+  runtimeEventSourceCandidates: RuntimeEventSourceCandidate[];
   builderStepOptions: Array<{ id: string; optionLabel: string }>;
   builderFieldOptions: Array<{ id: string; optionLabel: string }>;
   builderNodeOptions: Array<{ id: string; optionLabel: string }>;
@@ -382,6 +417,7 @@ export function ActionEditor({
   action,
   actionIndex,
   options,
+  runtimeEventSourceCandidates,
   builderStepOptions,
   builderFieldOptions,
   builderNodeOptions,
@@ -506,21 +542,25 @@ export function ActionEditor({
         {action.kind === "go_to_step" ? (
           <div>
             <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Target step</label>
-            <select
-              value={String(action.config.stepId ?? "")}
-              onChange={(event) =>
-                onUpdateRuntimeAction(listener.id, action.id, (current) => {
-                  current.config.stepId = event.target.value;
-                })
-              }
-              className="mt-2 w-full rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-            >
-              {builderStepOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.optionLabel}
-                </option>
-              ))}
-            </select>
+            {(() => {
+              const stepCandidates = candidatesFilteredByActionKind("go_to_step", runtimeEventSourceCandidates);
+              return stepCandidates.length > 0 ? (
+                <div className="mt-2">
+                  <SourcePicker
+                    candidates={stepCandidates}
+                    selectedId={action.config.stepId ? String(action.config.stepId) : null}
+                    onSelect={(id) =>
+                      onUpdateRuntimeAction(listener.id, action.id, (current) => {
+                        current.config.stepId = id;
+                      })
+                    }
+                    placeholder="Search steps..."
+                  />
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-slate-500">No steps available in this form.</p>
+              );
+            })()}
           </div>
         ) : null}
 
@@ -528,21 +568,25 @@ export function ActionEditor({
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Target field</label>
-              <select
-                value={String(action.config.fieldId ?? "")}
-                onChange={(event) =>
-                  onUpdateRuntimeAction(listener.id, action.id, (current) => {
-                    current.config.fieldId = event.target.value;
-                  })
-                }
-                className="mt-2 w-full rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-              >
-                {builderFieldOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.optionLabel}
-                  </option>
-                ))}
-              </select>
+              {(() => {
+                const fieldCandidates = candidatesFilteredByActionKind("set_field_value", runtimeEventSourceCandidates);
+                return fieldCandidates.length > 0 ? (
+                  <div className="mt-2">
+                    <SourcePicker
+                      candidates={fieldCandidates}
+                      selectedId={action.config.fieldId ? String(action.config.fieldId) : null}
+                      onSelect={(id) =>
+                        onUpdateRuntimeAction(listener.id, action.id, (current) => {
+                          current.config.fieldId = id;
+                        })
+                      }
+                      placeholder="Search fields..."
+                    />
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-slate-500">No fields available in this form.</p>
+                );
+              })()}
             </div>
             <div>
               <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Value</label>
@@ -753,21 +797,25 @@ export function ActionEditor({
         action.kind === "mark_optional" ? (
           <div>
             <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Target node</label>
-            <select
-              value={String(action.config.nodeId ?? "")}
-              onChange={(event) =>
-                onUpdateRuntimeAction(listener.id, action.id, (current) => {
-                  current.config.nodeId = event.target.value;
-                })
-              }
-              className="mt-2 w-full rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
-            >
-              {builderNodeOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.optionLabel}
-                </option>
-              ))}
-            </select>
+            {(() => {
+              const nodeCandidates = candidatesFilteredByActionKind(action.kind, runtimeEventSourceCandidates);
+              return nodeCandidates.length > 0 ? (
+                <div className="mt-2">
+                  <SourcePicker
+                    candidates={nodeCandidates}
+                    selectedId={action.config.nodeId ? String(action.config.nodeId) : null}
+                    onSelect={(id) =>
+                      onUpdateRuntimeAction(listener.id, action.id, (current) => {
+                        current.config.nodeId = id;
+                      })
+                    }
+                    placeholder="Search nodes..."
+                  />
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-slate-500">No nodes available in this form.</p>
+              );
+            })()}
           </div>
         ) : null}
 

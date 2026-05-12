@@ -3297,6 +3297,169 @@ test("submit_form action diagnostic records before/after submit-lifecycle status
   assert.equal(action.after, "submitting");
 });
 
+test("branch arm actions appear as flat diagnostics on the listener", () => {
+  // A listener fires on field.change, runs a branch whose `then` arm contains
+  // a single set_field_value action. The listener's action diagnostics should
+  // include both the branch itself and the arm-internal set_field_value.
+  const document = createDocument();
+  const field = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "field-name");
+  assert.ok(field);
+  field.runtime = {
+    eventSources: [],
+    listeners: [
+      {
+        id: "listener-branch-then",
+        label: "Branch with then-arm set_field_value",
+        eventName: "field.change",
+        enabled: true,
+        conditions: [],
+        actions: [
+          {
+            id: "action-branch",
+            kind: "branch",
+            target: null,
+            config: {
+              conditions: [
+                {
+                  id: "cond-branch-then",
+                  enabled: true,
+                  source: { kind: "field_value", fieldId: "field-name" },
+                  operator: "equals",
+                  expectedValue: "trigger-then",
+                },
+              ],
+              actions: [
+                {
+                  id: "action-then-set",
+                  kind: "set_field_value",
+                  target: { nodeId: "field-name", nodeType: "field" },
+                  config: { fieldId: "field-name", value: "then-arm-value" },
+                  continueOnError: false,
+                },
+              ],
+              else: [],
+            },
+            continueOnError: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const report = engine.dispatchWithReport(fieldChangeEvent("field-name", "trigger-then"));
+  const listener = report.listeners.find((entry) => entry.listenerId === "listener-branch-then");
+  assert.ok(listener, "expected listener-branch-then to fire on field.change");
+
+  // listener.actions should hold at least 2 entries: the branch + the arm's set_field_value.
+  assert.ok(
+    listener.actions.length >= 2,
+    `expected listener.actions to contain at least 2 diagnostics, got ${listener.actions.length}`,
+  );
+
+  const branchDiag = listener.actions.find((entry) => entry.kind === "branch");
+  assert.ok(branchDiag, "expected a branch diagnostic on the listener");
+  assert.equal(branchDiag.status, "executed");
+
+  const armDiag = listener.actions.find((entry) => entry.actionId === "action-then-set");
+  assert.ok(armDiag, "expected the then-arm set_field_value diagnostic on the listener");
+  assert.equal(armDiag.kind, "set_field_value");
+  assert.equal(armDiag.status, "executed");
+  assert.equal(armDiag.after, "then-arm-value");
+});
+
+test("else-arm action appears as flat diagnostic when condition fails", () => {
+  // Same shape as the then-arm test but with a condition that fails so the
+  // engine takes the else branch. The else-arm action's diagnostic must
+  // surface on listener.actions alongside the branch's own diagnostic.
+  const document = createDocument();
+  const field = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "field-name");
+  assert.ok(field);
+  field.runtime = {
+    eventSources: [],
+    listeners: [
+      {
+        id: "listener-branch-else",
+        label: "Branch with else-arm set_field_value",
+        eventName: "field.change",
+        enabled: true,
+        conditions: [],
+        actions: [
+          {
+            id: "action-branch-else",
+            kind: "branch",
+            target: null,
+            config: {
+              conditions: [
+                {
+                  id: "cond-branch-else",
+                  enabled: true,
+                  source: { kind: "field_value", fieldId: "field-name" },
+                  operator: "equals",
+                  expectedValue: "this-will-not-match",
+                },
+              ],
+              actions: [
+                {
+                  id: "action-then-unreachable",
+                  kind: "set_field_value",
+                  target: { nodeId: "field-name", nodeType: "field" },
+                  config: { fieldId: "field-name", value: "should-not-run" },
+                  continueOnError: false,
+                },
+              ],
+              else: [
+                {
+                  id: "action-else-set",
+                  kind: "set_field_value",
+                  target: { nodeId: "field-name", nodeType: "field" },
+                  config: { fieldId: "field-name", value: "else-arm-value" },
+                  continueOnError: false,
+                },
+              ],
+            },
+            continueOnError: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const report = engine.dispatchWithReport(fieldChangeEvent("field-name", "some-other-value"));
+  const listener = report.listeners.find((entry) => entry.listenerId === "listener-branch-else");
+  assert.ok(listener, "expected listener-branch-else to fire on field.change");
+
+  // listener.actions should include the branch + the else arm's set_field_value
+  // but NOT the then-arm's unreachable action.
+  const branchDiag = listener.actions.find((entry) => entry.kind === "branch");
+  assert.ok(branchDiag, "expected a branch diagnostic on the listener");
+  assert.equal(branchDiag.status, "executed");
+
+  const elseDiag = listener.actions.find((entry) => entry.actionId === "action-else-set");
+  assert.ok(elseDiag, "expected the else-arm set_field_value diagnostic on the listener");
+  assert.equal(elseDiag.kind, "set_field_value");
+  assert.equal(elseDiag.status, "executed");
+  assert.equal(elseDiag.after, "else-arm-value");
+
+  const thenDiag = listener.actions.find((entry) => entry.actionId === "action-then-unreachable");
+  assert.equal(thenDiag, undefined, "then-arm action should not appear because the else arm was taken");
+});
+
 test("subscribeReports receives a report for every dispatch", () => {
   const document = createDocument();
   const engine = createRuntimeEngine();

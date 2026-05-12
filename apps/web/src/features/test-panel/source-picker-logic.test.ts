@@ -142,6 +142,15 @@ test("flatRank returns empty when nothing matches", () => {
   assert.equal(flatRank(tree, "xyzzy").length, 0);
 });
 
+test("flatRank matches multiple tokens (AND semantics)", () => {
+  const tree = buildSourcePickerTree(buildHierarchyFixture());
+  const ranked = flatRank(tree, "male sex");
+  // The "Male" node has both "male" and "sex" in its joined path
+  assert.ok(ranked.length > 0);
+  const labels = ranked.map((r) => r.node.label);
+  assert.ok(labels.includes("Male"));
+});
+
 test("buildSourcePickerTree handles orphans by promoting them to roots", () => {
   const orphan = makeCandidate({
     id: "orphan-field",

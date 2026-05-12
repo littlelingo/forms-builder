@@ -791,6 +791,7 @@ export function BehaviorComposer({
                       highlighted: options?.selectedActionId === action.id,
                       actionCount: listener.actions.length,
                     }}
+                    runtimeEventSourceCandidates={runtimeEventSourceCandidates}
                     builderStepOptions={builderStepOptions}
                     builderFieldOptions={builderFieldOptions}
                     builderNodeOptions={builderNodeOptions}
