@@ -76,8 +76,14 @@ export interface RuntimeActionDiagnostic {
   kind: RuntimeActionDefinition["kind"];
   target?: RuntimeActionDefinition["target"] | null;
   config: Record<string, unknown>;
-  status: "executed" | "error";
+  status: "executed" | "error" | "skipped";
   errorMessage?: string;
+  /** Value/property snapshot before action ran (when meaningful — e.g., field value, visibility flag, property value). */
+  before?: unknown;
+  /** Value/property snapshot after action ran. Mirrors `before`. */
+  after?: unknown;
+  /** Reason when status is `"skipped"`. */
+  skippedReason?: "missing-target" | "no-op" | string;
 }
 
 export interface RuntimeListenerDiagnostic {
