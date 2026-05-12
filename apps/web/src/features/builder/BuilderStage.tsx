@@ -16,6 +16,8 @@ export interface BuilderStageProps {
   onOpenTestPanel?: (selection: TestPanelSelection) => void;
   /** Derives the current TestPanel selection from the active authoring/listener selection. */
   deriveTestPanelSelection?: () => TestPanelSelection;
+  /** Opens the Walkthrough route (Phase 9). When omitted, the toolbar entry is hidden. */
+  onEnterWalkthrough?: () => void;
 }
 
 function useIsXlOrLarger(): boolean {
@@ -47,20 +49,34 @@ export function BuilderStage({
   expandedRailWidth,
   onOpenTestPanel,
   deriveTestPanelSelection,
+  onEnterWalkthrough,
 }: BuilderStageProps) {
   const isXl = useIsXlOrLarger();
   const expandedStyle =
     expandedRailWidth != null && isXl
       ? { gridTemplateColumns: `12.5rem minmax(0, 1fr) min(${expandedRailWidth}px, calc(100vw - 42rem))` }
       : undefined;
+  const hasTestPanel = Boolean(onOpenTestPanel && deriveTestPanelSelection);
+  const hasWalkthrough = Boolean(onEnterWalkthrough);
   const toolbar =
-    onOpenTestPanel && deriveTestPanelSelection ? (
+    hasTestPanel || hasWalkthrough ? (
       <div
         className="mb-3 flex flex-wrap items-center justify-end gap-2"
         role="toolbar"
         aria-label="Builder stage toolbar"
       >
-        <TestPanelTrigger derive={deriveTestPanelSelection} onOpen={onOpenTestPanel} label="Test (⌘K)" />
+        {onOpenTestPanel && deriveTestPanelSelection ? (
+          <TestPanelTrigger derive={deriveTestPanelSelection} onOpen={onOpenTestPanel} label="Test (⌘K)" />
+        ) : null}
+        {onEnterWalkthrough ? (
+          <button
+            type="button"
+            onClick={onEnterWalkthrough}
+            className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+          >
+            Walkthrough
+          </button>
+        ) : null}
       </div>
     ) : null;
   return (

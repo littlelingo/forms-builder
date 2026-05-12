@@ -102,6 +102,7 @@ import { ReviewStage } from "./features/review/ReviewStage";
 import { badgeToneFromReview, badgeToneFromStatus, overlayRects } from "./features/review/utils/review-utils";
 import { InspectorRail } from "./features/inspector";
 import type { InspectorTab } from "./features/inspector";
+import { WalkthroughRoute } from "./features/walkthrough";
 import {
   ActionEditor,
   ApplyParametersDialog,
@@ -10201,6 +10202,14 @@ export default function App() {
     </div>
   );
 
+  // Walkthrough takes over the full viewport — render it as the entire
+  // tree so it sits above any app shell chrome. The dialogs/modals that
+  // would normally be siblings of the workspace stage are not surfaced
+  // from inside walkthrough; exiting returns to the workspace stage.
+  if (stage === "walkthrough") {
+    return <WalkthroughRoute document={activeDocument} onExit={exitWalkthrough} />;
+  }
+
   return (
     <main className="min-h-screen">
       <div className="mx-auto flex max-w-[1720px] flex-col gap-3 px-3 py-3 sm:px-5 lg:px-6">
@@ -10488,6 +10497,7 @@ export default function App() {
                 expandedRailWidth={editingListenerId ? 540 : undefined}
                 onOpenTestPanel={testPanel.open}
                 deriveTestPanelSelection={deriveTestPanelSelectionFromSelection}
+                onEnterWalkthrough={activeDocument ? enterWalkthrough : undefined}
                 stepStrip={
                   <StepStrip
                     activeDocument={activeDocument}
