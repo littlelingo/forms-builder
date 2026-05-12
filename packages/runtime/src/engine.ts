@@ -547,6 +547,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
     report?: RuntimeDispatchReportDraft,
     asyncContext?: AsyncChainContext,
     diagnostic?: RuntimeActionDiagnostic,
+    parentDiagnostics?: RuntimeActionDiagnostic[],
   ): void | Promise<void> => {
     if (!document || !index) {
       return;
@@ -889,13 +890,18 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
           // outer loop awaits — propagate it via `return`. When sync, a
           // Promise here means a contract bug: async actions should have
           // been blocked at routeEvent's listener pre-check.
+          //
+          // Pass `parentDiagnostics` through so each arm action's diagnostic
+          // is appended to the listener's flat `actions[]` array — the trace
+          // UI groups by receiver and needs side effects attributable even
+          // when they originate inside a branch arm.
           const childContext: AsyncChainContext | undefined = asyncContext
             ? {
                 responseScope: { ...asyncContext.responseScope },
                 branchDepth: baseDepth + 1,
               }
             : undefined;
-          const armResult = runActionChain(armActions, event, report, childContext);
+          const armResult = runActionChain(armActions, event, report, childContext, parentDiagnostics);
           if (asyncContext && armResult && typeof (armResult as Promise<void>).then === "function") {
             return armResult;
           }
@@ -949,21 +955,53 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
    * synchronous (no wait/host_call_await/async-branch), or a Promise that
    * resolves when the async chain settles. The caller decides which path
    * is permissible based on whether dispatchAsync invoked it.
+   *
+   * `parentDiagnostics`, when provided, collects a fresh
+   * `RuntimeActionDiagnostic` per executed action. The branch handler uses
+   * it to surface arm-internal action diagnostics on the listener's flat
+   * `actions[]` array so the trace UI can attribute side effects to
+   * receivers even when they came from inside `then` / `else`.
    */
   function runActionChain(
     actions: RuntimeActionDefinition[],
     event: RuntimeEventEnvelope,
     report: RuntimeDispatchReportDraft | undefined,
     asyncContext: AsyncChainContext | undefined,
+    parentDiagnostics?: RuntimeActionDiagnostic[],
   ): void | Promise<void> {
+    const makeDiagnostic = (action: RuntimeActionDefinition): RuntimeActionDiagnostic | undefined => {
+      if (!parentDiagnostics) return undefined;
+      const diagnostic: RuntimeActionDiagnostic = {
+        actionId: action.id,
+        label: action.label ?? null,
+        kind: action.kind,
+        target: structuredClone(action.target ?? null),
+        config: structuredClone(action.config),
+        status: "executed",
+      };
+      parentDiagnostics.push(diagnostic);
+      return diagnostic;
+    };
     if (!asyncContext) {
       // Sync path — throw on async-only kinds, halt on HaltChainError.
       try {
         for (const action of actions) {
-          const ret = executeAction(action, event, report);
-          if (ret && typeof (ret as Promise<void>).then === "function") {
-            // executeAction guarded async kinds upstream, so a Promise here is a contract bug.
-            throw new Error("Internal: sync action chain produced a Promise.");
+          const diagnostic = makeDiagnostic(action);
+          try {
+            const ret = executeAction(action, event, report, undefined, diagnostic, parentDiagnostics);
+            if (ret && typeof (ret as Promise<void>).then === "function") {
+              // executeAction guarded async kinds upstream, so a Promise here is a contract bug.
+              throw new Error("Internal: sync action chain produced a Promise.");
+            }
+          } catch (error) {
+            if (error instanceof HaltChainError) {
+              throw error;
+            }
+            if (diagnostic) {
+              diagnostic.status = "error";
+              diagnostic.errorMessage = error instanceof Error ? error.message : "Runtime action failed.";
+            }
+            throw error;
           }
         }
       } catch (err) {
@@ -977,9 +1015,21 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
     return (async () => {
       try {
         for (const action of actions) {
-          const ret = executeAction(action, event, report, asyncContext);
-          if (ret && typeof (ret as Promise<void>).then === "function") {
-            await ret;
+          const diagnostic = makeDiagnostic(action);
+          try {
+            const ret = executeAction(action, event, report, asyncContext, diagnostic, parentDiagnostics);
+            if (ret && typeof (ret as Promise<void>).then === "function") {
+              await ret;
+            }
+          } catch (error) {
+            if (error instanceof HaltChainError) {
+              throw error;
+            }
+            if (diagnostic) {
+              diagnostic.status = "error";
+              diagnostic.errorMessage = error instanceof Error ? error.message : "Runtime action failed.";
+            }
+            throw error;
           }
         }
       } catch (err) {
@@ -1401,7 +1451,14 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
             };
             listenerDiagnostic.actions.push(actionDiagnostic);
             try {
-              executeAction(action, listenerInvocation.event, report, undefined, actionDiagnostic);
+              executeAction(
+                action,
+                listenerInvocation.event,
+                report,
+                undefined,
+                actionDiagnostic,
+                listenerDiagnostic.actions,
+              );
             } catch (error) {
               if (error instanceof HaltChainError) {
                 break;
@@ -1488,7 +1545,14 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
             };
             listenerDiagnostic.actions.push(actionDiagnostic);
             try {
-              const ret = executeAction(action, listenerInvocation.event, report, asyncContext, actionDiagnostic);
+              const ret = executeAction(
+                action,
+                listenerInvocation.event,
+                report,
+                asyncContext,
+                actionDiagnostic,
+                listenerDiagnostic.actions,
+              );
               if (ret && typeof (ret as Promise<void>).then === "function") {
                 await ret;
               }
