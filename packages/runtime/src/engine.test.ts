@@ -2987,3 +2987,58 @@ test("set_field_value action diagnostic carries before/after snapshots", () => {
   assert.equal(action.before, "before-value");
   assert.equal(action.after, "after-value");
 });
+
+test("action with deleted target reports status='skipped' and skippedReason='missing-target'", () => {
+  const document = createDocument();
+  // Listener on button-next whose set_field_value action targets a field id that does not exist.
+  const button = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "button-next");
+  assert.ok(button);
+  button.runtime = {
+    eventSources: [
+      {
+        id: "event-button-missing-target",
+        name: "component.click",
+        sourceNodeId: "button-next",
+        sourceNodeType: "component",
+      },
+    ],
+    listeners: [
+      {
+        id: "listener-missing-target",
+        label: "Set a nonexistent field",
+        eventName: "component.click",
+        sourceNodeId: "button-next",
+        enabled: true,
+        conditions: [],
+        actions: [
+          {
+            id: "action-missing-target",
+            kind: "set_field_value",
+            target: { nodeId: "field-does-not-exist", nodeType: "field" },
+            config: {
+              fieldId: "field-does-not-exist",
+              value: "after",
+            },
+            continueOnError: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const report = engine.dispatchWithReport(clickEvent("button-next"));
+  const listener = report.listeners.find((entry) => entry.listenerId === "listener-missing-target");
+  assert.ok(listener);
+  const action = listener.actions[0];
+  assert.ok(action);
+  assert.equal(action.status, "skipped");
+  assert.equal(action.skippedReason, "missing-target");
+});

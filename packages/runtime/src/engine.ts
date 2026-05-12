@@ -569,9 +569,15 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
                 ? action.target.nodeId
                 : null;
           if (diagnostic) diagnostic.before = state.currentStepId ?? null;
-          if (targetStepId) {
-            transitionToStep(targetStepId, "go_to_step", event, report);
+          if (!targetStepId || !index.stepOrder.includes(targetStepId)) {
+            if (diagnostic) {
+              diagnostic.status = "skipped";
+              diagnostic.skippedReason = "missing-target";
+              diagnostic.after = state.currentStepId ?? null;
+            }
+            break;
           }
+          transitionToStep(targetStepId, "go_to_step", event, report);
           if (diagnostic) diagnostic.after = state.currentStepId ?? null;
           break;
         }
@@ -582,25 +588,30 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
               : typeof action.target?.nodeId === "string"
                 ? action.target.nodeId
                 : null;
-          if (targetFieldId) {
-            if (diagnostic) diagnostic.before = structuredClone(state.values[targetFieldId]);
-            const value = resolveRuntimePayloadValue(
-              action.config.value,
-              event,
-              document,
-              index,
-              state,
-              asyncContext?.responseScope,
-            );
-            state = {
-              ...state,
-              values: {
-                ...state.values,
-                [targetFieldId]: structuredClone(value),
-              },
-            };
-            if (diagnostic) diagnostic.after = structuredClone(state.values[targetFieldId]);
+          if (!targetFieldId || !index.nodes.has(targetFieldId)) {
+            if (diagnostic) {
+              diagnostic.status = "skipped";
+              diagnostic.skippedReason = "missing-target";
+            }
+            break;
           }
+          if (diagnostic) diagnostic.before = structuredClone(state.values[targetFieldId]);
+          const value = resolveRuntimePayloadValue(
+            action.config.value,
+            event,
+            document,
+            index,
+            state,
+            asyncContext?.responseScope,
+          );
+          state = {
+            ...state,
+            values: {
+              ...state.values,
+              [targetFieldId]: structuredClone(value),
+            },
+          };
+          if (diagnostic) diagnostic.after = structuredClone(state.values[targetFieldId]);
           break;
         }
         case "clear_field_value": {
@@ -610,13 +621,18 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
               : typeof action.target?.nodeId === "string"
                 ? action.target.nodeId
                 : null;
-          if (targetFieldId) {
-            if (diagnostic) diagnostic.before = structuredClone(state.values[targetFieldId]);
-            const nextValues = { ...state.values };
-            delete nextValues[targetFieldId];
-            state = { ...state, values: nextValues };
-            if (diagnostic) diagnostic.after = structuredClone(state.values[targetFieldId]);
+          if (!targetFieldId || !index.nodes.has(targetFieldId)) {
+            if (diagnostic) {
+              diagnostic.status = "skipped";
+              diagnostic.skippedReason = "missing-target";
+            }
+            break;
           }
+          if (diagnostic) diagnostic.before = structuredClone(state.values[targetFieldId]);
+          const nextValues = { ...state.values };
+          delete nextValues[targetFieldId];
+          state = { ...state, values: nextValues };
+          if (diagnostic) diagnostic.after = structuredClone(state.values[targetFieldId]);
           break;
         }
         case "show_node":
@@ -631,40 +647,45 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
               : typeof action.config.nodeId === "string"
                 ? action.config.nodeId
                 : null;
-          if (targetNodeId && state.nodes[targetNodeId]) {
-            const currentNodeState = state.nodes[targetNodeId];
-            const flagKey: keyof typeof currentNodeState =
-              action.kind === "show_node" || action.kind === "hide_node"
-                ? "visible"
-                : action.kind === "enable_node" || action.kind === "disable_node"
-                  ? "enabled"
-                  : "required";
-            if (diagnostic) diagnostic.before = currentNodeState[flagKey];
-            state = {
-              ...state,
-              nodes: {
-                ...state.nodes,
-                [targetNodeId]: {
-                  ...currentNodeState,
-                  visible:
-                    action.kind === "show_node" ? true : action.kind === "hide_node" ? false : currentNodeState.visible,
-                  enabled:
-                    action.kind === "enable_node"
-                      ? true
-                      : action.kind === "disable_node"
-                        ? false
-                        : currentNodeState.enabled,
-                  required:
-                    action.kind === "mark_required"
-                      ? true
-                      : action.kind === "mark_optional"
-                        ? false
-                        : currentNodeState.required,
-                },
-              },
-            };
-            if (diagnostic) diagnostic.after = state.nodes[targetNodeId]?.[flagKey];
+          if (!targetNodeId || !state.nodes[targetNodeId]) {
+            if (diagnostic) {
+              diagnostic.status = "skipped";
+              diagnostic.skippedReason = "missing-target";
+            }
+            break;
           }
+          const currentNodeState = state.nodes[targetNodeId];
+          const flagKey: keyof typeof currentNodeState =
+            action.kind === "show_node" || action.kind === "hide_node"
+              ? "visible"
+              : action.kind === "enable_node" || action.kind === "disable_node"
+                ? "enabled"
+                : "required";
+          if (diagnostic) diagnostic.before = currentNodeState[flagKey];
+          state = {
+            ...state,
+            nodes: {
+              ...state.nodes,
+              [targetNodeId]: {
+                ...currentNodeState,
+                visible:
+                  action.kind === "show_node" ? true : action.kind === "hide_node" ? false : currentNodeState.visible,
+                enabled:
+                  action.kind === "enable_node"
+                    ? true
+                    : action.kind === "disable_node"
+                      ? false
+                      : currentNodeState.enabled,
+                required:
+                  action.kind === "mark_required"
+                    ? true
+                    : action.kind === "mark_optional"
+                      ? false
+                      : currentNodeState.required,
+              },
+            },
+          };
+          if (diagnostic) diagnostic.after = state.nodes[targetNodeId]?.[flagKey];
           break;
         }
         case "dispatch_event":
