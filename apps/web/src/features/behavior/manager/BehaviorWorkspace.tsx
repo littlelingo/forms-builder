@@ -3763,6 +3763,21 @@ export function BehaviorWorkspace({
         </div>
       ) : null}
 
+      {/*
+       * TODO(Phase-12-or-later): consolidate into TestPanel.
+       *
+       * The unified TestPanel (Phase 10) covers event dispatch + trace inspection,
+       * but the controls below are still load-bearing and NOT yet replicated there:
+       *   - Reset / Fill required / Run current step / Run submit
+       *     drive the live session lifecycle (page nav + validate + submit).
+       *   - Simulate success / Simulate error are the host-bridge response stubs
+       *     that resolve `submit.status === "submitting"`.
+       *   - The Authored runtime evidence + Advanced session debug panels
+       *     visualize trace state across the workspace.
+       *
+       * When TestPanel grows session lifecycle + host-response affordances,
+       * collapse this section into a "open Test Panel" entry point.
+       */}
       <div ref={simulatorSectionRef} className="rounded-[1.15rem] border border-soft bg-white p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
