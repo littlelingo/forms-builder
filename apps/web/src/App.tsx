@@ -123,7 +123,6 @@ import {
   LibraryPicker,
   ListenerCreationForm,
   MapGraphOverview,
-  PreviewTestRecorder,
   RuntimeReactionProperties,
   SYSTEM_LIBRARY,
   applyEntryToListener,
@@ -1927,11 +1926,6 @@ export default function App() {
   const [eventFlowEventType, setEventFlowEventType] = useState("");
   const [eventFlowPayloadValues, setEventFlowPayloadValues] = useState<EventFlowPayloadValues>({});
   const [lastDispatchReport, setLastDispatchReport] = useState<RuntimeDispatchReport | null>(null);
-  /** Best-Next-3: preview-based test mode — capture dispatch reports from real preview interactions. */
-  const [previewTestRecordingOn, setPreviewTestRecordingOn] = useState(false);
-  const [previewTestReports, setPreviewTestReports] = useState<
-    { id: string; timestamp: string; report: RuntimeDispatchReport }[]
-  >([]);
   const [traceFromEventReport, setTraceFromEventReport] = useState<{
     eventType: string;
     sourceId: string;
@@ -4613,33 +4607,6 @@ export default function App() {
   }
 
   function dispatchRuntimeEvent(event: RuntimeEventEnvelope) {
-    if (previewTestRecordingOn) {
-      try {
-        const report = runtimeEngineRef.current.dispatchWithReport(event);
-        runtimeSessionRef.current = report.stateAfter;
-        setRuntimeSessionState(report.stateAfter);
-        setLastDispatchReport(report);
-        setPreviewTestReports((prev) => [
-          ...prev,
-          { id: crypto.randomUUID(), timestamp: new Date().toISOString(), report },
-        ]);
-        return;
-      } catch (err) {
-        if (err instanceof Error && /dispatchAsync/.test(err.message)) {
-          void runtimeEngineRef.current.dispatchWithReportAsync(event).then((report) => {
-            runtimeSessionRef.current = report.stateAfter;
-            setRuntimeSessionState(report.stateAfter);
-            setLastDispatchReport(report);
-            setPreviewTestReports((prev) => [
-              ...prev,
-              { id: crypto.randomUUID(), timestamp: new Date().toISOString(), report },
-            ]);
-          });
-          return;
-        }
-        throw err;
-      }
-    }
     const nextState = safeDispatch(event);
     if (nextState) {
       runtimeSessionRef.current = nextState;
@@ -9893,12 +9860,6 @@ export default function App() {
         projectEvents={projectEventCatalog}
         reverseIndexNodeId={activeSelectionNodeId}
         onOpenManagerByEvent={openManagerByEvent}
-      />
-      <PreviewTestRecorder
-        recordingOn={previewTestRecordingOn}
-        reports={previewTestReports}
-        onToggleRecording={setPreviewTestRecordingOn}
-        onClear={() => setPreviewTestReports([])}
       />
     </div>
   ) : null;

@@ -40,8 +40,6 @@ export type {
   ReverseIndexConsumedEntry,
   ReverseIndexRaisedEntry,
 } from "./inspector/reverse-index-helpers";
-export { PreviewTestRecorder } from "./test/PreviewTestRecorder";
-export type { PreviewTestRecorderProps } from "./test/PreviewTestRecorder";
 export { BehaviorStudioModal } from "./BehaviorStudioModal";
 export type { BehaviorStudioModalProps } from "./BehaviorStudioModal";
 export { BehaviorStackList } from "./stack/BehaviorStackList";
