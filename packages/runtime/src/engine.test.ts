@@ -2927,3 +2927,63 @@ test("Phase 2A: project-scope event catalog resolves cross-form eventRef ids at 
     "the project-scope eventRef must drive the action chain at dispatch time",
   );
 });
+
+test("set_field_value action diagnostic carries before/after snapshots", () => {
+  const document = createDocument();
+  // Listener on button-next (a click event, no inbound auto-apply) that sets field-name to a literal.
+  const button = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "button-next");
+  assert.ok(button);
+  button.runtime = {
+    eventSources: [
+      {
+        id: "event-button-set-value",
+        name: "component.click",
+        sourceNodeId: "button-next",
+        sourceNodeType: "component",
+      },
+    ],
+    listeners: [
+      {
+        id: "listener-set-before-after",
+        label: "Set field-name to a literal on click",
+        eventName: "component.click",
+        sourceNodeId: "button-next",
+        enabled: true,
+        conditions: [],
+        actions: [
+          {
+            id: "action-set-before-after",
+            kind: "set_field_value",
+            target: { nodeId: "field-name", nodeType: "field" },
+            config: {
+              fieldId: "field-name",
+              value: "after-value",
+            },
+            continueOnError: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  // Seed a "before" value so the diagnostic captures the prior snapshot.
+  engine.setState({ values: { "field-name": "before-value" } });
+
+  const report = engine.dispatchWithReport(clickEvent("button-next"));
+
+  const listener = report.listeners.find((entry) => entry.listenerId === "listener-set-before-after");
+  assert.ok(listener);
+  const action = listener.actions[0];
+  assert.ok(action);
+  assert.equal(action.status, "executed");
+  assert.equal(action.before, "before-value");
+  assert.equal(action.after, "after-value");
+});

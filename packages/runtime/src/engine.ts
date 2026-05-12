@@ -521,6 +521,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
     event: RuntimeEventEnvelope,
     report?: RuntimeDispatchReportDraft,
     asyncContext?: AsyncChainContext,
+    diagnostic?: RuntimeActionDiagnostic,
   ): void | Promise<void> => {
     if (!document || !index) {
       return;
@@ -543,17 +544,21 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
         case "go_to_next_step": {
           const currentIndex = state.currentStepId ? index.stepOrder.indexOf(state.currentStepId) : -1;
           const nextStepId = index.stepOrder[currentIndex + 1];
+          if (diagnostic) diagnostic.before = state.currentStepId ?? null;
           if (nextStepId) {
             transitionToStep(nextStepId, "go_to_next_step", event, report);
           }
+          if (diagnostic) diagnostic.after = state.currentStepId ?? null;
           break;
         }
         case "go_to_previous_step": {
           const currentIndex = state.currentStepId ? index.stepOrder.indexOf(state.currentStepId) : -1;
           const previousStepId = currentIndex > 0 ? index.stepOrder[currentIndex - 1] : null;
+          if (diagnostic) diagnostic.before = state.currentStepId ?? null;
           if (previousStepId) {
             transitionToStep(previousStepId, "go_to_previous_step", event, report);
           }
+          if (diagnostic) diagnostic.after = state.currentStepId ?? null;
           break;
         }
         case "go_to_step": {
@@ -563,9 +568,11 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
               : typeof action.target?.nodeId === "string"
                 ? action.target.nodeId
                 : null;
+          if (diagnostic) diagnostic.before = state.currentStepId ?? null;
           if (targetStepId) {
             transitionToStep(targetStepId, "go_to_step", event, report);
           }
+          if (diagnostic) diagnostic.after = state.currentStepId ?? null;
           break;
         }
         case "set_field_value": {
@@ -576,6 +583,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
                 ? action.target.nodeId
                 : null;
           if (targetFieldId) {
+            if (diagnostic) diagnostic.before = structuredClone(state.values[targetFieldId]);
             const value = resolveRuntimePayloadValue(
               action.config.value,
               event,
@@ -591,6 +599,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
                 [targetFieldId]: structuredClone(value),
               },
             };
+            if (diagnostic) diagnostic.after = structuredClone(state.values[targetFieldId]);
           }
           break;
         }
@@ -602,9 +611,11 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
                 ? action.target.nodeId
                 : null;
           if (targetFieldId) {
+            if (diagnostic) diagnostic.before = structuredClone(state.values[targetFieldId]);
             const nextValues = { ...state.values };
             delete nextValues[targetFieldId];
             state = { ...state, values: nextValues };
+            if (diagnostic) diagnostic.after = structuredClone(state.values[targetFieldId]);
           }
           break;
         }
@@ -622,6 +633,13 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
                 : null;
           if (targetNodeId && state.nodes[targetNodeId]) {
             const currentNodeState = state.nodes[targetNodeId];
+            const flagKey: keyof typeof currentNodeState =
+              action.kind === "show_node" || action.kind === "hide_node"
+                ? "visible"
+                : action.kind === "enable_node" || action.kind === "disable_node"
+                  ? "enabled"
+                  : "required";
+            if (diagnostic) diagnostic.before = currentNodeState[flagKey];
             state = {
               ...state,
               nodes: {
@@ -645,6 +663,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
                 },
               },
             };
+            if (diagnostic) diagnostic.after = state.nodes[targetNodeId]?.[flagKey];
           }
           break;
         }
@@ -712,6 +731,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
           break;
         }
         case "submit_form": {
+          if (diagnostic) diagnostic.before = state.submit.status;
           const validation = validate();
           if (!validation.valid) {
             state = {
@@ -742,6 +762,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
               false,
               report,
             );
+            if (diagnostic) diagnostic.after = state.submit.status;
             break;
           }
 
@@ -766,6 +787,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
             },
           };
           routeEvent(submitEvent, true, false, report);
+          if (diagnostic) diagnostic.after = state.submit.status;
           break;
         }
         case "branch": {
@@ -1342,7 +1364,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
             };
             listenerDiagnostic.actions.push(actionDiagnostic);
             try {
-              executeAction(action, listenerInvocation.event, report);
+              executeAction(action, listenerInvocation.event, report, undefined, actionDiagnostic);
             } catch (error) {
               if (error instanceof HaltChainError) {
                 break;
@@ -1429,7 +1451,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
             };
             listenerDiagnostic.actions.push(actionDiagnostic);
             try {
-              const ret = executeAction(action, listenerInvocation.event, report, asyncContext);
+              const ret = executeAction(action, listenerInvocation.event, report, asyncContext, actionDiagnostic);
               if (ret && typeof (ret as Promise<void>).then === "function") {
                 await ret;
               }
