@@ -26,7 +26,8 @@
     "build:schema": "npm run build --workspace @form-builder/schema",
     "build:runtime": "npm run build --workspace @form-builder/runtime",
     "generate:schema-types": "npm run generate --workspace @form-builder/schema",
-    "a11y:smoke": "npm run build:web && node tools/a11y-smoke/orchestrate.mjs"
+    "a11y:smoke": "npm run build:web && node tools/a11y-smoke/orchestrate.mjs",
+    "e2e:phase3": "npm run build:web && node apps/web/e2e/orchestrate.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.11.3",

@@ -28,3 +28,6 @@ uploads/
 # Local-only migration artifacts (Phase 1B) — keep on disk, not in git
 data/projects/*/migration-backup/
 data/projects/*/migration-log.json
+
+# E2E debug artefacts (apps/web/e2e/orchestrate.mjs writes a failure.png on test failure)
+apps/web/e2e/failure.png
