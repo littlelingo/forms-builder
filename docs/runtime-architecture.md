@@ -526,17 +526,17 @@ consecutive invocations.
 
 ### Trace entries (new)
 
-| Kind | Payload |
-|---|---|
-| `branch_take` | `{ actionId, arm: "then" \| "else" }` |
-| `branch_skip` | `{ actionId }` (no else arm) |
-| `branch_depth_exceeded` | `{ actionId, depth }` |
-| `wait_started` | `{ actionId, mode, durationMs?, eventType? }` |
-| `wait_resolved` | `{ actionId, reason: "elapsed" \| "event" }` |
-| `wait_timeout` | `{ actionId }` |
-| `host_call_await_started` | `{ actionId, correlationId, timeoutMs? }` |
-| `host_call_await_resumed` | `{ actionId, correlationId, payload }` |
-| `runtime.continuation_mismatch` | `{ correlationId }` (outbound event + trace) |
-| `runtime.continuation_timeout` | `{ correlationId, listenerId, actionId }` |
-| `runtime.continuation_collision` | `{ correlationId, listenerId, actionId }` |
-| `runtime.action_error` | `{ listenerId, actionId, reason }` |
+| Kind                             | Payload                                       |
+| -------------------------------- | --------------------------------------------- |
+| `branch_take`                    | `{ actionId, arm: "then" \| "else" }`         |
+| `branch_skip`                    | `{ actionId }` (no else arm)                  |
+| `branch_depth_exceeded`          | `{ actionId, depth }`                         |
+| `wait_started`                   | `{ actionId, mode, durationMs?, eventType? }` |
+| `wait_resolved`                  | `{ actionId, reason: "elapsed" \| "event" }`  |
+| `wait_timeout`                   | `{ actionId }`                                |
+| `host_call_await_started`        | `{ actionId, correlationId, timeoutMs? }`     |
+| `host_call_await_resumed`        | `{ actionId, correlationId, payload }`        |
+| `runtime.continuation_mismatch`  | `{ correlationId }` (outbound event + trace)  |
+| `runtime.continuation_timeout`   | `{ correlationId, listenerId, actionId }`     |
+| `runtime.continuation_collision` | `{ correlationId, listenerId, actionId }`     |
+| `runtime.action_error`           | `{ listenerId, actionId, reason }`            |

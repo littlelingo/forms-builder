@@ -963,7 +963,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
           const ret = executeAction(action, event, report);
           if (ret && typeof (ret as Promise<void>).then === "function") {
             // executeAction guarded async kinds upstream, so a Promise here is a contract bug.
-            throw new Error('Internal: sync action chain produced a Promise.');
+            throw new Error("Internal: sync action chain produced a Promise.");
           }
         }
       } catch (err) {
@@ -1557,24 +1557,20 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
 
       if (options?.emitLoadEvent !== false) {
         tryRouteOrFallbackAsync(
-          buildEvent(
-            "form.load",
-            { stepId: state.currentStepId },
-            "outbound",
-            { nodeId: document.id, nodeType: "form" },
-          ),
+          buildEvent("form.load", { stepId: state.currentStepId }, "outbound", {
+            nodeId: document.id,
+            nodeType: "form",
+          }),
           false,
         );
       }
 
       if (state.currentStepId) {
         tryRouteOrFallbackAsync(
-          buildEvent(
-            "step.enter",
-            { stepId: state.currentStepId, previousStepId: null, reason: "mount" },
-            "internal",
-            { nodeId: state.currentStepId, nodeType: "step" },
-          ),
+          buildEvent("step.enter", { stepId: state.currentStepId, previousStepId: null, reason: "mount" }, "internal", {
+            nodeId: state.currentStepId,
+            nodeType: "step",
+          }),
           false,
         );
       }

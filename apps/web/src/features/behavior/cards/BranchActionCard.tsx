@@ -75,7 +75,10 @@ export function BranchActionCard({
     });
   };
 
-  const updateArm = (arm: "actions" | "else", mutate: (list: RuntimeActionDefinition[]) => RuntimeActionDefinition[]) => {
+  const updateArm = (
+    arm: "actions" | "else",
+    mutate: (list: RuntimeActionDefinition[]) => RuntimeActionDefinition[],
+  ) => {
     onUpdate((draft) => {
       draft[arm] = mutate(((draft[arm] as RuntimeActionDefinition[]) ?? []).slice());
     });
@@ -92,9 +95,7 @@ export function BranchActionCard({
   return (
     <div className={`${indentClass} grid gap-3 rounded-md border ${borderTone} px-3 py-3`}>
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-sky-900">
-          Branch · depth {depth}
-        </p>
+        <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-sky-900">Branch · depth {depth}</p>
         {depth >= MAX_DEPTH ? (
           <p className="text-[0.66rem] font-medium text-rose-600">Max nesting reached (3)</p>
         ) : null}
@@ -119,7 +120,10 @@ export function BranchActionCard({
           conditions.map((node, idx) => {
             if (!isAtom(node)) {
               return (
-                <div key={node.id} className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[0.7rem] text-amber-800">
+                <div
+                  key={node.id}
+                  className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[0.7rem] text-amber-800"
+                >
                   Group conditions live in the main composer.
                 </div>
               );
@@ -134,7 +138,10 @@ export function BranchActionCard({
                       const next = list.slice();
                       const old = next[idx] as RuntimeConditionDefinition;
                       const kind = event.target.value as "event_payload" | "field_value";
-                      next[idx] = { ...old, source: kind === "event_payload" ? { kind, path: "" } : { kind, fieldId: "" } };
+                      next[idx] = {
+                        ...old,
+                        source: kind === "event_payload" ? { kind, path: "" } : { kind, fieldId: "" },
+                      };
                       return next;
                     })
                   }
@@ -152,7 +159,10 @@ export function BranchActionCard({
                       const next = list.slice();
                       const old = next[idx] as RuntimeConditionDefinition;
                       const key = old.source.kind === "event_payload" ? "path" : "fieldId";
-                      next[idx] = { ...old, source: { ...old.source, [key]: event.target.value } as RuntimeConditionDefinition["source"] };
+                      next[idx] = {
+                        ...old,
+                        source: { ...old.source, [key]: event.target.value } as RuntimeConditionDefinition["source"],
+                      };
                       return next;
                     })
                   }
@@ -163,7 +173,10 @@ export function BranchActionCard({
                   onChange={(event) =>
                     updateConditions((list) => {
                       const next = list.slice();
-                      next[idx] = { ...next[idx] as RuntimeConditionDefinition, operator: event.target.value as RuntimeConditionDefinition["operator"] };
+                      next[idx] = {
+                        ...(next[idx] as RuntimeConditionDefinition),
+                        operator: event.target.value as RuntimeConditionDefinition["operator"],
+                      };
                       return next;
                     })
                   }
@@ -176,12 +189,16 @@ export function BranchActionCard({
                 </select>
                 <input
                   type="text"
-                  value={typeof atom.expectedValue === "string" ? atom.expectedValue : JSON.stringify(atom.expectedValue ?? "")}
+                  value={
+                    typeof atom.expectedValue === "string"
+                      ? atom.expectedValue
+                      : JSON.stringify(atom.expectedValue ?? "")
+                  }
                   placeholder="expected"
                   onChange={(event) =>
                     updateConditions((list) => {
                       const next = list.slice();
-                      next[idx] = { ...next[idx] as RuntimeConditionDefinition, expectedValue: event.target.value };
+                      next[idx] = { ...(next[idx] as RuntimeConditionDefinition), expectedValue: event.target.value };
                       return next;
                     })
                   }

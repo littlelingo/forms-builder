@@ -1012,7 +1012,11 @@ export function BehaviorManager({
                     onClick={() => onSetBehaviorIndexObjectView(view)}
                     className={actionButtonClass(behaviorIndexObjectView === view ? "primary" : "secondary")}
                     disabled={view !== "all" && !behaviorIndexFieldId}
-                    title={view === "all" ? "Show every behavior in this form" : `Filter to behaviors that ${view === "impacts" ? "act on" : "fire from"} the currently selected field`}
+                    title={
+                      view === "all"
+                        ? "Show every behavior in this form"
+                        : `Filter to behaviors that ${view === "impacts" ? "act on" : "fire from"} the currently selected field`
+                    }
                   >
                     {label}
                   </button>

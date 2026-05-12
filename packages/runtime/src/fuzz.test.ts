@@ -272,9 +272,7 @@ test("Phase 3 Stage H: sync host.action_response on stale id emits continuation_
     hostContext: createHostContext(),
     emitLoadEvent: false,
   });
-  const traceBefore = engine
-    .getTrace()
-    .filter((entry) => entry.event.type === "runtime.continuation_mismatch").length;
+  const traceBefore = engine.getTrace().filter((entry) => entry.event.type === "runtime.continuation_mismatch").length;
   engine.dispatch({
     type: "host.action_response",
     version: "1.0",
@@ -289,8 +287,6 @@ test("Phase 3 Stage H: sync host.action_response on stale id emits continuation_
     correlationId: "no-such",
     timestamp: new Date(2026, 0, 1, 1, 0).toISOString(),
   });
-  const traceAfter = engine
-    .getTrace()
-    .filter((entry) => entry.event.type === "runtime.continuation_mismatch").length;
+  const traceAfter = engine.getTrace().filter((entry) => entry.event.type === "runtime.continuation_mismatch").length;
   assert.equal(traceAfter - traceBefore, 1);
 });

@@ -72,9 +72,7 @@ export function testPanelReducer(state: TestPanelState, action: TestPanelAction)
           eventType: keepSource ? state.selection.eventType : action.selection.eventType,
           payload: keepPayload ? state.selection.payload : action.selection.payload,
           payloadEdited: state.selection.payloadEdited,
-          sourceEditedByUser: explicitSourceEditFlag
-            ? true
-            : (state.selection.sourceEditedByUser ?? false),
+          sourceEditedByUser: explicitSourceEditFlag ? true : (state.selection.sourceEditedByUser ?? false),
         },
       };
     }

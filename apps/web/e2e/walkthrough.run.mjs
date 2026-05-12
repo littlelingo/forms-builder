@@ -46,29 +46,23 @@ async function installApiMocks(page) {
   await page.route(`${API_HOST}/conversions`, (route) => route.fulfill(jsonResponse([])));
   await page.route(`${API_HOST}/sample-pdfs`, (route) => route.fulfill(jsonResponse([])));
   await page.route(`${API_HOST}/projects`, (route) => route.fulfill(jsonResponse([projectRecord])));
-  await page.route(
-    new RegExp(`^${API_HOST}/projects/${FIXTURE_TEST_PANEL_PROJECT_ID}$`),
-    (route) => route.fulfill(jsonResponse(detail)),
+  await page.route(new RegExp(`^${API_HOST}/projects/${FIXTURE_TEST_PANEL_PROJECT_ID}$`), (route) =>
+    route.fulfill(jsonResponse(detail)),
   );
-  await page.route(
-    new RegExp(`^${API_HOST}/projects/${FIXTURE_TEST_PANEL_PROJECT_ID}/document$`),
-    (route) => route.fulfill(jsonResponse(detail.document)),
+  await page.route(new RegExp(`^${API_HOST}/projects/${FIXTURE_TEST_PANEL_PROJECT_ID}/document$`), (route) =>
+    route.fulfill(jsonResponse(detail.document)),
   );
-  await page.route(
-    new RegExp(`^${API_HOST}/projects/${FIXTURE_TEST_PANEL_PROJECT_ID}/source-context$`),
-    (route) => route.fulfill(jsonResponse(detail.sourceContext)),
+  await page.route(new RegExp(`^${API_HOST}/projects/${FIXTURE_TEST_PANEL_PROJECT_ID}/source-context$`), (route) =>
+    route.fulfill(jsonResponse(detail.sourceContext)),
   );
-  await page.route(
-    new RegExp(`^${API_HOST}/projects/${FIXTURE_TEST_PANEL_PROJECT_ID}/revisions$`),
-    (route) => route.fulfill(jsonResponse([])),
+  await page.route(new RegExp(`^${API_HOST}/projects/${FIXTURE_TEST_PANEL_PROJECT_ID}/revisions$`), (route) =>
+    route.fulfill(jsonResponse([])),
   );
-  await page.route(
-    new RegExp(`^${API_HOST}/projects/${FIXTURE_TEST_PANEL_PROJECT_ID}/library$`),
-    (route) => route.fulfill(jsonResponse([])),
+  await page.route(new RegExp(`^${API_HOST}/projects/${FIXTURE_TEST_PANEL_PROJECT_ID}/library$`), (route) =>
+    route.fulfill(jsonResponse([])),
   );
-  await page.route(
-    new RegExp(`^${API_HOST}/projects/${FIXTURE_TEST_PANEL_PROJECT_ID}/project-events$`),
-    (route) => route.fulfill(jsonResponse({ version: "1.0", projectEvents: [] })),
+  await page.route(new RegExp(`^${API_HOST}/projects/${FIXTURE_TEST_PANEL_PROJECT_ID}/project-events$`), (route) =>
+    route.fulfill(jsonResponse({ version: "1.0", projectEvents: [] })),
   );
 }
 

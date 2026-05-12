@@ -44,13 +44,9 @@ test("Phase 3 Stage F: throttle passes the first call and drops within-window ca
 test("Phase 3 Stage F: debounce wins when both debounce and throttle are set", async () => {
   const scheduler = createListenerScheduler();
   let calls = 0;
-  scheduler.schedule(
-    "listener-3",
-    { debounce_ms: 20, throttle_ms: 100 },
-    () => {
-      calls += 1;
-    },
-  );
+  scheduler.schedule("listener-3", { debounce_ms: 20, throttle_ms: 100 }, () => {
+    calls += 1;
+  });
   assert.equal(calls, 0);
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal(calls, 1, "debounce determined the timing — fired once after 20ms");

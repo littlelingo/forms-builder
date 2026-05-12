@@ -65,11 +65,7 @@ export function TestPanelTrace({
         <div className="rounded border border-dashed border-slate-300 p-3 text-sm text-slate-500">
           <p>No listeners reached this event.</p>
           {onCreateListenerForSource ? (
-            <button
-              type="button"
-              onClick={onCreateListenerForSource}
-              className="mt-1 text-xs text-blue-700 underline"
-            >
+            <button type="button" onClick={onCreateListenerForSource} className="mt-1 text-xs text-blue-700 underline">
               Create listener
             </button>
           ) : null}

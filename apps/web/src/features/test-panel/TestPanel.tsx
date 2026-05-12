@@ -67,13 +67,7 @@ export function TestPanel(props: TestPanelProps): ReactElement | null {
       aria-label="Test panel"
       className={`${dockClasses[dockSide]} z-20 flex flex-col overflow-hidden rounded-lg border border-slate-300 bg-white`}
     >
-      <TestPanelHeader
-        mode={mode}
-        dockSide={dockSide}
-        onSetMode={onSetMode}
-        onSetDock={onSetDock}
-        onClose={onClose}
-      />
+      <TestPanelHeader mode={mode} dockSide={dockSide} onSetMode={onSetMode} onSetDock={onSetDock} onClose={onClose} />
       <div className="flex-1 overflow-auto">
         {mode === "synth" ? (
           <TestPanelInputs

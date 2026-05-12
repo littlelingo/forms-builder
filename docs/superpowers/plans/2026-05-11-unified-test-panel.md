@@ -14,53 +14,53 @@
 
 ### New files
 
-| File | Responsibility |
-|---|---|
-| `apps/web/src/features/test-panel/state.ts` | Pure state reducer + selectors for the panel. Testable via `tsx --test`. |
-| `apps/web/src/features/test-panel/state.test.ts` | Reducer / selector tests. |
-| `apps/web/src/features/test-panel/useTestPanelState.ts` | Thin React hook that wraps the reducer + wires engine subscription + sessionStorage. |
-| `apps/web/src/features/test-panel/types.ts` | Public types shared across panel files. |
-| `apps/web/src/features/test-panel/SourcePicker.tsx` | Reusable hybrid combobox: tree when empty / flat when typing + chips. |
-| `apps/web/src/features/test-panel/source-picker-logic.ts` | Pure tree/flatten/rank logic. Testable via `tsx --test`. |
-| `apps/web/src/features/test-panel/source-picker-logic.test.ts` | Tests for ranking, ancestor-expand, chip scoping. |
-| `apps/web/src/features/test-panel/TestPanelInputs.tsx` | Synth-mode inputs: source picker + event select + payload form + Fire button. |
-| `apps/web/src/features/test-panel/payload-form-logic.ts` | Pure validation + derivation helpers. |
-| `apps/web/src/features/test-panel/payload-form-logic.test.ts` | Validation tests. |
-| `apps/web/src/features/test-panel/TestPanelTrace.tsx` | Trace render — by-listener (default) + by-receiver tree (toggle). |
-| `apps/web/src/features/test-panel/trace-grouping.ts` | Pure grouping from `RuntimeDispatchReport` to receiver tree. |
-| `apps/web/src/features/test-panel/trace-grouping.test.ts` | Grouping tests. |
-| `apps/web/src/features/test-panel/TestPanelHeader.tsx` | Title, mode toggle, dock controls, close. |
-| `apps/web/src/features/test-panel/TestPanel.tsx` | Floating container; composes Header + Inputs (Synth) / live indicator + Trace. |
-| `apps/web/src/features/test-panel/TestPanelTrigger.tsx` | "Test" button used at each placement. |
-| `apps/web/src/features/test-panel/index.ts` | Public re-exports. |
-| `apps/web/src/features/walkthrough/WalkthroughRoute.tsx` | Full-canvas hosted-user-style preview. |
-| `apps/web/src/features/walkthrough/WalkthroughHeader.tsx` | Exit, step indicator, restart. |
-| `apps/web/src/features/walkthrough/host-bridge-mock.ts` | Mock host bridge for submit + `host_call_await`. |
-| `apps/web/src/features/walkthrough/index.ts` | Public re-exports. |
-| `apps/web/e2e/test-panel.run.mjs` | Playwright run script for TestPanel E2E. |
-| `apps/web/e2e/walkthrough.run.mjs` | Playwright run script for Walkthrough E2E. |
+| File                                                           | Responsibility                                                                       |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `apps/web/src/features/test-panel/state.ts`                    | Pure state reducer + selectors for the panel. Testable via `tsx --test`.             |
+| `apps/web/src/features/test-panel/state.test.ts`               | Reducer / selector tests.                                                            |
+| `apps/web/src/features/test-panel/useTestPanelState.ts`        | Thin React hook that wraps the reducer + wires engine subscription + sessionStorage. |
+| `apps/web/src/features/test-panel/types.ts`                    | Public types shared across panel files.                                              |
+| `apps/web/src/features/test-panel/SourcePicker.tsx`            | Reusable hybrid combobox: tree when empty / flat when typing + chips.                |
+| `apps/web/src/features/test-panel/source-picker-logic.ts`      | Pure tree/flatten/rank logic. Testable via `tsx --test`.                             |
+| `apps/web/src/features/test-panel/source-picker-logic.test.ts` | Tests for ranking, ancestor-expand, chip scoping.                                    |
+| `apps/web/src/features/test-panel/TestPanelInputs.tsx`         | Synth-mode inputs: source picker + event select + payload form + Fire button.        |
+| `apps/web/src/features/test-panel/payload-form-logic.ts`       | Pure validation + derivation helpers.                                                |
+| `apps/web/src/features/test-panel/payload-form-logic.test.ts`  | Validation tests.                                                                    |
+| `apps/web/src/features/test-panel/TestPanelTrace.tsx`          | Trace render — by-listener (default) + by-receiver tree (toggle).                    |
+| `apps/web/src/features/test-panel/trace-grouping.ts`           | Pure grouping from `RuntimeDispatchReport` to receiver tree.                         |
+| `apps/web/src/features/test-panel/trace-grouping.test.ts`      | Grouping tests.                                                                      |
+| `apps/web/src/features/test-panel/TestPanelHeader.tsx`         | Title, mode toggle, dock controls, close.                                            |
+| `apps/web/src/features/test-panel/TestPanel.tsx`               | Floating container; composes Header + Inputs (Synth) / live indicator + Trace.       |
+| `apps/web/src/features/test-panel/TestPanelTrigger.tsx`        | "Test" button used at each placement.                                                |
+| `apps/web/src/features/test-panel/index.ts`                    | Public re-exports.                                                                   |
+| `apps/web/src/features/walkthrough/WalkthroughRoute.tsx`       | Full-canvas hosted-user-style preview.                                               |
+| `apps/web/src/features/walkthrough/WalkthroughHeader.tsx`      | Exit, step indicator, restart.                                                       |
+| `apps/web/src/features/walkthrough/host-bridge-mock.ts`        | Mock host bridge for submit + `host_call_await`.                                     |
+| `apps/web/src/features/walkthrough/index.ts`                   | Public re-exports.                                                                   |
+| `apps/web/e2e/test-panel.run.mjs`                              | Playwright run script for TestPanel E2E.                                             |
+| `apps/web/e2e/walkthrough.run.mjs`                             | Playwright run script for Walkthrough E2E.                                           |
 
 ### Modified files
 
-| File | Change |
-|---|---|
-| `packages/runtime/src/types.ts` | Extend `RuntimeActionDiagnostic` with `before?`, `after?`, `skippedReason?`; widen `status` enum with `"skipped"`. |
-| `packages/runtime/src/engine.ts` | Populate `before`/`after`/`skipped` fields in action execution path. |
-| `packages/runtime/src/engine.test.ts` (or new sibling) | Tests for new diagnostic fields. |
-| `apps/web/src/App.tsx` | Mount `useTestPanelState`; render `<TestPanel>` when open; add `walkthrough` stage; route `WalkthroughRoute`; delete `previewTestRecordingOn`, `previewTestReports`, `<PreviewTestRecorder>` render; remove `handleTestSelectedRule` / `handleTestSelectedChain` (moved into hook); wire `<TestPanelTrigger>` props. |
-| `apps/web/src/features/behavior/manager/EventFlowStudio.tsx` | **Delete file.** |
-| `apps/web/src/features/behavior/test/PreviewTestRecorder.tsx` | **Delete file.** |
-| `apps/web/src/features/behavior/test/` (folder) | **Delete folder.** |
-| `apps/web/src/features/behavior/manager/BehaviorWorkspace.tsx` | Remove "Test behavior" + "Run behavior test" render blocks; replace with inline `<TestPanelTrigger>` next to selected listener / rule. Slim related dead state passed through props. |
-| `apps/web/src/features/behavior/utils/runtime-helpers.ts` | Drop `"test"` from `BehaviorStudioMode` union. |
-| `apps/web/src/features/behavior/BehaviorStudioModal.tsx` | Remove `"test"` branch from mode render switch. |
-| `apps/web/src/features/behavior/manager/BehaviorManager.tsx` | Replace `onSetBehaviorStudioMode("test")` call sites with `openTestPanel(selection)`. |
-| `apps/web/src/features/behavior/index.ts` | Remove `PreviewTestRecorder` re-exports. |
-| `apps/web/src/features/builder/BuilderStage.tsx` | Add Walkthrough toolbar entry + global Cmd/Ctrl+K binding for TestPanel. |
-| `apps/web/src/features/builder/StepStrip.tsx` | Add Walkthrough entry. |
-| `apps/web/src/features/inspector/InspectorRail.tsx` | Add `<TestPanelTrigger>` to inspector context. |
-| `package.json` | Add `e2e:test-panel`, `e2e:walkthrough` scripts. |
-| `apps/web/e2e/orchestrate.mjs` | Parametrize so multiple `run.mjs` scripts can share the orchestrator. |
+| File                                                           | Change                                                                                                                                                                                                                                                                                                               |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/runtime/src/types.ts`                                | Extend `RuntimeActionDiagnostic` with `before?`, `after?`, `skippedReason?`; widen `status` enum with `"skipped"`.                                                                                                                                                                                                   |
+| `packages/runtime/src/engine.ts`                               | Populate `before`/`after`/`skipped` fields in action execution path.                                                                                                                                                                                                                                                 |
+| `packages/runtime/src/engine.test.ts` (or new sibling)         | Tests for new diagnostic fields.                                                                                                                                                                                                                                                                                     |
+| `apps/web/src/App.tsx`                                         | Mount `useTestPanelState`; render `<TestPanel>` when open; add `walkthrough` stage; route `WalkthroughRoute`; delete `previewTestRecordingOn`, `previewTestReports`, `<PreviewTestRecorder>` render; remove `handleTestSelectedRule` / `handleTestSelectedChain` (moved into hook); wire `<TestPanelTrigger>` props. |
+| `apps/web/src/features/behavior/manager/EventFlowStudio.tsx`   | **Delete file.**                                                                                                                                                                                                                                                                                                     |
+| `apps/web/src/features/behavior/test/PreviewTestRecorder.tsx`  | **Delete file.**                                                                                                                                                                                                                                                                                                     |
+| `apps/web/src/features/behavior/test/` (folder)                | **Delete folder.**                                                                                                                                                                                                                                                                                                   |
+| `apps/web/src/features/behavior/manager/BehaviorWorkspace.tsx` | Remove "Test behavior" + "Run behavior test" render blocks; replace with inline `<TestPanelTrigger>` next to selected listener / rule. Slim related dead state passed through props.                                                                                                                                 |
+| `apps/web/src/features/behavior/utils/runtime-helpers.ts`      | Drop `"test"` from `BehaviorStudioMode` union.                                                                                                                                                                                                                                                                       |
+| `apps/web/src/features/behavior/BehaviorStudioModal.tsx`       | Remove `"test"` branch from mode render switch.                                                                                                                                                                                                                                                                      |
+| `apps/web/src/features/behavior/manager/BehaviorManager.tsx`   | Replace `onSetBehaviorStudioMode("test")` call sites with `openTestPanel(selection)`.                                                                                                                                                                                                                                |
+| `apps/web/src/features/behavior/index.ts`                      | Remove `PreviewTestRecorder` re-exports.                                                                                                                                                                                                                                                                             |
+| `apps/web/src/features/builder/BuilderStage.tsx`               | Add Walkthrough toolbar entry + global Cmd/Ctrl+K binding for TestPanel.                                                                                                                                                                                                                                             |
+| `apps/web/src/features/builder/StepStrip.tsx`                  | Add Walkthrough entry.                                                                                                                                                                                                                                                                                               |
+| `apps/web/src/features/inspector/InspectorRail.tsx`            | Add `<TestPanelTrigger>` to inspector context.                                                                                                                                                                                                                                                                       |
+| `package.json`                                                 | Add `e2e:test-panel`, `e2e:walkthrough` scripts.                                                                                                                                                                                                                                                                     |
+| `apps/web/e2e/orchestrate.mjs`                                 | Parametrize so multiple `run.mjs` scripts can share the orchestrator.                                                                                                                                                                                                                                                |
 
 ---
 
@@ -71,6 +71,7 @@ This is the foundation. All trace UX assumes the engine reports `before`/`after`
 ### Task 1.1: Extend `RuntimeActionDiagnostic` type
 
 **Files:**
+
 - Modify: `packages/runtime/src/types.ts`
 
 - [ ] **Step 1: Update the type**
@@ -110,6 +111,7 @@ git commit -m "feat(runtime): extend RuntimeActionDiagnostic with before/after/s
 ### Task 1.2: Populate `before`/`after` in built-in action handlers
 
 **Files:**
+
 - Modify: `packages/runtime/src/engine.ts`
 - Test: `packages/runtime/src/engine.test.ts`
 
@@ -189,6 +191,7 @@ git commit -m "feat(runtime): populate before/after on action diagnostics"
 ### Task 1.3: Add `"skipped"` status for missing-target actions
 
 **Files:**
+
 - Modify: `packages/runtime/src/engine.ts`
 - Test: `packages/runtime/src/engine.test.ts`
 
@@ -242,6 +245,7 @@ Reusable component. Used for source picking, action-target picking, and reverse-
 ### Task 2.1: Define types
 
 **Files:**
+
 - Create: `apps/web/src/features/test-panel/types.ts`
 
 - [ ] **Step 1: Write types**
@@ -302,6 +306,7 @@ git commit -m "feat(test-panel): types for unified test panel + source picker"
 ### Task 2.2: Source picker pure logic — tree build
 
 **Files:**
+
 - Create: `apps/web/src/features/test-panel/source-picker-logic.ts`
 - Test: `apps/web/src/features/test-panel/source-picker-logic.test.ts`
 
@@ -438,6 +443,7 @@ git commit -m "feat(test-panel): source picker tree + flat rank logic"
 ### Task 2.3: SourcePicker component shell
 
 **Files:**
+
 - Create: `apps/web/src/features/test-panel/SourcePicker.tsx`
 
 - [ ] **Step 1: Implement**
@@ -483,7 +489,7 @@ export function SourcePicker({ candidates, selectedId, onSelect, placeholder }: 
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  const selectedNode = selectedId ? tree.byId.get(selectedId) ?? null : null;
+  const selectedNode = selectedId ? (tree.byId.get(selectedId) ?? null) : null;
   const ranked = query.trim() ? flatRank(tree, query) : [];
 
   return (
@@ -518,7 +524,14 @@ export function SourcePicker({ candidates, selectedId, onSelect, placeholder }: 
       {open ? (
         <div className="absolute z-30 mt-1 max-h-72 w-full overflow-auto rounded-md border border-slate-200 bg-white shadow-lg">
           {query.trim() ? (
-            <FlatList results={ranked} onSelect={(id) => { onSelect(id); setOpen(false); setQuery(""); }} />
+            <FlatList
+              results={ranked}
+              onSelect={(id) => {
+                onSelect(id);
+                setOpen(false);
+                setQuery("");
+              }}
+            />
           ) : (
             <TreeList
               tree={tree}
@@ -530,7 +543,10 @@ export function SourcePicker({ candidates, selectedId, onSelect, placeholder }: 
                   return next;
                 })
               }
-              onSelect={(id) => { onSelect(id); setOpen(false); }}
+              onSelect={(id) => {
+                onSelect(id);
+                setOpen(false);
+              }}
               selectedId={selectedId}
             />
           )}
@@ -582,13 +598,7 @@ function TreeList({
   return <div>{tree.rootIds.map((rootId) => renderNode(rootId, 0))}</div>;
 }
 
-function FlatList({
-  results,
-  onSelect,
-}: {
-  results: ReturnType<typeof flatRank>;
-  onSelect: (id: string) => void;
-}) {
+function FlatList({ results, onSelect }: { results: ReturnType<typeof flatRank>; onSelect: (id: string) => void }) {
   if (results.length === 0) {
     return <div className="px-3 py-2 text-sm text-slate-500">No matches</div>;
   }
@@ -630,6 +640,7 @@ git commit -m "feat(test-panel): SourcePicker hybrid combobox (tree + flat + chi
 ### Task 3.1: Pure state reducer
 
 **Files:**
+
 - Create: `apps/web/src/features/test-panel/state.ts`
 - Test: `apps/web/src/features/test-panel/state.test.ts`
 
@@ -799,6 +810,7 @@ git commit -m "feat(test-panel): pure reducer for panel state (open/mode/dock/se
 ### Task 3.2: useTestPanelState hook
 
 **Files:**
+
 - Create: `apps/web/src/features/test-panel/useTestPanelState.ts`
 
 - [ ] **Step 1: Implement**
@@ -834,18 +846,14 @@ function writePrefs(prefs: StoredPrefs) {
 }
 
 export function useTestPanelState(engine: RuntimeEngine | null) {
-  const [state, dispatch] = useReducer(
-    testPanelReducer,
-    null,
-    () => {
-      const prefs = readPrefs();
-      return {
-        ...initialTestPanelState,
-        mode: prefs.mode ?? initialTestPanelState.mode,
-        dockSide: prefs.dockSide ?? initialTestPanelState.dockSide,
-      };
-    },
-  );
+  const [state, dispatch] = useReducer(testPanelReducer, null, () => {
+    const prefs = readPrefs();
+    return {
+      ...initialTestPanelState,
+      mode: prefs.mode ?? initialTestPanelState.mode,
+      dockSide: prefs.dockSide ?? initialTestPanelState.dockSide,
+    };
+  });
 
   // Persist mode + dock side
   useEffect(() => {
@@ -872,10 +880,7 @@ export function useTestPanelState(engine: RuntimeEngine | null) {
     (selection: TestPanelSelection) => dispatch({ type: "mirror-selection", selection }),
     [],
   );
-  const editPayload = useCallback(
-    (name: string, value: string) => dispatch({ type: "edit-payload", name, value }),
-    [],
-  );
+  const editPayload = useCallback((name: string, value: string) => dispatch({ type: "edit-payload", name, value }), []);
   const resetPayload = useCallback(
     (payload: Record<string, string>) => dispatch({ type: "reset-payload", payload }),
     [],
@@ -912,8 +917,9 @@ Expected: PASS.
 
 Run: `grep -n "subscribe\b" packages/runtime/src/types.ts packages/runtime/src/engine.ts | head -10`
 Inspect the existing handler signature. If `subscribe(handler)` only passes the envelope and not the report, decide between:
-  - **Option A (preferred for minimal engine change)**: in the hook, call `dispatchWithReport` instead of waiting for the subscription, OR replay the last report via a dedicated `subscribeReports` channel added in Task 3.3.
-  - **Option B**: Extend the existing `subscribe` to also pass the report. This requires a one-line engine change.
+
+- **Option A (preferred for minimal engine change)**: in the hook, call `dispatchWithReport` instead of waiting for the subscription, OR replay the last report via a dedicated `subscribeReports` channel added in Task 3.3.
+- **Option B**: Extend the existing `subscribe` to also pass the report. This requires a one-line engine change.
 
 If existing handler returns only envelope, switch the hook to use a new engine method `subscribeReports(handler)` (Task 3.3 adds it).
 
@@ -927,6 +933,7 @@ git commit -m "feat(test-panel): useTestPanelState hook (reducer + sessionStorag
 ### Task 3.3: Engine `subscribeReports` channel (only if Task 3.2 Option B chosen)
 
 **Files:**
+
 - Modify: `packages/runtime/src/engine.ts`, `packages/runtime/src/types.ts`
 - Test: `packages/runtime/src/engine.test.ts`
 
@@ -984,6 +991,7 @@ git commit -m "feat(runtime): subscribeReports channel for live-record subscribe
 ### Task 4.1: Payload form pure logic
 
 **Files:**
+
 - Create: `apps/web/src/features/test-panel/payload-form-logic.ts`
 - Test: `apps/web/src/features/test-panel/payload-form-logic.test.ts`
 
@@ -1076,10 +1084,7 @@ export function parsePayloadValue(field: RuntimePayloadField, raw: string): unkn
   }
 }
 
-export function allPayloadFieldsValid(
-  fields: RuntimePayloadField[],
-  payload: Record<string, string>,
-): boolean {
+export function allPayloadFieldsValid(fields: RuntimePayloadField[], payload: Record<string, string>): boolean {
   return fields.every((field) => validatePayloadField(field, payload[field.name] ?? "").ok);
 }
 ```
@@ -1099,6 +1104,7 @@ git commit -m "feat(test-panel): payload form validation + parsing helpers"
 ### Task 4.2: TestPanelInputs component
 
 **Files:**
+
 - Create: `apps/web/src/features/test-panel/TestPanelInputs.tsx`
 
 - [ ] **Step 1: Implement**
@@ -1131,7 +1137,7 @@ export function TestPanelInputs({
   onResetPayload,
   onFire,
 }: TestPanelInputsProps) {
-  const source = selection.sourceId ? candidates.find((c) => c.id === selection.sourceId) ?? null : null;
+  const source = selection.sourceId ? (candidates.find((c) => c.id === selection.sourceId) ?? null) : null;
   const eventOptions = useMemo(() => {
     if (!source) return [] as { type: string; label: string }[];
     const fromDefs = source.eventDefinitions.map((d) => ({
@@ -1146,7 +1152,8 @@ export function TestPanelInputs({
     ? runtimePayloadFieldsForEventType(effectiveEventType)
     : [];
 
-  const canFire = source !== null && effectiveEventType !== null && allPayloadFieldsValid(payloadFields, selection.payload);
+  const canFire =
+    source !== null && effectiveEventType !== null && allPayloadFieldsValid(payloadFields, selection.payload);
 
   return (
     <section className="p-3">
@@ -1172,9 +1179,7 @@ export function TestPanelInputs({
           {payloadFields.length > 0 ? (
             <button
               type="button"
-              onClick={() =>
-                onResetPayload(Object.fromEntries(payloadFields.map((f) => [f.name, ""])))
-              }
+              onClick={() => onResetPayload(Object.fromEntries(payloadFields.map((f) => [f.name, ""])))}
               className="text-xs text-blue-700 underline"
             >
               Reset to defaults
@@ -1200,9 +1205,7 @@ export function TestPanelInputs({
                     validation.ok ? "border-slate-300" : "border-red-400"
                   }`}
                 />
-                {!validation.ok ? (
-                  <span className="block text-xs text-red-600">{validation.message}</span>
-                ) : null}
+                {!validation.ok ? <span className="block text-xs text-red-600">{validation.message}</span> : null}
               </label>
             );
           })
@@ -1249,6 +1252,7 @@ git commit -m "feat(test-panel): TestPanelInputs synth-mode inputs (source/event
 ### Task 5.1: Trace grouping pure logic
 
 **Files:**
+
 - Create: `apps/web/src/features/test-panel/trace-grouping.ts`
 - Test: `apps/web/src/features/test-panel/trace-grouping.test.ts`
 
@@ -1268,8 +1272,22 @@ test("groupActionsByReceiver buckets actions by targetNodeId", () => {
         matched: true,
         actions: [
           { actionId: "A1", kind: "set_value", target: { fieldId: "F1" }, status: "executed", before: "", after: "x" },
-          { actionId: "A2", kind: "set_visible", target: { fieldId: "F2" }, status: "executed", before: false, after: true },
-          { actionId: "A3", kind: "set_required", target: { fieldId: "F1" }, status: "executed", before: false, after: true },
+          {
+            actionId: "A2",
+            kind: "set_visible",
+            target: { fieldId: "F2" },
+            status: "executed",
+            before: false,
+            after: true,
+          },
+          {
+            actionId: "A3",
+            kind: "set_required",
+            target: { fieldId: "F1" },
+            status: "executed",
+            before: false,
+            after: true,
+          },
         ],
       },
     ],
@@ -1336,6 +1354,7 @@ git commit -m "feat(test-panel): action receiver-grouping helper"
 ### Task 5.2: TestPanelTrace component
 
 **Files:**
+
 - Create: `apps/web/src/features/test-panel/TestPanelTrace.tsx`
 
 - [ ] **Step 1: Implement**
@@ -1445,7 +1464,7 @@ function ByListenerView({
                   (action.target as { fieldId?: string; nodeId?: string } | null)?.fieldId ??
                   (action.target as { nodeId?: string } | null)?.nodeId ??
                   null;
-                const targetLabel = targetId ? nodeLabelById?.get(targetId) ?? targetId : "—";
+                const targetLabel = targetId ? (nodeLabelById?.get(targetId) ?? targetId) : "—";
                 const delta = describeBeforeAfter(action);
                 return (
                   <li key={action.actionId}>
@@ -1521,6 +1540,7 @@ git commit -m "feat(test-panel): TestPanelTrace with by-listener and by-receiver
 ### Task 6.1: TestPanelHeader
 
 **Files:**
+
 - Create: `apps/web/src/features/test-panel/TestPanelHeader.tsx`
 
 - [ ] **Step 1: Implement**
@@ -1607,6 +1627,7 @@ git commit -m "feat(test-panel): TestPanelHeader (title/mode/dock/close)"
 ### Task 6.2: TestPanel container
 
 **Files:**
+
 - Create: `apps/web/src/features/test-panel/TestPanel.tsx`
 
 - [ ] **Step 1: Implement**
@@ -1676,13 +1697,7 @@ export function TestPanel(props: TestPanelProps) {
       aria-label="Test panel"
       className={`${dockClasses[dockSide]} z-20 flex flex-col overflow-hidden rounded-lg border border-slate-300 bg-white`}
     >
-      <TestPanelHeader
-        mode={mode}
-        dockSide={dockSide}
-        onSetMode={onSetMode}
-        onSetDock={onSetDock}
-        onClose={onClose}
-      />
+      <TestPanelHeader mode={mode} dockSide={dockSide} onSetMode={onSetMode} onSetDock={onSetDock} onClose={onClose} />
       <div className="flex-1 overflow-auto">
         {mode === "synth" ? (
           <TestPanelInputs
@@ -1711,7 +1726,7 @@ export function TestPanel(props: TestPanelProps) {
           </section>
         )}
         <TestPanelTrace
-          report={mode === "synth" ? lastReport : recordHead?.report ?? null}
+          report={mode === "synth" ? lastReport : (recordHead?.report ?? null)}
           nodeLabelById={nodeLabelById}
           onCreateListenerForSource={onCreateListenerForSource}
         />
@@ -1736,6 +1751,7 @@ git commit -m "feat(test-panel): TestPanel container (dock layouts + mode switch
 ### Task 6.3: TestPanelTrigger + index
 
 **Files:**
+
 - Create: `apps/web/src/features/test-panel/TestPanelTrigger.tsx`
 - Create: `apps/web/src/features/test-panel/index.ts`
 
@@ -1792,6 +1808,7 @@ git commit -m "feat(test-panel): TestPanelTrigger + public index"
 ### Task 7.1: Mount hook + render panel in App
 
 **Files:**
+
 - Modify: `apps/web/src/App.tsx`
 
 - [ ] **Step 1: Add imports + hook usage**
@@ -1816,16 +1833,17 @@ Where `runtimeEngine` is whatever variable holds the current `RuntimeEngine` ins
 Add a helper inside App.tsx:
 
 ```ts
-function deriveSelectionFromAuthoring(authoring: AuthoringSelection | null, listenerId: string | null): TestPanelSelection {
+function deriveSelectionFromAuthoring(
+  authoring: AuthoringSelection | null,
+  listenerId: string | null,
+): TestPanelSelection {
   const sourceId =
-    (listenerId
-      ? runtimeListenerById.get(listenerId)?.eventSourceNodeId ?? null
-      : null) ??
+    (listenerId ? (runtimeListenerById.get(listenerId)?.eventSourceNodeId ?? null) : null) ??
     (authoring?.kind === "field" ? authoring.fieldId : null) ??
     null;
   const candidate = sourceId ? runtimeEventSourceCandidateById.get(sourceId) : null;
   const eventType = listenerId
-    ? runtimeListenerById.get(listenerId)?.eventName ?? null
+    ? (runtimeListenerById.get(listenerId)?.eventName ?? null)
     : candidate?.eventDefinitions[0]
       ? runtimeEventDefinitionType(candidate.eventDefinitions[0])
       : null;
@@ -1868,9 +1886,7 @@ In the root `<div>` of App.tsx (after the existing modals), add:
       payloadEdited: testPanel.state.selection.payloadEdited,
     });
   }}
-  onSelectEvent={(type) =>
-    testPanel.mirrorSelection({ ...testPanel.state.selection, eventType: type })
-  }
+  onSelectEvent={(type) => testPanel.mirrorSelection({ ...testPanel.state.selection, eventType: type })}
   onEditPayload={testPanel.editPayload}
   onResetPayload={testPanel.resetPayload}
   onFire={({ sourceId, eventType, payload }) => {
@@ -1926,6 +1942,7 @@ git commit -m "feat(web): mount TestPanel + useTestPanelState in App"
 ### Task 7.2: Selection mirror effect
 
 **Files:**
+
 - Modify: `apps/web/src/App.tsx`
 
 - [ ] **Step 1: Add effect**
@@ -1958,6 +1975,7 @@ git commit -m "feat(web): test panel mirrors authoring + listener selection"
 ### Task 8.1: BuilderStage toolbar trigger
 
 **Files:**
+
 - Modify: `apps/web/src/features/builder/BuilderStage.tsx`
 
 - [ ] **Step 1: Add prop + render**
@@ -1965,12 +1983,7 @@ git commit -m "feat(web): test panel mirrors authoring + listener selection"
 Pass `onOpenTestPanel` (function from App) through to BuilderStage. In the toolbar JSX (existing buttons region), add:
 
 ```tsx
-<TestPanelTrigger
-  derive={() => deriveSelectionFn()}
-  onOpen={onOpenTestPanel}
-  variant="secondary"
-  label="Test"
-/>
+<TestPanelTrigger derive={() => deriveSelectionFn()} onOpen={onOpenTestPanel} variant="secondary" label="Test" />
 ```
 
 App.tsx passes both `derive` and the `onOpen` handler; BuilderStage merely renders.
@@ -2006,6 +2019,7 @@ git commit -m "feat(web): TestPanelTrigger in builder toolbar + Cmd/Ctrl+K hotke
 ### Task 8.2: BehaviorStackList listener row trigger
 
 **Files:**
+
 - Modify: `apps/web/src/features/behavior/stack/BehaviorStackRow.tsx`
 - Modify: `apps/web/src/features/behavior/stack/BehaviorStackList.tsx` (prop pipe-through)
 
@@ -2014,18 +2028,20 @@ git commit -m "feat(web): TestPanelTrigger in builder toolbar + Cmd/Ctrl+K hotke
 In `BehaviorStackRow.tsx`, accept `onOpenTestPanel?: (listenerId: string) => void` and render next to existing row actions:
 
 ```tsx
-{onOpenTestPanel ? (
-  <button
-    type="button"
-    onClick={(e) => {
-      e.stopPropagation();
-      onOpenTestPanel(listenerId);
-    }}
-    className="rounded bg-slate-200 px-2 py-0.5 text-xs"
-  >
-    Test
-  </button>
-) : null}
+{
+  onOpenTestPanel ? (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpenTestPanel(listenerId);
+      }}
+      className="rounded bg-slate-200 px-2 py-0.5 text-xs"
+    >
+      Test
+    </button>
+  ) : null;
+}
 ```
 
 - [ ] **Step 2: Pipe through BehaviorStackList → BehaviorWorkspace → App**
@@ -2059,6 +2075,7 @@ git commit -m "feat(behavior): Test button on each listener row opens TestPanel"
 ### Task 8.3: InspectorRail field trigger
 
 **Files:**
+
 - Modify: `apps/web/src/features/inspector/InspectorRail.tsx`
 - Modify: `apps/web/src/features/inspector/PropertiesTab.tsx` (or wherever field props render)
 
@@ -2067,15 +2084,17 @@ git commit -m "feat(behavior): Test button on each listener row opens TestPanel"
 In the field properties tab (PropertiesTab.tsx), near the existing meta header, render:
 
 ```tsx
-{onOpenTestPanelForField ? (
-  <button
-    type="button"
-    onClick={() => onOpenTestPanelForField(field.id)}
-    className="rounded bg-slate-200 px-2 py-0.5 text-xs"
-  >
-    Test
-  </button>
-) : null}
+{
+  onOpenTestPanelForField ? (
+    <button
+      type="button"
+      onClick={() => onOpenTestPanelForField(field.id)}
+      className="rounded bg-slate-200 px-2 py-0.5 text-xs"
+    >
+      Test
+    </button>
+  ) : null;
+}
 ```
 
 - [ ] **Step 2: Pipe through InspectorRail → App**
@@ -2087,7 +2106,9 @@ const openTestPanelForField = (fieldId: string) => {
   const candidate = runtimeEventSourceCandidateById.get(fieldId);
   testPanel.open({
     sourceId: fieldId,
-    eventType: candidate?.eventDefinitions[0] ? runtimeEventDefinitionType(candidate.eventDefinitions[0]) : "field.change",
+    eventType: candidate?.eventDefinitions[0]
+      ? runtimeEventDefinitionType(candidate.eventDefinitions[0])
+      : "field.change",
     payload: {},
     payloadEdited: false,
   });
@@ -2112,6 +2133,7 @@ git commit -m "feat(inspector): Test button on field properties opens TestPanel"
 ### Task 9.1: Add `walkthrough` stage to App union
 
 **Files:**
+
 - Modify: `apps/web/src/App.tsx`
 
 - [ ] **Step 1: Extend stage union**
@@ -2140,6 +2162,7 @@ git commit -m "feat(web): add walkthrough stage to App union"
 ### Task 9.2: Mock host bridge for submit
 
 **Files:**
+
 - Create: `apps/web/src/features/walkthrough/host-bridge-mock.ts`
 
 - [ ] **Step 1: Implement**
@@ -2175,6 +2198,7 @@ git commit -m "feat(walkthrough): mock host bridge for submit + host_call_await"
 ### Task 9.3: WalkthroughHeader + WalkthroughRoute
 
 **Files:**
+
 - Create: `apps/web/src/features/walkthrough/WalkthroughHeader.tsx`
 - Create: `apps/web/src/features/walkthrough/WalkthroughRoute.tsx`
 - Create: `apps/web/src/features/walkthrough/index.ts`
@@ -2190,7 +2214,13 @@ export interface WalkthroughHeaderProps {
   onRestart: () => void;
 }
 
-export function WalkthroughHeader({ currentStepLabel, currentStepIndex, totalSteps, onExit, onRestart }: WalkthroughHeaderProps) {
+export function WalkthroughHeader({
+  currentStepLabel,
+  currentStepIndex,
+  totalSteps,
+  onExit,
+  onRestart,
+}: WalkthroughHeaderProps) {
   return (
     <header className="flex items-center justify-between border-b border-slate-300 bg-white px-4 py-3">
       <div className="flex items-center gap-3">
@@ -2267,11 +2297,7 @@ export function WalkthroughRoute({ document, onExit }: WalkthroughRouteProps) {
       />
       <div className="flex-1 overflow-auto bg-slate-50 p-6">
         {/* PreviewCanvas already renders against an engine — passes engine as prop */}
-        <PreviewCanvas
-          engine={engine}
-          document={document}
-          viewerMode={true}
-        />
+        <PreviewCanvas engine={engine} document={document} viewerMode={true} />
       </div>
       {submitToast ? (
         <div className="fixed bottom-4 right-4 rounded bg-emerald-600 px-4 py-2 text-sm text-white shadow">
@@ -2310,6 +2336,7 @@ git commit -m "feat(walkthrough): WalkthroughRoute + Header (full-canvas hosted-
 ### Task 9.4: Wire walkthrough into App
 
 **Files:**
+
 - Modify: `apps/web/src/App.tsx`, `apps/web/src/features/builder/BuilderStage.tsx`, `apps/web/src/features/builder/StepStrip.tsx`
 
 - [ ] **Step 1: Render route**
@@ -2360,6 +2387,7 @@ git commit -m "feat(web): wire Walkthrough route + toolbar/step-strip entries"
 ### Task 10.1: Remove `"test"` from `BehaviorStudioMode` union
 
 **Files:**
+
 - Modify: `apps/web/src/features/behavior/utils/runtime-helpers.ts`
 - Modify: `apps/web/src/features/behavior/BehaviorStudioModal.tsx`
 - Modify: `apps/web/src/features/behavior/manager/BehaviorManager.tsx`
@@ -2392,6 +2420,7 @@ git commit -m "refactor(behavior): drop 'test' from BehaviorStudioMode union"
 ### Task 10.2: Delete EventFlowStudio
 
 **Files:**
+
 - Delete: `apps/web/src/features/behavior/manager/EventFlowStudio.tsx`
 
 - [ ] **Step 1: Delete file**
@@ -2416,6 +2445,7 @@ git commit -m "refactor(behavior): delete EventFlowStudio (replaced by TestPanel
 ### Task 10.3: Delete PreviewTestRecorder
 
 **Files:**
+
 - Delete: `apps/web/src/features/behavior/test/PreviewTestRecorder.tsx`
 - Delete folder: `apps/web/src/features/behavior/test/`
 - Modify: `apps/web/src/features/behavior/index.ts`
@@ -2432,6 +2462,7 @@ In `apps/web/src/features/behavior/index.ts`, remove the two `PreviewTestRecorde
 - [ ] **Step 3: Remove App.tsx usage**
 
 In `apps/web/src/App.tsx`, delete:
+
 - `import { PreviewTestRecorder, ... }` (keep the others)
 - `const [previewTestRecordingOn, setPreviewTestRecordingOn] = useState(false);`
 - `const [previewTestReports, setPreviewTestReports] = useState<...>(...)`
@@ -2453,6 +2484,7 @@ git commit -m "refactor(web): delete PreviewTestRecorder (replaced by TestPanel 
 ### Task 10.4: Remove "Test behavior" + "Run behavior test" buttons in BehaviorWorkspace
 
 **Files:**
+
 - Modify: `apps/web/src/features/behavior/manager/BehaviorWorkspace.tsx`
 - Modify: `apps/web/src/App.tsx`
 
@@ -2461,35 +2493,40 @@ git commit -m "refactor(web): delete PreviewTestRecorder (replaced by TestPanel 
 In `BehaviorWorkspace.tsx`, locate the render region around lines 3770–3935 (containing `onHandleTestSelectedRule`, `onHandleTestSelectedChain`, "Show latest runtime effect", etc.). Delete the entire region. Replace with a single inline TestPanelTrigger group:
 
 ```tsx
-{selectedListener ? (
-  <TestPanelTrigger
-    derive={() => ({
-      sourceId: selectedListener.eventSourceNodeId ?? selectedListener.dispatcherId ?? null,
-      eventType: selectedListener.eventName,
-      payload: {},
-      payloadEdited: false,
-    })}
-    onOpen={onOpenTestPanel}
-    label="Test listener"
-  />
-) : null}
-{selectedRule ? (
-  <TestPanelTrigger
-    derive={() => ({
-      sourceId: selectedRule.whenFieldId,
-      eventType: "field.change",
-      payload: { nextValue: String(selectedRule.expectedValue ?? "") },
-      payloadEdited: true,
-    })}
-    onOpen={onOpenTestPanel}
-    label="Test behavior"
-  />
-) : null}
+{
+  selectedListener ? (
+    <TestPanelTrigger
+      derive={() => ({
+        sourceId: selectedListener.eventSourceNodeId ?? selectedListener.dispatcherId ?? null,
+        eventType: selectedListener.eventName,
+        payload: {},
+        payloadEdited: false,
+      })}
+      onOpen={onOpenTestPanel}
+      label="Test listener"
+    />
+  ) : null;
+}
+{
+  selectedRule ? (
+    <TestPanelTrigger
+      derive={() => ({
+        sourceId: selectedRule.whenFieldId,
+        eventType: "field.change",
+        payload: { nextValue: String(selectedRule.expectedValue ?? "") },
+        payloadEdited: true,
+      })}
+      onOpen={onOpenTestPanel}
+      label="Test behavior"
+    />
+  ) : null;
+}
 ```
 
 - [ ] **Step 2: Remove handlers from App**
 
 In `App.tsx`, delete:
+
 - `handleTestSelectedRule` (around line 6513)
 - `handleTestSelectedChain` (around line 6712)
 - All call sites passing them as props
@@ -2523,12 +2560,14 @@ These items the user asked for explicitly. Each is small and isolated.
 ### Task 11.1: Slim App.tsx test-related blocks
 
 **Files:**
+
 - Modify: `apps/web/src/App.tsx`
 
 - [ ] **Step 1: Audit for orphans**
 
 Run: `grep -n "eventFlow\|EventFlow\|behaviorStudioMode" apps/web/src/App.tsx | head -30`
 Identify references that only existed to feed the deleted EventFlowStudio "test" mode. Specifically:
+
 - `eventFlowSourceId`, `eventFlowEventType` state — were they used by anything other than EventFlowStudio? If not, delete.
 - `setBehaviorEventType`, `setBehaviorEventBubbles`, etc. — keep (still used by the "event" creation mode), but verify.
 
@@ -2551,6 +2590,7 @@ git commit -m "refactor(web): drop orphaned EventFlowStudio state from App"
 ### Task 11.2: Slim BehaviorWorkspace.tsx after legacy removal
 
 **Files:**
+
 - Modify: `apps/web/src/features/behavior/manager/BehaviorWorkspace.tsx`
 
 - [ ] **Step 1: Identify dead props**
@@ -2578,6 +2618,7 @@ git commit -m "refactor(behavior): remove dead state after legacy test-button re
 ### Task 11.3: Sanity-check ActionEditor target picker
 
 **Files:**
+
 - Modify (if needed): `apps/web/src/features/behavior/composer/ActionEditor.tsx`
 
 - [ ] **Step 1: Inspect target picker**
@@ -2619,6 +2660,7 @@ If no change is required, skip the commit.
 ### Task 12.1: Parametrize orchestrator
 
 **Files:**
+
 - Modify: `apps/web/e2e/orchestrate.mjs`
 - Modify: `package.json`
 
@@ -2653,6 +2695,7 @@ git commit -m "chore(e2e): orchestrate.mjs accepts run-script arg for multi-suit
 ### Task 12.2: TestPanel E2E
 
 **Files:**
+
 - Create: `apps/web/e2e/test-panel.run.mjs`
 
 - [ ] **Step 1: Write the run script**
@@ -2672,7 +2715,7 @@ export async function run(baseUrl) {
 
   // Load a fixture with a checkbox source + a Sex-radio listener
   await page.click('text="Open JSON"');
-  await page.setInputFiles('input[type=file]', "./apps/web/e2e/fixtures/checkbox-to-radio.json");
+  await page.setInputFiles("input[type=file]", "./apps/web/e2e/fixtures/checkbox-to-radio.json");
 
   // Open the test panel via Cmd+K
   await page.keyboard.press("Meta+K");
@@ -2683,7 +2726,7 @@ export async function run(baseUrl) {
   await page.locator('text="TYPE OF BENEFIT(S) APPLYING FOR"').click();
 
   // Confirm event = field.change
-  await page.locator('select').selectOption({ label: /field\.change/ });
+  await page.locator("select").selectOption({ label: /field\.change/ });
 
   // Set payload nextValue
   await page.fill('input[id*="nextValue"]', "Disability");
@@ -2694,7 +2737,7 @@ export async function run(baseUrl) {
   // Expect Sex-radio listener row green
   await page.locator('text="Listener ran"').waitFor();
   await page.locator('text="Sex"').waitFor();
-  await page.locator('text=/set_visible|set_required|set_value/').waitFor();
+  await page.locator("text=/set_visible|set_required|set_value/").waitFor();
 
   await browser.close();
   return { ok: true };
@@ -2722,6 +2765,7 @@ git commit -m "test(e2e): TestPanel synth fire + receiver-trace assertion"
 ### Task 12.3: Walkthrough E2E
 
 **Files:**
+
 - Create: `apps/web/e2e/walkthrough.run.mjs`
 
 - [ ] **Step 1: Write the run script**
@@ -2804,6 +2848,7 @@ git diff --cached --quiet || git commit -m "chore: format after unified test pan
 ### Task 13.2: RESUME refresh
 
 **Files:**
+
 - Modify: `RESUME.md`, `docs/project-plan.md`
 
 - [ ] **Step 1: Append a "Current State" entry**
@@ -2826,6 +2871,7 @@ git commit -m "docs: refresh RESUME + project-plan for unified test panel ship"
 ## Self-Review
 
 **Spec coverage:** Every locked decision in the spec maps to a task —
+
 - Floating dockable panel → Phase 6 (TestPanel + Header)
 - Stacked vertical layout → Task 6.2
 - Synth/Live mode toggle → Phase 3 (state) + Phase 6 (header)

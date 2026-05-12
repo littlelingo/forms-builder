@@ -2818,12 +2818,12 @@ export default function App() {
    */
   const deriveSelectionFromAuthoring = useCallback(
     (authoring: AuthoringSelection | null, listenerId: string | null): TestPanelSelection => {
-      const listener = listenerId ? runtimeListenerById.get(listenerId) ?? null : null;
+      const listener = listenerId ? (runtimeListenerById.get(listenerId) ?? null) : null;
       const sourceId =
-        (listener ? listener.eventSourceNodeId ?? null : null) ??
+        (listener ? (listener.eventSourceNodeId ?? null) : null) ??
         (authoring?.kind === "field" ? authoring.fieldId : null) ??
         null;
-      const candidate = sourceId ? runtimeEventSourceCandidateById.get(sourceId) ?? null : null;
+      const candidate = sourceId ? (runtimeEventSourceCandidateById.get(sourceId) ?? null) : null;
       const eventType =
         (listener ? getRuntimeListenerEventType(listener) : null) ??
         (candidate?.eventDefinitions[0] ? runtimeEventDefinitionType(candidate.eventDefinitions[0]) : null) ??
@@ -5382,9 +5382,7 @@ export default function App() {
         }, selection);
         setEditingRuleIndex(null);
         setExpandedBehaviorIndexObjectKey((current) => (current === `rule:${ruleId}` ? null : current));
-        setSelectedBehaviorNode((current) =>
-          current?.kind === "rule" && current.ruleId === ruleId ? null : current,
-        );
+        setSelectedBehaviorNode((current) => (current?.kind === "rule" && current.ruleId === ruleId ? null : current));
         setMessage("Condition rule deleted.");
       },
     });
@@ -6571,10 +6569,7 @@ export default function App() {
       setMessage("Open a project before exporting behaviors.");
       return;
     }
-    const envelope = buildDocumentExportEnvelope(
-      activeDocument,
-      activeProjectDetail?.project ?? null,
-    );
+    const envelope = buildDocumentExportEnvelope(activeDocument, activeProjectDetail?.project ?? null);
     if (envelope.entries.length === 0) {
       setMessage("Nothing to export — this document has no authored behaviors yet.");
       return;
@@ -6585,11 +6580,7 @@ export default function App() {
 
   function handleExportListenerBehavior(listenerId: string) {
     if (!activeDocument) return;
-    const envelope = buildListenerExportEnvelope(
-      activeDocument,
-      activeProjectDetail?.project ?? null,
-      listenerId,
-    );
+    const envelope = buildListenerExportEnvelope(activeDocument, activeProjectDetail?.project ?? null, listenerId);
     if (!envelope) {
       setErrorMessage(`Could not find listener ${listenerId} to export.`);
       return;
@@ -9665,8 +9656,8 @@ export default function App() {
             role="status"
             className="rounded-[1.2rem] border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900"
           >
-            <strong className="font-semibold">Viewer mode</strong> · this URL hides save, publish, and behavior
-            mutation controls. Remove <code>?role=viewer</code> from the address to edit.
+            <strong className="font-semibold">Viewer mode</strong> · this URL hides save, publish, and behavior mutation
+            controls. Remove <code>?role=viewer</code> from the address to edit.
           </div>
         ) : null}
 
@@ -11250,9 +11241,7 @@ export default function App() {
       ) : null}
 
       {/* Generic confirm dialog — destructive operations (behavior delete, library delete) */}
-      {confirmDialog !== null ? (
-        <ConfirmDialog state={confirmDialog} onClose={() => setConfirmDialog(null)} />
-      ) : null}
+      {confirmDialog !== null ? <ConfirmDialog state={confirmDialog} onClose={() => setConfirmDialog(null)} /> : null}
 
       {/* Unified TestPanel — synth/record modes, docked or floating. Trigger lands in Phase 8. */}
       <TestPanel

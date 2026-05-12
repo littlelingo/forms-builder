@@ -168,7 +168,11 @@ test("append-report: enforces RECORD_BUFFER_CAP via FIFO eviction", () => {
   for (let i = 0; i < RECORD_BUFFER_CAP + 5; i += 1) {
     state = testPanelReducer(state, {
       type: "append-report",
-      entry: { id: `r-${i}`, timestamp: `2026-05-11T12:00:${String(i).padStart(2, "0")}.000Z`, report: makeReport(`corr-${i}`) },
+      entry: {
+        id: `r-${i}`,
+        timestamp: `2026-05-11T12:00:${String(i).padStart(2, "0")}.000Z`,
+        report: makeReport(`corr-${i}`),
+      },
     });
   }
   assert.equal(state.recordedReports.length, RECORD_BUFFER_CAP);

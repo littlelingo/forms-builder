@@ -18,12 +18,7 @@ import { useCallback, useEffect, useReducer } from "react";
 import type { RuntimeDispatchReport, RuntimeEngine } from "@form-builder/runtime";
 
 import { initialTestPanelState, testPanelReducer } from "./state";
-import type {
-  TestPanelDockSide,
-  TestPanelMode,
-  TestPanelSelection,
-  TestPanelState,
-} from "./types";
+import type { TestPanelDockSide, TestPanelMode, TestPanelSelection, TestPanelState } from "./types";
 
 const PREFS_STORAGE_KEY = "test-panel-prefs-v1";
 
