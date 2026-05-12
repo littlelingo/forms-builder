@@ -59,7 +59,6 @@ export function ancestorIds(tree: SourcePickerTree, leafId: string): string[] {
 export interface FlatRankResult {
   node: SourcePickerNode;
   score: number;
-  matchSpans: Array<{ start: number; end: number }>;
 }
 
 export function flatRank(tree: SourcePickerTree, query: string): FlatRankResult[] {
@@ -71,7 +70,7 @@ export function flatRank(tree: SourcePickerTree, query: string): FlatRankResult[
     const index = haystack.indexOf(normalized);
     if (index === -1) continue;
     const score = -index + (node.label.toLowerCase().startsWith(normalized) ? 1000 : 0);
-    results.push({ node, score, matchSpans: [{ start: index, end: index + normalized.length }] });
+    results.push({ node, score });
   }
   return results.sort((a, b) => b.score - a.score);
 }

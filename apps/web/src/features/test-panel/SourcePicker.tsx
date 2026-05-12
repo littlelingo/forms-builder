@@ -1,4 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+/**
+ * SourcePicker — hybrid combobox (tree + flat + breadcrumb chips) used to select a
+ * runtime event source (or any other hierarchical target).
+ *
+ * Hotkey policy: this component does NOT register any global hotkey listeners. The
+ * picker is reused across multiple contexts (source picker, action-target picker,
+ * etc.) and multiple instances would conflict if they each bound a global key. The
+ * consumer is responsible for any global hotkey such as Cmd/Ctrl+K. To pair such a
+ * hotkey with the picker, pass `autoFocus` and trigger the consumer's open/focus
+ * logic from the hotkey handler — the input will focus on mount.
+ */
+
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
 
 import type { RuntimeEventSourceCandidate } from "../behavior/utils/runtime-helpers";
@@ -12,9 +24,18 @@ export interface SourcePickerProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   placeholder?: string;
+  /** When true, focuses the input on mount. Pair with a consumer-owned hotkey. */
+  autoFocus?: boolean;
 }
 
-export function SourcePicker({ candidates, selectedId, onSelect, placeholder }: SourcePickerProps): ReactElement {
+export function SourcePicker({
+  candidates,
+  selectedId,
+  onSelect,
+  placeholder,
+  autoFocus = false,
+}: SourcePickerProps): ReactElement {
+  const popoverId = useId();
   const tree = useMemo(() => buildSourcePickerTree(candidates), [candidates]);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -22,6 +43,17 @@ export function SourcePicker({ candidates, selectedId, onSelect, placeholder }: 
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const blurTimeoutRef = useRef<number | null>(null);
+  const wasOpenRef = useRef(false);
+
+  // Optional auto-focus on mount when caller opts in.
+  useEffect(() => {
+    if (autoFocus) {
+      inputRef.current?.focus();
+    }
+    // Run only on mount: the prop is treated as an initial directive.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Auto-expand ancestors of the current selection whenever the picker opens.
   useEffect(() => {
@@ -35,19 +67,6 @@ export function SourcePicker({ candidates, selectedId, onSelect, placeholder }: 
     }
   }, [open, selectedId, tree]);
 
-  // Global Cmd/Ctrl+K focuses the picker.
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setOpen(true);
-        inputRef.current?.focus();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
-
   const flatRows = useMemo(() => buildFlatRows(tree, expandedIds), [tree, expandedIds]);
   const ranked = useMemo<FlatRankResult[]>(() => (query.trim() ? flatRank(tree, query) : []), [tree, query]);
   const isSearching = query.trim().length > 0;
@@ -58,22 +77,28 @@ export function SourcePicker({ candidates, selectedId, onSelect, placeholder }: 
     [flatRows, isSearching, ranked],
   );
 
-  // Reset active index whenever the visible set churns.
+  // On open: snap activeIndex to the persisted selection (or 0). On subsequent
+  // visibleIds churn while open (typing during search), snap to top (0).
   useEffect(() => {
+    const wasOpen = wasOpenRef.current;
+    wasOpenRef.current = open;
+
     if (!open) {
       setActiveIndex(0);
       return;
     }
-    if (visibleIds.length === 0) {
-      setActiveIndex(0);
+    if (!wasOpen) {
+      // Just opened: prefer the persisted selection's index, else 0.
+      if (selectedId && visibleIds.length > 0) {
+        const idx = visibleIds.indexOf(selectedId);
+        setActiveIndex(idx >= 0 ? idx : 0);
+      } else {
+        setActiveIndex(0);
+      }
       return;
     }
-    if (selectedId) {
-      const idx = visibleIds.indexOf(selectedId);
-      setActiveIndex(idx >= 0 ? idx : 0);
-    } else {
-      setActiveIndex(0);
-    }
+    // Already open and visibleIds churned (e.g. user typed): top result.
+    setActiveIndex(0);
   }, [open, selectedId, visibleIds]);
 
   const selectedNode = selectedId ? (tree.byId.get(selectedId) ?? null) : null;
@@ -134,13 +159,30 @@ export function SourcePicker({ candidates, selectedId, onSelect, placeholder }: 
     [activeIndex, commitSelection, open, visibleIds],
   );
 
-  // Click-away closes the popover (using a slight delay so the click-to-select handler can fire first).
+  // Click-away closes the popover (using a slight delay so click-to-select fires first).
   const handleBlur = useCallback(() => {
-    setTimeout(() => {
+    if (blurTimeoutRef.current !== null) {
+      window.clearTimeout(blurTimeoutRef.current);
+    }
+    blurTimeoutRef.current = window.setTimeout(() => {
+      blurTimeoutRef.current = null;
       if (containerRef.current?.contains(document.activeElement)) return;
       setOpen(false);
     }, 150);
   }, []);
+
+  // Clean up any pending blur timeout on unmount.
+  useEffect(() => {
+    return () => {
+      if (blurTimeoutRef.current !== null) {
+        window.clearTimeout(blurTimeoutRef.current);
+        blurTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  const activeId = open && visibleIds.length > 0 ? (visibleIds[activeIndex] ?? null) : null;
+  const activeRowId = activeId ? `${popoverId}-row-${activeId}` : undefined;
 
   return (
     <div className="relative" ref={containerRef}>
@@ -151,6 +193,7 @@ export function SourcePicker({ candidates, selectedId, onSelect, placeholder }: 
               key={`chip-${idx}-${label}`}
               type="button"
               onClick={() => {
+                // TODO(Phase-7): scope picker to this chip's level
                 setOpen(true);
                 inputRef.current?.focus();
               }}
@@ -172,18 +215,25 @@ export function SourcePicker({ candidates, selectedId, onSelect, placeholder }: 
         onFocus={() => setOpen(true)}
         onBlur={handleBlur}
         onKeyDown={handleKeyDown}
-        placeholder={placeholder ?? "Search or browse sources… (⌘K)"}
+        placeholder={placeholder ?? "Search or browse sources..."}
         className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
         role="combobox"
         aria-expanded={open}
         aria-autocomplete="list"
+        aria-controls={popoverId}
+        aria-activedescendant={activeRowId}
       />
       {open ? (
-        <div className="absolute z-30 mt-1 max-h-72 w-full overflow-auto rounded-md border border-slate-200 bg-white shadow-lg">
+        <div
+          id={popoverId}
+          className="absolute z-30 mt-1 max-h-72 w-full overflow-auto rounded-md border border-slate-200 bg-white shadow-lg"
+        >
           {isSearching ? (
             <FlatList
               results={ranked}
               activeIndex={activeIndex}
+              selectedId={selectedId}
+              popoverId={popoverId}
               onHoverIndex={setActiveIndex}
               onSelect={commitSelection}
             />
@@ -194,7 +244,8 @@ export function SourcePicker({ candidates, selectedId, onSelect, placeholder }: 
               onToggle={toggleExpanded}
               onSelect={commitSelection}
               selectedId={selectedId}
-              activeId={visibleIds[activeIndex] ?? null}
+              activeId={activeId}
+              popoverId={popoverId}
               onHover={(id) => {
                 const idx = visibleIds.indexOf(id);
                 if (idx >= 0) setActiveIndex(idx);
@@ -233,6 +284,7 @@ interface TreeListProps {
   onSelect: (id: string) => void;
   selectedId: string | null;
   activeId: string | null;
+  popoverId: string;
   onHover: (id: string) => void;
 }
 
@@ -243,6 +295,7 @@ function TreeList({
   onSelect,
   selectedId,
   activeId,
+  popoverId,
   onHover,
 }: TreeListProps): ReactElement {
   const renderNode = (id: string, depth: number): ReactElement => {
@@ -254,9 +307,15 @@ function TreeList({
     const expanded = expandedIds.has(id);
     const isSelected = selectedId === id;
     const isActive = activeId === id;
+    const rowId = `${popoverId}-row-${id}`;
     return (
       <div key={id}>
         <div
+          id={rowId}
+          role="treeitem"
+          aria-level={depth + 1}
+          aria-selected={isSelected ? true : false}
+          {...(hasChildren ? { "aria-expanded": expanded } : {})}
           className={`flex items-center gap-1 px-2 py-1 text-sm ${
             isSelected ? "bg-blue-100 text-blue-900" : isActive ? "bg-slate-100" : ""
           }`}
@@ -295,11 +354,20 @@ function TreeList({
 interface FlatListProps {
   results: FlatRankResult[];
   activeIndex: number;
+  selectedId: string | null;
+  popoverId: string;
   onHoverIndex: (index: number) => void;
   onSelect: (id: string) => void;
 }
 
-function FlatList({ results, activeIndex, onHoverIndex, onSelect }: FlatListProps): ReactElement {
+function FlatList({
+  results,
+  activeIndex,
+  selectedId,
+  popoverId,
+  onHoverIndex,
+  onSelect,
+}: FlatListProps): ReactElement {
   if (results.length === 0) {
     return <div className="px-3 py-2 text-sm text-slate-500">No matches</div>;
   }
@@ -308,12 +376,15 @@ function FlatList({ results, activeIndex, onHoverIndex, onSelect }: FlatListProp
       {results.map((res, index) => {
         const breadcrumb = res.node.pathLabels.slice(0, -1).join(" › ");
         const isActive = index === activeIndex;
+        const isSelected = selectedId === res.node.id;
+        const rowId = `${popoverId}-row-${res.node.id}`;
         return (
           <li key={res.node.id}>
             <button
+              id={rowId}
               type="button"
               role="option"
-              aria-selected={isActive}
+              aria-selected={isSelected ? true : false}
               onMouseDown={(event) => event.preventDefault()}
               onMouseEnter={() => onHoverIndex(index)}
               onClick={() => onSelect(res.node.id)}
