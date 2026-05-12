@@ -95,6 +95,8 @@ import {
   validateExportEnvelope,
 } from "./lib/behavior-export";
 import { useIsViewerMode } from "./lib/viewer-mode";
+import { TestPanel, useTestPanelState } from "./features/test-panel";
+import type { TestPanelSelection } from "./features/test-panel";
 import { HomeStage, badgeToneFromProjectStatus } from "./features/project";
 import { ReviewStage } from "./features/review/ReviewStage";
 import { badgeToneFromReview, badgeToneFromStatus, overlayRects } from "./features/review/utils/review-utils";
@@ -2791,6 +2793,34 @@ export default function App() {
     () => activeRuntimeScope?.listeners ?? activeDocument?.runtime?.formListeners ?? [],
     [activeRuntimeScope, activeDocument],
   );
+  /** All runtime listeners across the active document, indexed by id. Used by the TestPanel selection mirror. */
+  const runtimeListenerById = useMemo(() => {
+    const map = new Map<string, RuntimeListenerDefinition>();
+    if (!activeDocument) return map;
+    const addAll = (listeners: readonly RuntimeListenerDefinition[] | undefined) => {
+      for (const listener of listeners ?? []) {
+        map.set(listener.id, listener);
+      }
+    };
+    addAll(activeDocument.runtime?.formListeners);
+    for (const step of activeDocument.steps) {
+      addAll(step.runtime?.listeners);
+      for (const section of step.sections) {
+        addAll(section.runtime?.listeners);
+        for (const group of section.groups) {
+          addAll(group.runtime?.listeners);
+          for (const field of group.fields) {
+            addAll(field.runtime?.listeners);
+          }
+        }
+        for (const field of section.fields) {
+          addAll(field.runtime?.listeners);
+        }
+      }
+    }
+    return map;
+  }, [activeDocument]);
+  const testPanel = useTestPanelState(runtimeEngineRef.current);
   const activeSelectionNodeId: string | null = useMemo(() => {
     if (!selectedAuthoring) return null;
     if (selectedAuthoring.kind === "field") return selectedAuthoring.fieldId;
@@ -6846,6 +6876,33 @@ export default function App() {
 
   function handleClearTraceFromEvent() {
     setTraceFromEventReport(null);
+  }
+
+  /**
+   * Derive the TestPanel selection (source + event) from the current authoring
+   * selection or a selected listener id. Used both for the auto-mirror effect
+   * (Task 7.2) and any explicit "open test panel" trigger that reuses the
+   * current selection context.
+   */
+  function deriveSelectionFromAuthoring(
+    authoring: AuthoringSelection | null,
+    listenerId: string | null,
+  ): TestPanelSelection {
+    const listener = listenerId ? runtimeListenerById.get(listenerId) ?? null : null;
+    const sourceId =
+      (listener ? listener.eventSourceNodeId ?? null : null) ??
+      (authoring?.kind === "field" ? authoring.fieldId : null) ??
+      null;
+    const candidate = sourceId ? runtimeEventSourceCandidateById.get(sourceId) ?? null : null;
+    const eventType =
+      (listener ? getRuntimeListenerEventType(listener) : null) ??
+      (candidate?.eventDefinitions[0] ? runtimeEventDefinitionType(candidate.eventDefinitions[0]) : null) ??
+      null;
+    return { sourceId, eventType, payload: {}, payloadEdited: false };
+  }
+
+  function openTestPanelFromSelection() {
+    testPanel.open(deriveSelectionFromAuthoring(selectedAuthoring, selectedBehaviorListenerId));
   }
 
   function eventFlowOptionsForSource(source: RuntimeEventSourceCandidate): RuntimeSourceEventOption[] {
@@ -11830,6 +11887,62 @@ export default function App() {
       {confirmDialog !== null ? (
         <ConfirmDialog state={confirmDialog} onClose={() => setConfirmDialog(null)} />
       ) : null}
+
+      {/* Unified TestPanel — synth/record modes, docked or floating. Trigger lands in Phase 8. */}
+      <TestPanel
+        open={testPanel.state.open}
+        mode={testPanel.state.mode}
+        dockSide={testPanel.state.dockSide}
+        selection={testPanel.state.selection}
+        lastReport={testPanel.state.lastReport}
+        recordedReports={testPanel.state.recordedReports}
+        candidates={runtimeEventSourceCandidates}
+        nodeLabelById={runtimeNodeLabelById}
+        onClose={testPanel.close}
+        onSetMode={testPanel.setMode}
+        onSetDock={testPanel.setDock}
+        onSelectSource={(id) => {
+          const candidate = runtimeEventSourceCandidateById.get(id);
+          const nextEventType = candidate?.eventDefinitions[0]
+            ? runtimeEventDefinitionType(candidate.eventDefinitions[0])
+            : null;
+          testPanel.mirrorSelection({
+            sourceId: id,
+            eventType: nextEventType,
+            payload: {},
+            payloadEdited: testPanel.state.selection.payloadEdited,
+          });
+        }}
+        onSelectEvent={(type) =>
+          testPanel.mirrorSelection({ ...testPanel.state.selection, eventType: type })
+        }
+        onEditPayload={testPanel.editPayload}
+        onResetPayload={testPanel.resetPayload}
+        onFire={({ sourceId, eventType, payload }) => {
+          const source = runtimeEventSourceCandidateById.get(sourceId);
+          if (!source || !activeDocument) return;
+          const target: NonNullable<RuntimeEventEnvelope["target"]> = {
+            runtimeId: "builder-simulator",
+            formId: activeDocument.id,
+            projectId: activeProjectDetail?.project.id ?? null,
+            nodeId: source.id,
+            nodeKey: source.dispatchKey ?? null,
+            nodeType: source.nodeType,
+          };
+          const envelope: RuntimeEventEnvelope = {
+            type: eventType,
+            version: "1.0",
+            source: target,
+            target,
+            payload: { ...payload, eventType, sourceNodeId: source.id, targetNodeId: source.id },
+            correlationId: crypto.randomUUID(),
+            timestamp: new Date().toISOString(),
+          };
+          const report = runtimeEngineRef.current?.dispatchWithReport(envelope) ?? null;
+          testPanel.setLastReport(report);
+        }}
+        onClearRecorded={testPanel.clearRecorded}
+      />
     </main>
   );
 }
