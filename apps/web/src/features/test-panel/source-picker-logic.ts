@@ -59,18 +59,41 @@ export function ancestorIds(tree: SourcePickerTree, leafId: string): string[] {
 export interface FlatRankResult {
   node: SourcePickerNode;
   score: number;
+  matchSpans: Array<{ start: number; end: number }>;
 }
 
 export function flatRank(tree: SourcePickerTree, query: string): FlatRankResult[] {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return [];
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return [];
+
   const results: FlatRankResult[] = [];
   for (const node of tree.byId.values()) {
     const haystack = node.pathLabels.join(" › ").toLowerCase();
-    const index = haystack.indexOf(normalized);
-    if (index === -1) continue;
-    const score = -index + (node.label.toLowerCase().startsWith(normalized) ? 1000 : 0);
-    results.push({ node, score });
+    const labelLower = node.label.toLowerCase();
+
+    // every token must appear in the haystack
+    const tokenPositions = tokens.map((t) => haystack.indexOf(t));
+    if (tokenPositions.some((p) => p === -1)) continue;
+
+    // score: smaller earliest position is better; label-prefix bonus
+    const earliestPosition = Math.min(...tokenPositions);
+    const labelPrefixBonus = tokens.some((t) => labelLower.startsWith(t)) ? 1000 : 0;
+    const score = -earliestPosition + labelPrefixBonus;
+
+    // Collect all occurrences of each token in the joined path
+    const spans: Array<{ start: number; end: number }> = [];
+    for (const token of tokens) {
+      let idx = haystack.indexOf(token);
+      while (idx !== -1) {
+        spans.push({ start: idx, end: idx + token.length });
+        idx = haystack.indexOf(token, idx + token.length);
+      }
+    }
+    spans.sort((a, b) => a.start - b.start);
+
+    results.push({ node, score, matchSpans: spans });
   }
   return results.sort((a, b) => b.score - a.score);
 }

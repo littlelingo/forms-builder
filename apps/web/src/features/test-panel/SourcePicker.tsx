@@ -11,13 +11,59 @@
  */
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import type { ReactElement } from "react";
+import type { ReactElement, ReactNode } from "react";
 
 import type { RuntimeEventSourceCandidate } from "../behavior/utils/runtime-helpers";
 
 import { ancestorIds, buildSourcePickerTree, flatRank } from "./source-picker-logic";
 import type { FlatRankResult } from "./source-picker-logic";
 import type { SourcePickerTree } from "./types";
+
+/**
+ * Highlight every occurrence of any token within the given text. Spans are
+ * computed against the visible string itself (not a joined path) so highlights
+ * land exactly on what the user sees. Overlapping ranges are merged.
+ */
+function highlightTokens(text: string, tokens: string[]): ReactNode {
+  if (tokens.length === 0) return text;
+  const lower = text.toLowerCase();
+  const ranges: Array<{ start: number; end: number }> = [];
+  for (const token of tokens) {
+    if (!token) continue;
+    let idx = lower.indexOf(token);
+    while (idx !== -1) {
+      ranges.push({ start: idx, end: idx + token.length });
+      idx = lower.indexOf(token, idx + token.length);
+    }
+  }
+  if (ranges.length === 0) return text;
+  ranges.sort((a, b) => a.start - b.start);
+
+  // Merge overlapping ranges
+  const merged: Array<{ start: number; end: number }> = [];
+  for (const r of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && r.start <= last.end) {
+      last.end = Math.max(last.end, r.end);
+    } else {
+      merged.push({ ...r });
+    }
+  }
+
+  const out: ReactNode[] = [];
+  let cursor = 0;
+  for (const range of merged) {
+    if (range.start > cursor) out.push(text.slice(cursor, range.start));
+    out.push(
+      <mark key={`m-${range.start}`} className="bg-yellow-200">
+        {text.slice(range.start, range.end)}
+      </mark>,
+    );
+    cursor = range.end;
+  }
+  if (cursor < text.length) out.push(text.slice(cursor));
+  return <>{out}</>;
+}
 
 export interface SourcePickerProps {
   candidates: RuntimeEventSourceCandidate[];
@@ -41,6 +87,9 @@ export function SourcePicker({
   const [query, setQuery] = useState("");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [activeIndex, setActiveIndex] = useState(0);
+  // When non-null, the tree renders this node's children only — effectively
+  // starting the tree at the scoped root. Set by clicking a breadcrumb chip.
+  const [scopedRootId, setScopedRootId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const blurTimeoutRef = useRef<number | null>(null);
@@ -67,9 +116,27 @@ export function SourcePicker({
     }
   }, [open, selectedId, tree]);
 
-  const flatRows = useMemo(() => buildFlatRows(tree, expandedIds), [tree, expandedIds]);
+  // When scoped (chip click), tree renders the scoped node's children.
+  // Otherwise, full tree from rootIds. A scoped non-existent id falls back to full tree.
+  const treeRootIdsToRender = useMemo(() => {
+    if (!scopedRootId) return tree.rootIds;
+    const scoped = tree.byId.get(scopedRootId);
+    return scoped?.childIds ?? tree.rootIds;
+  }, [scopedRootId, tree]);
+
+  const flatRows = useMemo(
+    () => buildFlatRows(tree, expandedIds, treeRootIdsToRender),
+    [tree, expandedIds, treeRootIdsToRender],
+  );
   const ranked = useMemo<FlatRankResult[]>(() => (query.trim() ? flatRank(tree, query) : []), [tree, query]);
   const isSearching = query.trim().length > 0;
+
+  // Tokens for highlight in flat list (mirrors flatRank tokenization).
+  const tokens = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return [];
+    return normalized.split(/\s+/).filter(Boolean);
+  }, [query]);
 
   // Visible rows = either ranked flat results, or the visible (expanded) subset of the tree.
   const visibleIds = useMemo(
@@ -108,6 +175,7 @@ export function SourcePicker({
       onSelect(id);
       setOpen(false);
       setQuery("");
+      setScopedRootId(null);
     },
     [onSelect],
   );
@@ -188,20 +256,32 @@ export function SourcePicker({
     <div className="relative" ref={containerRef}>
       {selectedNode ? (
         <div className="mb-2 flex flex-wrap items-center gap-1.5">
-          {selectedNode.pathLabels.map((label, idx) => (
-            <button
-              key={`chip-${idx}-${label}`}
-              type="button"
-              onClick={() => {
-                // TODO(Phase-7): scope picker to this chip's level
-                setOpen(true);
-                inputRef.current?.focus();
-              }}
-              className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-700 transition hover:bg-slate-300"
-            >
-              {label}
-            </button>
-          ))}
+          {(() => {
+            // Build [{id, label}] pairs so each chip knows its corresponding node id.
+            // Path = ancestor chain (root → … → parent) + the selected node itself.
+            const chainIds = [...ancestorIds(tree, selectedNode.id), selectedNode.id];
+            return chainIds.map((chipNodeId, idx) => {
+              const label = selectedNode.pathLabels[idx] ?? chipNodeId;
+              return (
+                <button
+                  key={`chip-${idx}-${chipNodeId}`}
+                  type="button"
+                  onClick={() => {
+                    // Scope to the chip's PARENT so the user sees its siblings at that level.
+                    // Top-level (root) chip → scope to null (full tree).
+                    const chipNode = tree.byId.get(chipNodeId);
+                    setScopedRootId(chipNode?.parentId ?? null);
+                    setOpen(true);
+                    setQuery("");
+                    inputRef.current?.focus();
+                  }}
+                  className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-700 transition hover:bg-slate-300"
+                >
+                  {label}
+                </button>
+              );
+            });
+          })()}
         </div>
       ) : null}
       <input
@@ -234,12 +314,17 @@ export function SourcePicker({
               activeIndex={activeIndex}
               selectedId={selectedId}
               popoverId={popoverId}
+              tokens={tokens}
+              query={query}
               onHoverIndex={setActiveIndex}
               onSelect={commitSelection}
             />
+          ) : candidates.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-slate-500">No sources available in this document.</div>
           ) : (
             <TreeList
               tree={tree}
+              rootIds={treeRootIdsToRender}
               expandedIds={expandedIds}
               onToggle={toggleExpanded}
               onSelect={commitSelection}
@@ -263,7 +348,7 @@ interface FlatRow {
   depth: number;
 }
 
-function buildFlatRows(tree: SourcePickerTree, expandedIds: Set<string>): FlatRow[] {
+function buildFlatRows(tree: SourcePickerTree, expandedIds: Set<string>, rootIds: string[]): FlatRow[] {
   const rows: FlatRow[] = [];
   const walk = (id: string, depth: number) => {
     const node = tree.byId.get(id);
@@ -273,12 +358,13 @@ function buildFlatRows(tree: SourcePickerTree, expandedIds: Set<string>): FlatRo
       for (const childId of node.childIds) walk(childId, depth + 1);
     }
   };
-  for (const rootId of tree.rootIds) walk(rootId, 0);
+  for (const rootId of rootIds) walk(rootId, 0);
   return rows;
 }
 
 interface TreeListProps {
   tree: SourcePickerTree;
+  rootIds: string[];
   expandedIds: Set<string>;
   onToggle: (id: string) => void;
   onSelect: (id: string) => void;
@@ -290,6 +376,7 @@ interface TreeListProps {
 
 function TreeList({
   tree,
+  rootIds,
   expandedIds,
   onToggle,
   onSelect,
@@ -348,7 +435,7 @@ function TreeList({
       </div>
     );
   };
-  return <div role="tree">{tree.rootIds.map((rootId) => renderNode(rootId, 0))}</div>;
+  return <div role="tree">{rootIds.map((rootId) => renderNode(rootId, 0))}</div>;
 }
 
 interface FlatListProps {
@@ -356,6 +443,8 @@ interface FlatListProps {
   activeIndex: number;
   selectedId: string | null;
   popoverId: string;
+  tokens: string[];
+  query: string;
   onHoverIndex: (index: number) => void;
   onSelect: (id: string) => void;
 }
@@ -365,11 +454,13 @@ function FlatList({
   activeIndex,
   selectedId,
   popoverId,
+  tokens,
+  query,
   onHoverIndex,
   onSelect,
 }: FlatListProps): ReactElement {
   if (results.length === 0) {
-    return <div className="px-3 py-2 text-sm text-slate-500">No matches</div>;
+    return <div className="px-3 py-2 text-sm text-slate-500">No matches for &ldquo;{query.trim()}&rdquo;.</div>;
   }
   return (
     <ul role="listbox">
@@ -390,8 +481,8 @@ function FlatList({
               onClick={() => onSelect(res.node.id)}
               className={`block w-full px-3 py-2 text-left text-sm ${isActive ? "bg-slate-100" : "hover:bg-slate-50"}`}
             >
-              <div className="font-semibold text-slate-900">{res.node.label}</div>
-              {breadcrumb ? <div className="text-xs text-slate-500">{breadcrumb}</div> : null}
+              <div className="font-semibold text-slate-900">{highlightTokens(res.node.label, tokens)}</div>
+              {breadcrumb ? <div className="text-xs text-slate-500">{highlightTokens(breadcrumb, tokens)}</div> : null}
             </button>
           </li>
         );
