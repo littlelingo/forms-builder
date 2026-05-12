@@ -242,7 +242,7 @@ import type {
   RuntimeSourceEventOption,
 } from "./features/behavior";
 
-type AppStage = "home" | "review" | "workspace";
+type AppStage = "home" | "review" | "workspace" | "walkthrough";
 type ReviewPreviewMode = "overlay" | "pdf";
 type ReviewFlowMode = "new_project" | "resume_import";
 type WorkspaceLandingMode = "promoted_import" | "reopened_import";
@@ -7802,6 +7802,9 @@ export default function App() {
     setErrorMessage(null);
     setFlashMessage(null);
   }
+
+  const enterWalkthrough = useCallback(() => setStage("walkthrough"), []);
+  const exitWalkthrough = useCallback(() => setStage("workspace"), []);
 
   async function executeWorkspaceTransition(transition: WorkspaceTransitionRequest): Promise<void> {
     if (transition.kind === "open_project") {
