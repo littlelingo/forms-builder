@@ -3296,3 +3296,30 @@ test("submit_form action diagnostic records before/after submit-lifecycle status
   assert.equal(action.before, "idle");
   assert.equal(action.after, "submitting");
 });
+
+test("subscribeReports receives a report for every dispatch", () => {
+  const document = createDocument();
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  const captured: import("./types").RuntimeDispatchReport[] = [];
+  const unsubscribe = engine.subscribeReports((report) => {
+    captured.push(report);
+  });
+
+  engine.dispatchWithReport(fieldChangeEvent("field-name", "Alice"));
+  engine.dispatchWithReport(fieldChangeEvent("field-name", "Bob"));
+
+  unsubscribe();
+
+  engine.dispatchWithReport(fieldChangeEvent("field-name", "Carol"));
+
+  assert.equal(captured.length, 2, "should have captured exactly 2 reports before unsubscribe");
+  assert.equal(captured[0].event.type, "field.change");
+  assert.equal(captured[1].event.type, "field.change");
+});

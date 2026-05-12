@@ -187,6 +187,14 @@ export interface RuntimeEngine {
   dispatchWithReportAsync(event: RuntimeEventEnvelope): Promise<RuntimeDispatchReport>;
   invoke(action: RuntimeActionDefinition): RuntimeSessionState;
   subscribe(handler: RuntimeEventHandler): () => void;
+  /**
+   * Subscribe to dispatch reports. Every `dispatchWithReport` and
+   * `dispatchWithReportAsync` call broadcasts the resulting report to all
+   * subscribers. Returns an unsubscribe function. Used by the unified
+   * TestPanel's live-record mode and any other observer that needs the
+   * full diagnostic envelope (not just the event).
+   */
+  subscribeReports(handler: (report: RuntimeDispatchReport) => void): () => void;
   getState(): RuntimeSessionState;
   setState(partial: Partial<RuntimeSessionState>): RuntimeSessionState;
   validate(): RuntimeValidationState;

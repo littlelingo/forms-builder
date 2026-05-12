@@ -136,6 +136,20 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
   // dedicated debounce listener test) will land that wiring once the
   // semantic shift is intentional.
   const listenerScheduler: ListenerScheduler = createListenerScheduler();
+  // Subscribers to dispatch reports. Broadcast after every dispatchWithReport
+  // and dispatchWithReportAsync. Failures inside a handler must not break
+  // the dispatch path or starve sibling handlers.
+  const reportHandlers: Set<(report: RuntimeDispatchReport) => void> = new Set();
+  const broadcastReport = (report: RuntimeDispatchReport): void => {
+    for (const handler of reportHandlers) {
+      try {
+        handler(report);
+      } catch {
+        // Subscriber errors are swallowed; the dispatch contract should not be
+        // affected by observer faults.
+      }
+    }
+  };
   // Promise-chain serialization: every dispatchAsync invocation is appended to
   // the tail. The next call's `fn` only starts after the current tail settles,
   // so concurrent callers see FIFO semantics regardless of how many awaits
@@ -1614,7 +1628,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
       };
       const stateAfter = routeEvent(structuredClone(event), true, true, reportDraft);
       const traceEntries = structuredClone(trace.slice(reportDraft.traceStartIndex));
-      return {
+      const report: RuntimeDispatchReport = {
         event: reportDraft.event ?? traceEntries[0]?.event ?? structuredClone(event),
         stateBefore: reportDraft.stateBefore,
         stateAfter,
@@ -1623,6 +1637,8 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
         emittedEvents: traceEntries.slice(1).map((entry) => entry.event),
         stateDiff: diffRuntimeSessionState(reportDraft.stateBefore, stateAfter),
       };
+      broadcastReport(report);
+      return report;
     },
     dispatchAsync(event: RuntimeEventEnvelope): Promise<RuntimeSessionState> {
       if (!mounted || !document || !index) {
@@ -1645,7 +1661,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
         };
         const stateAfter = await routeEventAsync(cloned, true, true, reportDraft);
         const traceEntries = structuredClone(trace.slice(reportDraft.traceStartIndex));
-        return {
+        const report: RuntimeDispatchReport = {
           event: reportDraft.event ?? traceEntries[0]?.event ?? structuredClone(event),
           stateBefore: reportDraft.stateBefore,
           stateAfter,
@@ -1654,6 +1670,8 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
           emittedEvents: traceEntries.slice(1).map((entry) => entry.event),
           stateDiff: diffRuntimeSessionState(reportDraft.stateBefore, stateAfter),
         };
+        broadcastReport(report);
+        return report;
       });
     },
     invoke(action: RuntimeActionDefinition): RuntimeSessionState {
@@ -1678,6 +1696,12 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
     },
     subscribe(handler) {
       return eventBus.subscribe(handler);
+    },
+    subscribeReports(handler) {
+      reportHandlers.add(handler);
+      return () => {
+        reportHandlers.delete(handler);
+      };
     },
     getState(): RuntimeSessionState {
       return structuredClone(state);
