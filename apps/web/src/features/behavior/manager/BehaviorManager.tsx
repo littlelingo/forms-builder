@@ -91,6 +91,16 @@ export interface BehaviorManagerProps {
   onHandleTestSelectedRule: (rule: LegacyConditionalRule | null) => void;
   onHandleTestSelectedChain: (listener: RuntimeListenerDefinition | null) => void;
   /**
+   * Phase 10 — opens the unified TestPanel pre-filled for the given listener.
+   * Replaces the old `onSetBehaviorStudioMode("test")` flow.
+   */
+  onOpenTestPanelForListener?: (listenerId: string) => void;
+  /**
+   * Phase 10 — fallback for "test from current selection" (e.g. legacy rule rows
+   * that don't have a listenerId to target).
+   */
+  onOpenTestPanelFromSelection?: () => void;
+  /**
    * MVP scope assessment #3: one-way export. When set, the manager toolbar
    * renders an "Export" button that hands off to the host (App.tsx) which
    * builds the versioned envelope and triggers a download. Single-listener
@@ -209,6 +219,8 @@ export function BehaviorManager({
   onRemoveRuntimeEventSourceForSelection,
   onHandleTestSelectedRule,
   onHandleTestSelectedChain,
+  onOpenTestPanelForListener,
+  onOpenTestPanelFromSelection,
   traceFromEventReport,
   onRunTraceFromEvent,
   onClearTraceFromEvent,
@@ -491,10 +503,12 @@ export function BehaviorManager({
     onSetSelectedBehaviorNode(item.graphSelection);
     onSetBehaviorStudioCreating(false);
     onSetBehaviorFocusTarget(null);
-    onSetBehaviorStudioMode("test");
-    onSetBehaviorStudioView("studio");
-    onSetBehaviorStudioOpen(true);
-    onSetInspectorTab("behavior");
+    // Phase 10 — route to the unified TestPanel instead of the legacy "test" mode.
+    if (item.kind === "flow" && onOpenTestPanelForListener) {
+      onOpenTestPanelForListener(item.id);
+    } else {
+      onOpenTestPanelFromSelection?.();
+    }
   };
   const behaviorIndexObjectKey = (item: BehaviorIndexObject) => `${item.kind}:${item.id}`;
   const toggleBehaviorIndexObject = (item: BehaviorIndexObject) => {
@@ -713,9 +727,8 @@ export function BehaviorManager({
                             ruleId: focusRule.rule.ruleId,
                             phase: "condition",
                           });
-                          onHandleTestSelectedRule(focusRule.rule);
-                          onSetBehaviorStudioMode("test");
-                          onSetBehaviorStudioView("studio");
+                          // Phase 10 — route to the unified TestPanel via the current selection.
+                          onOpenTestPanelFromSelection?.();
                         }}
                         className={actionButtonClass("secondary")}
                       >
@@ -793,9 +806,8 @@ export function BehaviorManager({
                                   phase: listener.actions.length ? "action" : "trigger",
                                   actionId: listener.actions[0]?.id,
                                 });
-                                onHandleTestSelectedChain(listener);
-                                onSetBehaviorStudioMode("test");
-                                onSetBehaviorStudioView("studio");
+                                // Phase 10 — route to the unified TestPanel pre-filled for this listener.
+                                onOpenTestPanelForListener?.(listener.id);
                               }}
                               className={actionButtonClass("secondary")}
                             >
@@ -890,16 +902,18 @@ export function BehaviorManager({
             <button type="button" onClick={onOpenGraphInspectorSurface} className={actionButtonClass("secondary")}>
               Graph view
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                onSetBehaviorFocusTarget(null);
-                onOpenBehaviorStudio("advanced", "test");
-              }}
-              className={actionButtonClass("secondary")}
-            >
-              Test
-            </button>
+            {onOpenTestPanelFromSelection ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onSetBehaviorFocusTarget(null);
+                  onOpenTestPanelFromSelection();
+                }}
+                className={actionButtonClass("secondary")}
+              >
+                Test
+              </button>
+            ) : null}
           </div>
         </div>
       </div>

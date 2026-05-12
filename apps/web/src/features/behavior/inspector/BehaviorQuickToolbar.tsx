@@ -42,6 +42,12 @@ export interface BehaviorQuickToolbarProps {
     anchor?: BehaviorStudioAnchor | null,
   ) => void;
   onCreateBehaviorStudioAnchor: (element: HTMLElement | null) => BehaviorStudioAnchor | null;
+  /**
+   * Phase 10 — Test button opens the unified TestPanel pre-filled from the
+   * current authoring selection. Replaces the old `behaviorStudioMode === "test"`
+   * studio surface.
+   */
+  onOpenTestPanel?: () => void;
 }
 
 export function BehaviorQuickToolbar({
@@ -51,10 +57,8 @@ export function BehaviorQuickToolbar({
   stopPropagation,
   label,
   onOpenBehaviorStudioAddBehavior,
-  onSetBehaviorStudioMode,
-  onSetBehaviorFocusTarget,
-  onOpenBehaviorStudio,
   onCreateBehaviorStudioAnchor,
+  onOpenTestPanel,
 }: BehaviorQuickToolbarProps) {
   if (!activeDocument) {
     return null;
@@ -73,10 +77,11 @@ export function BehaviorQuickToolbar({
     }
     action(onCreateBehaviorStudioAnchor(event.currentTarget));
   };
-  const openRuntimeLab = (anchor: BehaviorStudioAnchor | null) => {
-    onSetBehaviorStudioMode("test");
-    onSetBehaviorFocusTarget(null);
-    onOpenBehaviorStudio("studio", "test", anchor);
+  const handleTestClick = (event: MouseEvent<HTMLButtonElement>) => {
+    if (stopPropagation) {
+      event.stopPropagation();
+    }
+    onOpenTestPanel?.();
   };
 
   return (
@@ -100,16 +105,18 @@ export function BehaviorQuickToolbar({
             <EventsIcon />
             <span className={tooltipClass}>Add behavior</span>
           </button>
-          <button
-            type="button"
-            title="Test selected behavior"
-            aria-label="Test selected behavior"
-            onClick={(event) => runToolbarAction(event, openRuntimeLab)}
-            className={toolButtonClass}
-          >
-            <PlayIcon />
-            <span className={tooltipClass}>Test</span>
-          </button>
+          {onOpenTestPanel ? (
+            <button
+              type="button"
+              title="Test selected behavior"
+              aria-label="Test selected behavior"
+              onClick={handleTestClick}
+              className={toolButtonClass}
+            >
+              <PlayIcon />
+              <span className={tooltipClass}>Test</span>
+            </button>
+          ) : null}
         </div>
       </div>
     </div>

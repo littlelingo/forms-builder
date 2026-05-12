@@ -6384,7 +6384,6 @@ export default function App() {
       behaviorStudioMode === "listener" ||
       behaviorStudioMode === "action" ||
       behaviorStudioMode === "graph" ||
-      (behaviorStudioMode === "test" && behaviorStudioView === "advanced" && behaviorStudioAnchor === null) ||
       (behaviorStudioMode === "manage" && behaviorStudioManagerMode === "index" && behaviorStudioAnchor === null)
     );
   }
@@ -6395,22 +6394,13 @@ export default function App() {
     }
     const usesWorkspaceShell = behaviorStudioUsesWorkspaceShell();
     const viewportGutter = window.innerWidth < 760 ? 16 : 32;
-    const width =
-      behaviorStudioMode === "graph"
-        ? 1120
-        : behaviorStudioMode === "test" && behaviorStudioView === "advanced" && behaviorStudioAnchor === null
-          ? 960
-          : usesWorkspaceShell
-            ? 1120
-            : 896;
+    const width = behaviorStudioMode === "graph" ? 1120 : usesWorkspaceShell ? 1120 : 896;
     const height =
       behaviorStudioMode === "graph"
         ? Math.min(window.innerHeight * 0.86, 760)
-        : behaviorStudioMode === "test" && behaviorStudioView === "advanced" && behaviorStudioAnchor === null
-          ? Math.min(window.innerHeight * 0.82, 672)
-          : usesWorkspaceShell
-            ? Math.min(window.innerHeight * 0.84, 736)
-            : Math.min(window.innerHeight * 0.78, 624);
+        : usesWorkspaceShell
+          ? Math.min(window.innerHeight * 0.84, 736)
+          : Math.min(window.innerHeight * 0.78, 624);
 
     return {
       width: Math.min(width, window.innerWidth - viewportGutter),
@@ -6518,13 +6508,6 @@ export default function App() {
     setBehaviorStudioCreating(false);
     setBehaviorFocusTarget(null);
     setBehaviorStudioMode("action");
-    setBehaviorStudioView("studio");
-  }
-
-  function openBehaviorStudioTestSection() {
-    setBehaviorStudioCreating(false);
-    setBehaviorFocusTarget(null);
-    setBehaviorStudioMode("test");
     setBehaviorStudioView("studio");
   }
 
@@ -8731,6 +8714,7 @@ export default function App() {
               onSetBehaviorFocusTarget={setBehaviorFocusTarget}
               onOpenBehaviorStudio={openBehaviorStudio}
               onCreateBehaviorStudioAnchor={createBehaviorStudioAnchor}
+              onOpenTestPanel={openTestPanelFromSelection}
             />
           ) : null
         }
@@ -10592,6 +10576,7 @@ export default function App() {
                         onSetBehaviorFocusTarget={setBehaviorFocusTarget}
                         onOpenBehaviorStudio={openBehaviorStudio}
                         onCreateBehaviorStudioAnchor={createBehaviorStudioAnchor}
+                        onOpenTestPanel={openTestPanelFromSelection}
                       />
                     )}
                     renderDispatchKeyBadge={renderDispatchKeyBadge}
@@ -10707,6 +10692,8 @@ export default function App() {
                         onRemoveRuntimeEventSourceForSelection={removeRuntimeEventSourceForSelection}
                         onHandleTestSelectedRule={handleTestSelectedRule}
                         onHandleTestSelectedChain={handleTestSelectedChain}
+                        onOpenTestPanelForListener={openTestPanelForListener}
+                        onOpenTestPanelFromSelection={openTestPanelFromSelection}
                         onExportDocumentBehaviors={handleExportDocumentBehaviors}
                         onExportListenerBehavior={handleExportListenerBehavior}
                         onRequestImportBehaviors={handleRequestImportBehaviors}
@@ -10720,43 +10707,6 @@ export default function App() {
                       renderBehaviorActionStudio()
                     ) : behaviorStudioMode === "create" ? (
                       renderBehaviorStudioSurface()
-                    ) : behaviorStudioMode === "test" ? (
-                      <EventFlowStudio
-                        eventFlowSourceId={eventFlowSourceId}
-                        eventFlowEventType={eventFlowEventType}
-                        activeRuntimeTarget={activeRuntimeTarget}
-                        activeRuntimeScope={activeRuntimeScope}
-                        activeDocument={activeDocument}
-                        runtimeEventSourceCandidates={runtimeEventSourceCandidates}
-                        runtimeEventSourceCandidateById={runtimeEventSourceCandidateById}
-                        runtimeNodeLabelById={runtimeNodeLabelById}
-                        selectedBehaviorNode={selectedBehaviorNode}
-                        lastDispatchReport={lastDispatchReport}
-                        logicMapData={logicMapData}
-                        eventFlowOptionsForSource={eventFlowOptionsForSource}
-                        eventFlowPayloadRawValue={eventFlowPayloadRawValue}
-                        defaultBehaviorTriggerName={defaultBehaviorTriggerName}
-                        onRunEventFlowDispatch={runEventFlowDispatch}
-                        onSaveEventFlowEvent={saveEventFlowEvent}
-                        onAddEventFlowPayloadCondition={addEventFlowPayloadCondition}
-                        onOpenBehaviorStudioListenerSection={openBehaviorStudioListenerSection}
-                        onOpenRuntimeEventEditorForSelection={openRuntimeEventEditorForSelection}
-                        onSetEventFlowSourceId={setEventFlowSourceId}
-                        onSetEventFlowEventType={setEventFlowEventType}
-                        onSetEventFlowPayloadValues={setEventFlowPayloadValues}
-                        onSetSelectedBehaviorNode={setSelectedBehaviorNode}
-                        onSetLastDispatchReport={setLastDispatchReport}
-                        onSetSelectedAuthoring={setSelectedAuthoring}
-                        onSetBehaviorStudioCreating={setBehaviorStudioCreating}
-                        onSetBehaviorStudioManagerMode={setBehaviorStudioManagerMode}
-                        onSetBehaviorStudioMode={setBehaviorStudioMode}
-                        onSetBehaviorEventType={setBehaviorEventType}
-                        onSetBehaviorEventBubbles={setBehaviorEventBubbles}
-                        onSetBehaviorEventDescription={setBehaviorEventDescription}
-                        onSetBehaviorEventPayloadFields={setBehaviorEventPayloadFields}
-                        onSetBehaviorEventMetadataExample={setBehaviorEventMetadataExample}
-                        onSetBehaviorCreationPath={setBehaviorCreationPath}
-                      />
                     ) : (
                       <BehaviorWorkspace
                         selectedAuthoring={selectedAuthoring}
@@ -10851,7 +10801,6 @@ export default function App() {
                   onOpenBehaviorStudioEventSection={openBehaviorStudioEventSection}
                   onOpenBehaviorStudioListenerSection={openBehaviorStudioListenerSection}
                   onOpenBehaviorStudioActionSection={openBehaviorStudioActionSection}
-                  onOpenBehaviorStudioTestSection={openBehaviorStudioTestSection}
                   onSetBehaviorStudioCreating={setBehaviorStudioCreating}
                   onSetBehaviorFocusTarget={setBehaviorFocusTarget}
                   onSetBehaviorStudioManagerMode={setBehaviorStudioManagerMode}
