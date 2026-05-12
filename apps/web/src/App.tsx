@@ -2864,6 +2864,21 @@ export default function App() {
     [runtimeListenerById, testPanel],
   );
 
+  /** Opens the unified TestPanel pre-filled for the given field (Phase 8 Task 8.3). */
+  const openTestPanelForField = useCallback(
+    (fieldId: string) => {
+      const candidate = runtimeEventSourceCandidateById.get(fieldId);
+      const firstEvent = candidate?.eventDefinitions[0];
+      testPanel.open({
+        sourceId: fieldId,
+        eventType: firstEvent ? runtimeEventDefinitionType(firstEvent) : "field.change",
+        payload: {},
+        payloadEdited: false,
+      });
+    },
+    [runtimeEventSourceCandidateById, testPanel],
+  );
+
   const deriveTestPanelSelectionFromSelection = useCallback(
     (): TestPanelSelection => deriveSelectionFromAuthoring(selectedAuthoring, selectedBehaviorListenerId),
     [deriveSelectionFromAuthoring, selectedAuthoring, selectedBehaviorListenerId],
@@ -10601,6 +10616,7 @@ export default function App() {
                     onAddGroupToSection={handleAddGroupToSection}
                     onAddField={handleAddField}
                     onOpenBehaviorTab={() => setInspectorTab("behavior")}
+                    onOpenTestPanelForField={openTestPanelForField}
                     getButtonBehaviorSummary={getButtonBehaviorSummary}
                     isViewerMode={isViewerMode}
                   />

@@ -111,6 +111,8 @@ export interface InspectorRailProps {
   onAddGroupToSection: (stepId: string, sectionId: string) => void;
   onAddField: (container: "section" | "group") => void;
   onOpenBehaviorTab: () => void;
+  /** Opens the unified TestPanel pre-filled for the given field (Phase 8 Task 8.3). */
+  onOpenTestPanelForField?: (fieldId: string) => void;
   getButtonBehaviorSummary: (field: AuthoringField) => { action: string; eventName: string | null };
   /** When true, mutation controls are gated (viewer role). */
   isViewerMode?: boolean;
@@ -145,6 +147,7 @@ export function InspectorRail({
   onAddGroupToSection,
   onAddField,
   onOpenBehaviorTab,
+  onOpenTestPanelForField,
   getButtonBehaviorSummary,
   isViewerMode = false,
 }: InspectorRailProps) {
@@ -274,6 +277,7 @@ export function InspectorRail({
                 onAddGroupToSection={onAddGroupToSection}
                 onAddField={onAddField}
                 onOpenBehaviorTab={onOpenBehaviorTab}
+                onOpenTestPanelForField={onOpenTestPanelForField}
                 getButtonBehaviorSummary={getButtonBehaviorSummary}
                 isViewerMode={isViewerMode}
               />
