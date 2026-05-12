@@ -2821,6 +2821,12 @@ export default function App() {
     return map;
   }, [activeDocument]);
   const testPanel = useTestPanelState(runtimeEngineRef.current);
+  // Auto-mirror authoring / listener selection into the panel while it's open in synth mode.
+  // The reducer keeps user-edited payloads intact, so this only refreshes source + event.
+  useEffect(() => {
+    if (!testPanel.state.open || testPanel.state.mode !== "synth") return;
+    testPanel.mirrorSelection(deriveSelectionFromAuthoring(selectedAuthoring, selectedBehaviorListenerId));
+  }, [selectedAuthoring, selectedBehaviorListenerId, testPanel.state.open, testPanel.state.mode]);
   const activeSelectionNodeId: string | null = useMemo(() => {
     if (!selectedAuthoring) return null;
     if (selectedAuthoring.kind === "field") return selectedAuthoring.fieldId;
