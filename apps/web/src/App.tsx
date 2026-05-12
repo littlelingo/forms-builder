@@ -2873,17 +2873,26 @@ export default function App() {
   );
 
   // Auto-mirror authoring / listener selection into the panel while it's open in synth mode.
-  // The reducer keeps user-edited payloads intact, so this only refreshes source + event.
+  // The reducer keeps user-edited payloads and user-picked sources intact, so this only
+  // refreshes source + event when the user hasn't taken manual control yet.
+  //
+  // Dependencies are pinned to primitives + the stable `mirrorSelection` callback so the
+  // effect only re-runs when something material changes — not on every parent render. The
+  // `testPanel` object identity changes each render (the hook returns a fresh wrapper), so
+  // depending on it would loop and clobber any in-flight user pick.
+  const testPanelOpen = testPanel.state.open;
+  const testPanelMode = testPanel.state.mode;
+  const testPanelMirrorSelection = testPanel.mirrorSelection;
   useEffect(() => {
-    if (!testPanel.state.open || testPanel.state.mode !== "synth") return;
-    testPanel.mirrorSelection(deriveSelectionFromAuthoring(selectedAuthoring, selectedBehaviorListenerId));
+    if (!testPanelOpen || testPanelMode !== "synth") return;
+    testPanelMirrorSelection(deriveSelectionFromAuthoring(selectedAuthoring, selectedBehaviorListenerId));
   }, [
     deriveSelectionFromAuthoring,
     selectedAuthoring,
     selectedBehaviorListenerId,
-    testPanel.state.open,
-    testPanel.state.mode,
-    testPanel,
+    testPanelOpen,
+    testPanelMode,
+    testPanelMirrorSelection,
   ]);
   // Global Cmd/Ctrl+K — open the unified TestPanel pre-filled from current selection.
   useEffect(() => {
@@ -11263,15 +11272,23 @@ export default function App() {
           const nextEventType = candidate?.eventDefinitions[0]
             ? runtimeEventDefinitionType(candidate.eventDefinitions[0])
             : null;
+          // Mark the selection as user-edited so the auto-mirror effect won't clobber it.
           testPanel.mirrorSelection({
             sourceId: id,
             eventType: nextEventType,
             payload: {},
             payloadEdited: testPanel.state.selection.payloadEdited,
+            sourceEditedByUser: true,
           });
         }}
         onSelectEvent={(type) =>
-          testPanel.mirrorSelection({ ...testPanel.state.selection, eventType: type })
+          // Treat an explicit event pick as a manual edit too — keeps source+event stable
+          // even if the user only changed the event type for the current source.
+          testPanel.mirrorSelection({
+            ...testPanel.state.selection,
+            eventType: type,
+            sourceEditedByUser: true,
+          })
         }
         onEditPayload={testPanel.editPayload}
         onResetPayload={testPanel.resetPayload}

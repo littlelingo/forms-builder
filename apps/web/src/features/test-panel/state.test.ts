@@ -12,6 +12,7 @@ function makeSelection(overrides: Partial<TestPanelSelection> = {}): TestPanelSe
     eventType: overrides.eventType ?? null,
     payload: overrides.payload ?? {},
     payloadEdited: overrides.payloadEdited ?? false,
+    sourceEditedByUser: overrides.sourceEditedByUser ?? false,
   };
 }
 
@@ -91,6 +92,68 @@ test("mirror-selection: preserves user-edited payload (sticky)", () => {
   // Edited payload should win, not fresh
   assert.deepEqual(mirrored.selection.payload, { foo: "manual" });
   assert.equal(mirrored.selection.payloadEdited, true);
+});
+
+test("mirror-selection: preserves user-picked source (sticky) — auto-mirror does not clobber", () => {
+  // User opens the panel pre-filled from authoring.
+  const opened = testPanelReducer(initialTestPanelState, {
+    type: "open",
+    selection: makeSelection({ sourceId: "src-auto-1", eventType: "field.change" }),
+  });
+  // User manually picks a different source via the panel UI (sourceEditedByUser=true).
+  const userPicked = testPanelReducer(opened, {
+    type: "mirror-selection",
+    selection: makeSelection({
+      sourceId: "src-user-pick",
+      eventType: "component.click",
+      sourceEditedByUser: true,
+    }),
+  });
+  assert.equal(userPicked.selection.sourceId, "src-user-pick");
+  assert.equal(userPicked.selection.eventType, "component.click");
+  assert.equal(userPicked.selection.sourceEditedByUser, true);
+
+  // Now an auto-mirror tick fires (authoring selection changed). It MUST NOT clobber the user pick.
+  const afterAutoMirror = testPanelReducer(userPicked, {
+    type: "mirror-selection",
+    selection: makeSelection({ sourceId: "src-auto-2", eventType: "field.change" }),
+  });
+  assert.equal(afterAutoMirror.selection.sourceId, "src-user-pick");
+  assert.equal(afterAutoMirror.selection.eventType, "component.click");
+  // Flag is still set for subsequent auto-mirror ticks.
+  assert.equal(afterAutoMirror.selection.sourceEditedByUser, true);
+});
+
+test("open: resets sourceEditedByUser flag for a fresh panel session", () => {
+  const userPicked = testPanelReducer(initialTestPanelState, {
+    type: "mirror-selection",
+    selection: makeSelection({ sourceId: "src-user", eventType: "component.click", sourceEditedByUser: true }),
+  });
+  assert.equal(userPicked.selection.sourceEditedByUser, true);
+  // Reopening the panel must clear the flag so auto-mirror can pre-fill again.
+  const reopened = testPanelReducer(userPicked, {
+    type: "open",
+    selection: makeSelection({ sourceId: "src-fresh", eventType: "field.change" }),
+  });
+  assert.equal(reopened.selection.sourceEditedByUser, false);
+  assert.equal(reopened.selection.sourceId, "src-fresh");
+  assert.equal(reopened.selection.eventType, "field.change");
+});
+
+test("mirror-selection: auto-mirror (no user pick) still updates source + event", () => {
+  // No user pick has happened yet — sourceEditedByUser is false.
+  const opened = testPanelReducer(initialTestPanelState, {
+    type: "open",
+    selection: makeSelection({ sourceId: "src-1", eventType: "field.change" }),
+  });
+  // Auto-mirror brings a new selection. It should be applied.
+  const mirrored = testPanelReducer(opened, {
+    type: "mirror-selection",
+    selection: makeSelection({ sourceId: "src-2", eventType: "component.click" }),
+  });
+  assert.equal(mirrored.selection.sourceId, "src-2");
+  assert.equal(mirrored.selection.eventType, "component.click");
+  assert.equal(mirrored.selection.sourceEditedByUser, false);
 });
 
 test("set-mode: updates mode without touching other state", () => {

@@ -20,7 +20,13 @@ export const initialTestPanelState: TestPanelState = {
   open: false,
   mode: "synth",
   dockSide: "right",
-  selection: { sourceId: null, eventType: null, payload: {}, payloadEdited: false },
+  selection: {
+    sourceId: null,
+    eventType: null,
+    payload: {},
+    payloadEdited: false,
+    sourceEditedByUser: false,
+  },
   lastReport: null,
   recordedReports: [],
 };
@@ -28,7 +34,21 @@ export const initialTestPanelState: TestPanelState = {
 export function testPanelReducer(state: TestPanelState, action: TestPanelAction): TestPanelState {
   switch (action.type) {
     case "open":
-      return { ...state, open: true, selection: action.selection };
+      // Fresh open clears the per-session "user picked source manually" flag so
+      // the auto-mirror effect can pre-fill source/event from the current
+      // authoring selection. The mirrored selection itself carries whatever the
+      // caller passed (typically payloadEdited=false, sourceEditedByUser=false).
+      return {
+        ...state,
+        open: true,
+        selection: {
+          sourceId: action.selection.sourceId,
+          eventType: action.selection.eventType,
+          payload: action.selection.payload,
+          payloadEdited: action.selection.payloadEdited,
+          sourceEditedByUser: action.selection.sourceEditedByUser ?? false,
+        },
+      };
     case "close":
       return { ...state, open: false };
     case "set-mode":
@@ -36,16 +56,25 @@ export function testPanelReducer(state: TestPanelState, action: TestPanelAction)
     case "set-dock":
       return { ...state, dockSide: action.side };
     case "mirror-selection": {
-      // If the user has edited the payload, keep their version; otherwise adopt the mirrored payload.
-      const payload = state.selection.payloadEdited ? state.selection.payload : action.selection.payload;
-      const payloadEdited = state.selection.payloadEdited;
+      // Two independent stickiness rules:
+      //  - If the user manually picked source/event inside the panel, keep theirs.
+      //  - If the user edited the payload, keep theirs.
+      // The action shape may carry an explicit sourceEditedByUser flag, in which
+      // case the caller is asserting a manual pick (or clearing it). When absent
+      // the action is treated as an auto-mirror from authoring.
+      const explicitSourceEditFlag = action.selection.sourceEditedByUser === true;
+      const keepSource = !explicitSourceEditFlag && (state.selection.sourceEditedByUser ?? false);
+      const keepPayload = state.selection.payloadEdited;
       return {
         ...state,
         selection: {
-          sourceId: action.selection.sourceId,
-          eventType: action.selection.eventType,
-          payload,
-          payloadEdited,
+          sourceId: keepSource ? state.selection.sourceId : action.selection.sourceId,
+          eventType: keepSource ? state.selection.eventType : action.selection.eventType,
+          payload: keepPayload ? state.selection.payload : action.selection.payload,
+          payloadEdited: state.selection.payloadEdited,
+          sourceEditedByUser: explicitSourceEditFlag
+            ? true
+            : (state.selection.sourceEditedByUser ?? false),
         },
       };
     }

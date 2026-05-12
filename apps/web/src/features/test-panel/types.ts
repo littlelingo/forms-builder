@@ -11,6 +11,12 @@ export interface TestPanelSelection {
   payload: Record<string, string>;
   /** True once the user manually edits payload — selection-mirror stops overwriting it. */
   payloadEdited: boolean;
+  /**
+   * True once the user manually picks source/event inside the panel —
+   * selection-mirror from authoring stops overwriting source + event.
+   * Reset on `open` (fresh panel session starts clean) and on `close`.
+   */
+  sourceEditedByUser?: boolean;
 }
 
 export interface TestPanelState {
