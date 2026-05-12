@@ -18,6 +18,8 @@ export interface BehaviorStackRowProps {
   onSaveToLibrary?: (listenerId: string) => void;
   /** Called when the user wants to export this listener as a portable JSON artefact. */
   onExport?: (listenerId: string) => void;
+  /** Opens the unified TestPanel pre-filled for this listener (Phase 8). */
+  onOpenTestPanel?: (listenerId: string) => void;
   /** Drag-handle props provided by the parent list. */
   dragHandleProps?: HTMLAttributes<HTMLSpanElement>;
   rowProps?: HTMLAttributes<HTMLDivElement>;
@@ -57,6 +59,7 @@ export function BehaviorStackRow({
   onToggleEnabled,
   onSaveToLibrary,
   onExport,
+  onOpenTestPanel,
   dragHandleProps,
   rowProps,
   rowStyle,
@@ -147,6 +150,21 @@ export function BehaviorStackRow({
           title={enabled ? "Pause this behavior" : "Resume this behavior"}
         >
           {enabled ? "pause" : "resume"}
+        </button>
+      ) : null}
+      {onOpenTestPanel ? (
+        <button
+          type="button"
+          className={iconButtonClass()}
+          style={{ height: "1.5rem", padding: "0 0.45rem", fontSize: "0.68rem" }}
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenTestPanel(listener.id);
+          }}
+          title="Open TestPanel for this behavior"
+          aria-label="Open TestPanel for this behavior"
+        >
+          Test
         </button>
       ) : null}
       {onExport ? (

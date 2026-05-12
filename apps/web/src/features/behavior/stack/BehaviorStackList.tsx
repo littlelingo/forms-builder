@@ -25,6 +25,8 @@ export interface BehaviorStackListProps {
   onSaveToLibrary?: (listenerId: string) => void;
   /** Called when the user wants to export a single listener as a JSON artefact. */
   onExportListener?: (listenerId: string) => void;
+  /** Opens the unified TestPanel pre-filled for the given listener (Phase 8). */
+  onOpenTestPanel?: (listenerId: string) => void;
   /** Listener id currently being edited inline; matching row renders the `composer` slot in place. */
   editingListenerId?: string | null;
   /** Composer node mounted in place of the editing row, or in place of the empty state when editingListenerId === "__new__". */
@@ -45,6 +47,7 @@ export function BehaviorStackList({
   onAddFromLibrary,
   onSaveToLibrary,
   onExportListener,
+  onOpenTestPanel,
   editingListenerId,
   composer,
   brokenRefsByListenerId,
@@ -152,6 +155,7 @@ export function BehaviorStackList({
                   onToggleEnabled={onToggleListenerEnabled}
                   onSaveToLibrary={onSaveToLibrary}
                   onExport={onExportListener}
+                  onOpenTestPanel={onOpenTestPanel}
                   brokenRefs={brokenRefsByListenerId?.[listener.id]}
                 />
               </div>

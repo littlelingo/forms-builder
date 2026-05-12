@@ -2849,6 +2849,21 @@ export default function App() {
     testPanel.open(deriveSelectionFromAuthoring(selectedAuthoring, selectedBehaviorListenerId));
   }, [testPanel, deriveSelectionFromAuthoring, selectedAuthoring, selectedBehaviorListenerId]);
 
+  /** Opens the unified TestPanel pre-filled for the given listener (Phase 8 Task 8.2). */
+  const openTestPanelForListener = useCallback(
+    (listenerId: string) => {
+      const listener = runtimeListenerById.get(listenerId);
+      if (!listener) return;
+      testPanel.open({
+        sourceId: listener.eventSourceNodeId ?? listener.dispatcherId ?? null,
+        eventType: getRuntimeListenerEventType(listener),
+        payload: {},
+        payloadEdited: false,
+      });
+    },
+    [runtimeListenerById, testPanel],
+  );
+
   const deriveTestPanelSelectionFromSelection = useCallback(
     (): TestPanelSelection => deriveSelectionFromAuthoring(selectedAuthoring, selectedBehaviorListenerId),
     [deriveSelectionFromAuthoring, selectedAuthoring, selectedBehaviorListenerId],
@@ -9882,6 +9897,7 @@ export default function App() {
         }
         onAddFromLibrary={isViewerMode ? undefined : () => setLibraryPickerOpen(true)}
         onExportListener={handleExportListenerBehavior}
+        onOpenTestPanel={openTestPanelForListener}
         onSaveToLibrary={(listenerId) => {
           setSavingFromExistingListenerId(listenerId);
           setSaveToLibraryName("");

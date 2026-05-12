@@ -22,6 +22,8 @@ export interface BehaviorInspectorPanelProps {
   onSaveToLibrary?: (listenerId: string) => void;
   /** Called when the user wants to export a single listener as a JSON artefact. */
   onExportListener?: (listenerId: string) => void;
+  /** Opens the unified TestPanel pre-filled for the given listener (Phase 8). */
+  onOpenTestPanel?: (listenerId: string) => void;
   externalReferenceCount: number;
   editingListenerId?: string | null;
   composer?: ReactNode;
@@ -49,6 +51,7 @@ export function BehaviorInspectorPanel({
   onAddFromLibrary,
   onSaveToLibrary,
   onExportListener,
+  onOpenTestPanel,
   externalReferenceCount,
   editingListenerId,
   composer,
@@ -77,6 +80,7 @@ export function BehaviorInspectorPanel({
         onAddFromLibrary={onAddFromLibrary}
         onSaveToLibrary={onSaveToLibrary}
         onExportListener={onExportListener}
+        onOpenTestPanel={onOpenTestPanel}
         editingListenerId={editingListenerId}
         composer={composer}
         brokenRefsByListenerId={brokenRefsByListenerId}
