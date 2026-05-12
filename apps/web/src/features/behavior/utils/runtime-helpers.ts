@@ -178,8 +178,6 @@ export type RuntimeReactionNavigationValue =
   | "go_to_step"
   | "submit_form";
 
-export type EventFlowPayloadValues = Record<string, string>;
-
 export interface RuntimeReactionTargetOption {
   candidate: RuntimeEventSourceCandidate;
   relationshipLabel: string;

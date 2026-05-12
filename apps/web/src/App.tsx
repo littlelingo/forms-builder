@@ -215,7 +215,6 @@ import type {
   DocumentBehaviorClusterFocus,
   DocumentBehaviorExpandedTarget,
   DocumentBehaviorSurfaceMode,
-  EventFlowPayloadValues,
   LegacyConditionalRule,
   LegacyRuleField,
   LegacyConditionalRuleGroup,
@@ -1921,10 +1920,6 @@ export default function App() {
   const [openedRevisionView, setOpenedRevisionView] = useState<OpenedRevisionView | null>(null);
   const [pendingWorkspaceTransition, setPendingWorkspaceTransition] = useState<WorkspaceTransitionRequest | null>(null);
   const [runtimePayloadEditors, setRuntimePayloadEditors] = useState<Record<string, RuntimePayloadEditorState>>({});
-  const [eventFlowSourceId, setEventFlowSourceId] = useState("");
-  const [eventFlowEventType, setEventFlowEventType] = useState("");
-  const [eventFlowPayloadValues, setEventFlowPayloadValues] = useState<EventFlowPayloadValues>({});
-  const [lastDispatchReport, setLastDispatchReport] = useState<RuntimeDispatchReport | null>(null);
   const [traceFromEventReport, setTraceFromEventReport] = useState<{
     eventType: string;
     sourceId: string;
@@ -2955,18 +2950,6 @@ export default function App() {
     beginBehaviorEventCreationPath(eventDefinition);
     setPendingBehaviorEventEditId(null);
   }, [activeRuntimeScope, pendingBehaviorEventEditId]);
-
-  useEffect(() => {
-    if (!activeRuntimeTarget) {
-      if (eventFlowSourceId) {
-        setEventFlowSourceId("");
-      }
-      return;
-    }
-    if (!eventFlowSourceId || !runtimeEventSourceCandidateById.has(eventFlowSourceId)) {
-      setEventFlowSourceId(activeRuntimeTarget.id);
-    }
-  }, [activeRuntimeTarget, eventFlowSourceId, runtimeEventSourceCandidateById]);
 
   useEffect(() => {
     setSelectedRuntimeEvidenceKey(null);
@@ -4571,7 +4554,6 @@ export default function App() {
     const nextState = runtimeEngineRef.current.invoke(action);
     runtimeSessionRef.current = nextState;
     setRuntimeSessionState(nextState);
-    setLastDispatchReport(null);
   }
 
   /**
@@ -4611,7 +4593,6 @@ export default function App() {
       runtimeSessionRef.current = nextState;
       setRuntimeSessionState(nextState);
     }
-    setLastDispatchReport(null);
   }
 
   function handleRuntimeFieldValueChange(field: AuthoringField, nextValue: unknown) {
@@ -6711,313 +6692,6 @@ export default function App() {
     setTraceFromEventReport(null);
   }
 
-  function eventFlowOptionsForSource(source: RuntimeEventSourceCandidate): RuntimeSourceEventOption[] {
-    const options = new Map<string, RuntimeSourceEventOption>();
-    source.events.forEach((eventOption) => {
-      options.set(eventOption.type, eventOption);
-    });
-    source.eventDefinitions.forEach((eventDefinition) => {
-      const eventType = runtimeEventDefinitionType(eventDefinition);
-      if (!eventType || options.has(eventType)) {
-        return;
-      }
-      options.set(eventType, {
-        type: eventType,
-        label: formatLabel(eventType),
-        bubbles: eventDefinition.bubbles ?? runtimeCoreEventType(eventType)?.bubbles ?? true,
-        description: eventDefinition.description ?? null,
-      });
-    });
-    return Array.from(options.values());
-  }
-
-  function defaultEventFlowPayloadValue(
-    field: RuntimePayloadField,
-    source: RuntimeEventSourceCandidate,
-    sourceField: AuthoringField | null,
-    eventType: string,
-    target: RuntimeEventSourceCandidate | null,
-  ): string {
-    const firstOptionValue = fieldFirstOptionValue(sourceField);
-    const authoredExampleValue = source.eventDefinitions.find(
-      (eventDefinition) => runtimeEventDefinitionType(eventDefinition) === eventType,
-    )?.payloadShape?.example?.[field.name];
-    if (authoredExampleValue !== undefined) {
-      return typeof authoredExampleValue === "string"
-        ? authoredExampleValue
-        : JSON.stringify(authoredExampleValue, null, 2);
-    }
-    switch (field.name) {
-      case "eventType":
-        return eventType;
-      case "fieldId":
-      case "componentId":
-      case "nodeId":
-      case "sourceNodeId":
-        return source.id;
-      case "targetNodeId":
-        return target?.id ?? source.id;
-      case "fieldKey":
-      case "componentKey":
-      case "nodeKey":
-      case "sourceNodeKey":
-        return source.dispatchKey ?? "";
-      case "targetNodeKey":
-        return target?.dispatchKey ?? "";
-      case "fieldLabel":
-      case "label":
-      case "sourceLabel":
-        return source.label;
-      case "nodeType":
-      case "sourceNodeType":
-      case "componentType":
-        return sourceField?.semanticType ?? source.nodeType;
-      case "targetNodeType":
-        return target?.nodeType ?? source.nodeType;
-      case "metadata":
-        return "{}";
-      case "selectedValue":
-      case "changedOption":
-      case "optionValue":
-      case "value":
-      case "nextValue":
-        return firstOptionValue || (field.valueType === "number" ? "0" : "Test value");
-      case "selectedValues":
-        return JSON.stringify(firstOptionValue ? [firstOptionValue] : []);
-      default:
-        if (field.valueType === "boolean") {
-          return "false";
-        }
-        if (field.valueType === "number") {
-          return "0";
-        }
-        if (field.valueType === "object") {
-          return "{}";
-        }
-        if (field.valueType === "array") {
-          return "[]";
-        }
-        return "";
-    }
-  }
-
-  function eventFlowPayloadRawValue(
-    field: RuntimePayloadField,
-    source: RuntimeEventSourceCandidate,
-    sourceField: AuthoringField | null,
-    eventType: string,
-    target: RuntimeEventSourceCandidate | null,
-  ): string {
-    return (
-      eventFlowPayloadValues[field.name] ?? defaultEventFlowPayloadValue(field, source, sourceField, eventType, target)
-    );
-  }
-
-  function coerceEventFlowPayloadValue(field: RuntimePayloadField, rawValue: string): unknown {
-    if (field.valueType === "boolean") {
-      return rawValue === "true";
-    }
-    if (field.valueType === "number") {
-      const nextValue = Number(rawValue);
-      if (Number.isNaN(nextValue)) {
-        throw new Error(`${field.label ?? field.name} must be a number.`);
-      }
-      return nextValue;
-    }
-    if (field.valueType === "object" || field.valueType === "array") {
-      try {
-        const parsed = JSON.parse(rawValue || (field.valueType === "array" ? "[]" : "{}"));
-        if (field.valueType === "array" && !Array.isArray(parsed)) {
-          throw new Error("Expected an array.");
-        }
-        if (field.valueType === "object" && (!isRecord(parsed) || Array.isArray(parsed))) {
-          throw new Error("Expected an object.");
-        }
-        return parsed;
-      } catch (error) {
-        throw new Error(
-          `${field.label ?? field.name} must be valid JSON${error instanceof Error ? `: ${error.message}` : "."}`,
-        );
-      }
-    }
-    return rawValue;
-  }
-
-  function buildEventFlowPayload(
-    source: RuntimeEventSourceCandidate,
-    eventType: string,
-    payloadFields: RuntimePayloadField[],
-  ): Record<string, unknown> {
-    const sourceField =
-      activeDocument && (source.nodeType === "field" || source.nodeType === "component")
-        ? findAuthoringFieldById(activeDocument, source.id)
-        : null;
-    const target = activeRuntimeTarget ?? source;
-    const payload = Object.fromEntries(
-      payloadFields.map((field) => [
-        field.name,
-        coerceEventFlowPayloadValue(field, eventFlowPayloadRawValue(field, source, sourceField, eventType, target)),
-      ]),
-    );
-    payload.eventType ??= eventType;
-    payload.sourceNodeId ??= source.id;
-    payload.sourceNodeKey ??= source.dispatchKey ?? null;
-    payload.sourceNodeType ??= source.nodeType;
-    payload.sourceLabel ??= source.label;
-    payload.targetNodeId ??= target.id;
-    payload.targetNodeKey ??= target.dispatchKey ?? null;
-    payload.targetNodeType ??= target.nodeType;
-    payload.metadata ??= "{}";
-    if (sourceField) {
-      const firstOptionValue = fieldFirstOptionValue(sourceField);
-      payload.fieldId ??= sourceField.id;
-      payload.fieldKey ??= sourceField.dispatchKey ?? null;
-      payload.componentType ??= sourceField.semanticType;
-      payload.value ??= firstOptionValue || "Test value";
-      payload.nextValue ??= payload.value;
-      if (sourceField.semanticType === "radio" || sourceField.semanticType === "select") {
-        payload.selectedValue ??= firstOptionValue;
-      }
-      if (sourceField.semanticType === "checkbox") {
-        payload.selectedValues ??= firstOptionValue ? [firstOptionValue] : [];
-      }
-      payload.changedOption ??= firstOptionValue || null;
-    }
-    return payload;
-  }
-
-  function buildEventFlowTestEvent(
-    source: RuntimeEventSourceCandidate,
-    eventType: string,
-    payloadFields: RuntimePayloadField[],
-  ): RuntimeEventEnvelope | null {
-    if (!activeDocument || !eventType) {
-      return null;
-    }
-    const eventOption = source.events.find((candidate) => candidate.type === eventType);
-    const target: NonNullable<RuntimeEventEnvelope["target"]> = {
-      runtimeId: "builder-simulator",
-      formId: activeDocument.id,
-      projectId: activeProjectDetail?.project.id ?? null,
-      nodeId: source.id,
-      nodeKey: source.dispatchKey ?? null,
-      nodeType: source.nodeType,
-    };
-    return {
-      type: eventType,
-      version: "1.0",
-      target,
-      source: target,
-      bubbles: eventOption?.bubbles ?? runtimeEventBubblesForSource(source, eventType),
-      payload: buildEventFlowPayload(source, eventType, payloadFields),
-      correlationId: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-    };
-  }
-
-  function runEventFlowDispatch(
-    source: RuntimeEventSourceCandidate,
-    eventType: string,
-    payloadFields: RuntimePayloadField[],
-  ) {
-    const event = buildEventFlowTestEvent(source, eventType, payloadFields);
-    if (!event) {
-      setMessage("Choose an event source and event type before firing the event.");
-      return;
-    }
-    try {
-      const report = runtimeEngineRef.current.dispatchWithReport(event);
-      runtimeSessionRef.current = report.stateAfter;
-      setRuntimeSessionState(report.stateAfter);
-      setLastDispatchReport(report);
-      setSelectedRuntimeEvidenceKey(null);
-      const matchedCount = report.listeners.filter((listener) => listener.matched).length;
-      setErrorMessage(null);
-      setMessage(
-        `${event.type} fired from ${source.label}; ${matchedCount} of ${report.listeners.length} listener${report.listeners.length === 1 ? "" : "s"} ran.`,
-      );
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Test dispatch failed.");
-    }
-  }
-
-  function saveEventFlowEvent(
-    source: RuntimeEventSourceCandidate,
-    eventType: string,
-    payloadFields: RuntimePayloadField[],
-  ): boolean {
-    const eventIssue = validateRuntimeIdentifier(eventType, "Event type", defaultBehaviorTriggerName());
-    const payloadIssue = payloadFields.find((field) => validateRuntimeIdentifier(field.name, "Payload field", "value"));
-    if (eventIssue) {
-      setErrorMessage(eventIssue);
-      return false;
-    }
-    if (payloadIssue) {
-      setErrorMessage(validateRuntimeIdentifier(payloadIssue.name, "Payload field", "value"));
-      return false;
-    }
-    const selection = authoringSelectionForRuntimeCandidate(source);
-    const scope: RuntimeEditorScope = {
-      scopeKind: source.nodeType === "component" ? "component" : source.nodeType,
-      label: source.label,
-      description: "",
-      eventSources: [],
-      listeners: [],
-    };
-    let status: "created" | "updated" | null = null;
-    updateAuthoringDocument((document) => {
-      const eventSources = mutableRuntimeEventSourcesForSelection(document, selection);
-      if (!eventSources) {
-        return;
-      }
-      status = upsertRuntimeEventSource(
-        eventSources,
-        createRuntimeEventSource(eventType, scope, source.id, {
-          bubbles: runtimeEventBubblesForSource(source, eventType),
-          payloadShape: createRuntimePayloadShapeFromFields(payloadFields),
-          description: runtimeCoreEventType(eventType)?.description ?? null,
-        }),
-      );
-    });
-    if (!status) {
-      setErrorMessage("Could not save the event on the selected source.");
-      return false;
-    }
-    setEventFlowSourceId(source.id);
-    setEventFlowEventType(eventType);
-    setErrorMessage(null);
-    setMessage(`${formatLabel(eventType)} event ${status} for ${source.label}.`);
-    return true;
-  }
-
-  function addEventFlowListenerReaction(
-    source: RuntimeEventSourceCandidate,
-    eventType: string,
-    payloadFields: RuntimePayloadField[],
-  ) {
-    if (!activeRuntimeTarget) {
-      setMessage("Select the item that should react before adding a listener.");
-      return;
-    }
-    if (!source.eventDefinitions.some((eventDefinition) => runtimeEventDefinitionType(eventDefinition) === eventType)) {
-      const saved = saveEventFlowEvent(source, eventType, payloadFields);
-      if (!saved) {
-        return;
-      }
-    }
-    createAuthoredEventBehaviorListener(source, eventType);
-  }
-
-  function addEventFlowPayloadCondition(listener: RuntimeListenerDefinition, payloadFieldName: string) {
-    updateRuntimeListener(listener.id, (current) => {
-      current.conditions.push(
-        createEventPayloadCondition(payloadFieldName, "exists", undefined, `${formatLabel(payloadFieldName)} exists`),
-      );
-    });
-    setSelectedBehaviorNode({ kind: "listener", listenerId: listener.id, phase: "trigger" });
-    setMessage(`${formatLabel(payloadFieldName)} payload check added.`);
-  }
-
   function beginBehaviorStudioCreation(anchor: BehaviorStudioAnchor | null = null) {
     setBehaviorStudioCreating(true);
     setBehaviorCreationPath("choice");
@@ -7038,10 +6712,6 @@ export default function App() {
   function openBehaviorStudioAddBehavior(anchor: BehaviorStudioAnchor | null = null) {
     setBehaviorStudioCreating(true);
     setBehaviorCreationPath("event");
-    setEventFlowSourceId(activeRuntimeTarget?.id ?? "");
-    setEventFlowEventType("");
-    setEventFlowPayloadValues({});
-    setLastDispatchReport(null);
     setSelectedBehaviorNode(null);
     setEditingRuleIndex(null);
     setBehaviorFocusTarget(null);
