@@ -78,9 +78,16 @@ export interface RuntimeActionDiagnostic {
   config: Record<string, unknown>;
   status: "executed" | "error" | "skipped";
   errorMessage?: string;
-  /** Value/property snapshot before action ran (when meaningful — e.g., field value, visibility flag, property value). */
+  /**
+   * Value/property snapshot before action ran (when meaningful — e.g., field value,
+   * visibility flag, property value, or for `submit_form` the submit-lifecycle
+   * status `"idle"` / `"submitting"` / `"success"` / `"error"`).
+   */
   before?: unknown;
-  /** Value/property snapshot after action ran. Mirrors `before`. */
+  /**
+   * Value/property snapshot after action ran. Mirrors `before` — for `submit_form`
+   * carries the post-action submit-lifecycle status, not a field-value snapshot.
+   */
   after?: unknown;
   /** Reason when status is `"skipped"`. */
   skippedReason?: "missing-target" | "no-op" | string;

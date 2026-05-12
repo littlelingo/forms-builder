@@ -3042,3 +3042,257 @@ test("action with deleted target reports status='skipped' and skippedReason='mis
   assert.equal(action.status, "skipped");
   assert.equal(action.skippedReason, "missing-target");
 });
+
+/**
+ * Phase 1 per-kind diagnostic coverage. Each row installs a single-action listener
+ * on `button-next`, dispatches a click, and asserts the resulting RuntimeActionDiagnostic
+ * carries the expected before/after snapshots (or skipped-reason for the no-op cases).
+ *
+ * Some kinds need extra setup (seed a value, pre-mark visible, move to last step) — the
+ * `seed` hook on each row runs before mounting and can mutate the document or arm an
+ * `afterMountSetState` function that runs once mount completes.
+ */
+type DiagnosticRow = {
+  name: string;
+  action: RuntimeActionDefinition;
+  /** Optional document mutation before mount (e.g., switch starting step). */
+  seedDocument?: (doc: AuthoringDocument) => void;
+  /** Optional engine setState call after mount (e.g., seed a field value). */
+  seedState?: (engine: ReturnType<typeof createRuntimeEngine>) => void;
+  expected: {
+    status: "executed" | "skipped";
+    skippedReason?: string;
+    before?: unknown;
+    after?: unknown;
+  };
+};
+
+function installSingleActionListener(document: AuthoringDocument, action: RuntimeActionDefinition): void {
+  const button = document.steps[0]?.sections[0]?.fields.find((entry) => entry.id === "button-next");
+  if (!button) {
+    throw new Error("createDocument() shape changed: expected button-next on step-1");
+  }
+  button.runtime = {
+    eventSources: [
+      {
+        id: "event-button-diag",
+        name: "component.click",
+        sourceNodeId: "button-next",
+        sourceNodeType: "component",
+      },
+    ],
+    listeners: [
+      {
+        id: "listener-diag",
+        label: "Diagnostic test listener",
+        eventName: "component.click",
+        sourceNodeId: "button-next",
+        enabled: true,
+        conditions: [],
+        actions: [action],
+      },
+    ],
+  };
+}
+
+const diagnosticRows: DiagnosticRow[] = [
+  {
+    name: "clear_field_value records before/after when target has a prior value",
+    action: {
+      id: "action-clear",
+      kind: "clear_field_value",
+      target: { nodeId: "field-name", nodeType: "field" },
+      config: { fieldId: "field-name" },
+      continueOnError: false,
+    },
+    seedState: (engine) => engine.setState({ values: { "field-name": "prior" } }),
+    expected: { status: "executed", before: "prior", after: undefined },
+  },
+  {
+    name: "show_node records before=false / after=true when target was hidden",
+    action: {
+      id: "action-show",
+      kind: "show_node",
+      target: { nodeId: "field-name", nodeType: "field" },
+      config: {},
+      continueOnError: false,
+    },
+    seedState: (engine) => {
+      const current = engine.getState();
+      const nodeState = current.nodes["field-name"];
+      if (!nodeState) {
+        throw new Error("expected field-name node state to exist after mount");
+      }
+      engine.setState({
+        nodes: { ...current.nodes, "field-name": { ...nodeState, visible: false } },
+      });
+    },
+    expected: { status: "executed", before: false, after: true },
+  },
+  {
+    name: "hide_node records before=true / after=false on a visible target",
+    action: {
+      id: "action-hide",
+      kind: "hide_node",
+      target: { nodeId: "field-name", nodeType: "field" },
+      config: {},
+      continueOnError: false,
+    },
+    expected: { status: "executed", before: true, after: false },
+  },
+  {
+    name: "enable_node records before=false / after=true when target was disabled",
+    action: {
+      id: "action-enable",
+      kind: "enable_node",
+      target: { nodeId: "field-name", nodeType: "field" },
+      config: {},
+      continueOnError: false,
+    },
+    seedState: (engine) => {
+      const current = engine.getState();
+      const nodeState = current.nodes["field-name"];
+      if (!nodeState) {
+        throw new Error("expected field-name node state to exist after mount");
+      }
+      engine.setState({
+        nodes: { ...current.nodes, "field-name": { ...nodeState, enabled: false } },
+      });
+    },
+    expected: { status: "executed", before: false, after: true },
+  },
+  {
+    name: "disable_node records before=true / after=false on an enabled target",
+    action: {
+      id: "action-disable",
+      kind: "disable_node",
+      target: { nodeId: "field-name", nodeType: "field" },
+      config: {},
+      continueOnError: false,
+    },
+    expected: { status: "executed", before: true, after: false },
+  },
+  {
+    name: "mark_required records before=true / after=true on a required target (no-state-change but flag still mirrored)",
+    action: {
+      id: "action-require-on-required",
+      kind: "mark_required",
+      target: { nodeId: "field-name", nodeType: "field" },
+      config: {},
+      continueOnError: false,
+    },
+    // field-name is required:true in createDocument(); mark_required on an already-required
+    // field is intentional — exercises the property-mirror branch even when state is unchanged.
+    expected: { status: "executed", before: true, after: true },
+  },
+  {
+    name: "mark_optional records before=true / after=false on a required target",
+    action: {
+      id: "action-optional",
+      kind: "mark_optional",
+      target: { nodeId: "field-name", nodeType: "field" },
+      config: {},
+      continueOnError: false,
+    },
+    expected: { status: "executed", before: true, after: false },
+  },
+  {
+    name: "go_to_step records before/after step ids on happy path",
+    action: {
+      id: "action-go-step",
+      kind: "go_to_step",
+      target: { nodeId: "step-2", nodeType: "step" },
+      config: { stepId: "step-2" },
+      continueOnError: false,
+    },
+    expected: { status: "executed", before: "step-1", after: "step-2" },
+  },
+  {
+    name: "go_to_next_step at last step records status='skipped' with reason 'no-op'",
+    action: {
+      id: "action-next-boundary",
+      kind: "go_to_next_step",
+      target: { nodeId: "button-next", nodeType: "component" },
+      config: {},
+      continueOnError: false,
+    },
+    // Push the session to step-2 (the last step in createDocument) before dispatch so
+    // the next-step lookup hits the boundary case.
+    seedState: (engine) => engine.setState({ currentStepId: "step-2" }),
+    expected: { status: "skipped", skippedReason: "no-op", before: "step-2", after: undefined },
+  },
+  {
+    name: "go_to_previous_step at first step records status='skipped' with reason 'no-op'",
+    action: {
+      id: "action-prev-boundary",
+      kind: "go_to_previous_step",
+      target: { nodeId: "button-next", nodeType: "component" },
+      config: {},
+      continueOnError: false,
+    },
+    // Default mount lands on step-1, so no seedState needed — first-step boundary is hit.
+    expected: { status: "skipped", skippedReason: "no-op", before: "step-1", after: undefined },
+  },
+];
+
+for (const row of diagnosticRows) {
+  test(`action diagnostic: ${row.name}`, () => {
+    const document = createDocument();
+    if (row.seedDocument) {
+      row.seedDocument(document);
+    }
+    installSingleActionListener(document, row.action);
+
+    const engine = createRuntimeEngine();
+    engine.mount(document, {
+      runtimeId: "runtime-test",
+      projectId: "project-test",
+      hostContext: createHostContext(),
+      emitLoadEvent: false,
+    });
+
+    if (row.seedState) {
+      row.seedState(engine);
+    }
+
+    const report = engine.dispatchWithReport(clickEvent("button-next"));
+    const listener = report.listeners.find((entry) => entry.listenerId === "listener-diag");
+    assert.ok(listener, `expected listener-diag in report (row: ${row.name})`);
+    const action = listener.actions[0];
+    assert.ok(action, `expected one action diagnostic (row: ${row.name})`);
+    assert.equal(action.status, row.expected.status, `status mismatch (row: ${row.name})`);
+    if (row.expected.skippedReason !== undefined) {
+      assert.equal(action.skippedReason, row.expected.skippedReason, `skippedReason mismatch (row: ${row.name})`);
+    }
+    if (row.expected.before !== undefined) {
+      assert.deepEqual(action.before, row.expected.before, `before mismatch (row: ${row.name})`);
+    }
+    // `after === undefined` is meaningful (signals "skipped, nothing happened"), so always assert it.
+    assert.deepEqual(action.after, row.expected.after, `after mismatch (row: ${row.name})`);
+  });
+}
+
+test("submit_form action diagnostic records before/after submit-lifecycle status", () => {
+  // Drive the form to step-2 with a valid field value, then click button-submit which fires
+  // submit_form. The diagnostic should record before='idle' and after='submitting'.
+  const document = createDocument();
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+  engine.dispatch(fieldChangeEvent("field-name", "Jane Doe"));
+  engine.dispatch(clickEvent("button-next"));
+
+  const report = engine.dispatchWithReport(clickEvent("button-submit"));
+  const listener = report.listeners.find((entry) => entry.listenerId === "listener-button-submit");
+  assert.ok(listener, "expected listener-button-submit to fire on click");
+  const action = listener.actions[0];
+  assert.ok(action, "expected one action diagnostic for submit_form");
+  assert.equal(action.kind, "submit_form");
+  assert.equal(action.status, "executed");
+  assert.equal(action.before, "idle");
+  assert.equal(action.after, "submitting");
+});

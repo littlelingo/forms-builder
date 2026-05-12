@@ -87,6 +87,17 @@ class HaltChainError extends Error {
   }
 }
 
+/**
+ * Phase 1 helper: mark an action diagnostic as skipped with a reason.
+ * Centralises the missing-target / no-op patterns so each action kind
+ * only needs a single call instead of three lines of inline state.
+ */
+function markSkipped(d: RuntimeActionDiagnostic | undefined, reason: "missing-target" | "no-op" | string): void {
+  if (!d) return;
+  d.status = "skipped";
+  d.skippedReason = reason;
+}
+
 export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): RuntimeEngine {
   const libraryRegistry: BehaviorLibraryRegistry | undefined = options?.libraryRegistry;
   const telemetrySink: TelemetrySink | undefined = options?.telemetrySink;
@@ -545,9 +556,11 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
           const currentIndex = state.currentStepId ? index.stepOrder.indexOf(state.currentStepId) : -1;
           const nextStepId = index.stepOrder[currentIndex + 1];
           if (diagnostic) diagnostic.before = state.currentStepId ?? null;
-          if (nextStepId) {
-            transitionToStep(nextStepId, "go_to_next_step", event, report);
+          if (!nextStepId) {
+            markSkipped(diagnostic, "no-op");
+            break;
           }
+          transitionToStep(nextStepId, "go_to_next_step", event, report);
           if (diagnostic) diagnostic.after = state.currentStepId ?? null;
           break;
         }
@@ -555,9 +568,11 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
           const currentIndex = state.currentStepId ? index.stepOrder.indexOf(state.currentStepId) : -1;
           const previousStepId = currentIndex > 0 ? index.stepOrder[currentIndex - 1] : null;
           if (diagnostic) diagnostic.before = state.currentStepId ?? null;
-          if (previousStepId) {
-            transitionToStep(previousStepId, "go_to_previous_step", event, report);
+          if (!previousStepId) {
+            markSkipped(diagnostic, "no-op");
+            break;
           }
+          transitionToStep(previousStepId, "go_to_previous_step", event, report);
           if (diagnostic) diagnostic.after = state.currentStepId ?? null;
           break;
         }
@@ -570,11 +585,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
                 : null;
           if (diagnostic) diagnostic.before = state.currentStepId ?? null;
           if (!targetStepId || !index.stepOrder.includes(targetStepId)) {
-            if (diagnostic) {
-              diagnostic.status = "skipped";
-              diagnostic.skippedReason = "missing-target";
-              diagnostic.after = state.currentStepId ?? null;
-            }
+            markSkipped(diagnostic, "missing-target");
             break;
           }
           transitionToStep(targetStepId, "go_to_step", event, report);
@@ -589,10 +600,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
                 ? action.target.nodeId
                 : null;
           if (!targetFieldId || !index.nodes.has(targetFieldId)) {
-            if (diagnostic) {
-              diagnostic.status = "skipped";
-              diagnostic.skippedReason = "missing-target";
-            }
+            markSkipped(diagnostic, "missing-target");
             break;
           }
           if (diagnostic) diagnostic.before = structuredClone(state.values[targetFieldId]);
@@ -622,10 +630,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
                 ? action.target.nodeId
                 : null;
           if (!targetFieldId || !index.nodes.has(targetFieldId)) {
-            if (diagnostic) {
-              diagnostic.status = "skipped";
-              diagnostic.skippedReason = "missing-target";
-            }
+            markSkipped(diagnostic, "missing-target");
             break;
           }
           if (diagnostic) diagnostic.before = structuredClone(state.values[targetFieldId]);
@@ -648,10 +653,7 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
                 ? action.config.nodeId
                 : null;
           if (!targetNodeId || !state.nodes[targetNodeId]) {
-            if (diagnostic) {
-              diagnostic.status = "skipped";
-              diagnostic.skippedReason = "missing-target";
-            }
+            markSkipped(diagnostic, "missing-target");
             break;
           }
           const currentNodeState = state.nodes[targetNodeId];
