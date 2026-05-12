@@ -27,6 +27,8 @@ export interface PropertiesTabProps {
   onAddField: (container: "section" | "group") => void;
   onOpenBehaviorTab: () => void;
   getButtonBehaviorSummary: (field: AuthoringField) => { action: string; eventName: string | null };
+  /** When true, all form controls are disabled (viewer role, #2). */
+  isViewerMode?: boolean;
 }
 
 export function PropertiesTab({
@@ -45,9 +47,13 @@ export function PropertiesTab({
   onAddField,
   onOpenBehaviorTab,
   getButtonBehaviorSummary,
+  isViewerMode = false,
 }: PropertiesTabProps) {
   return (
-    <div className="space-y-4">
+    <fieldset
+      disabled={isViewerMode}
+      className="space-y-4 border-0 p-0 m-0 disabled:opacity-70 disabled:cursor-not-allowed"
+    >
       {selectedAuthoring?.kind === "step" && activeStep ? (
         <div className="rounded-[1.15rem] border border-soft bg-white p-4">
           <div className="mb-3 flex items-center justify-between gap-3">
@@ -357,6 +363,6 @@ export function PropertiesTab({
           ) : null}
         </div>
       ) : null}
-    </div>
+    </fieldset>
   );
 }

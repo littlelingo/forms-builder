@@ -16,6 +16,8 @@ export interface BehaviorStackRowProps {
   onToggleEnabled?: (listenerId: string, enabled: boolean) => void;
   /** Called when the user wants to save a non-library-linked listener to the library. */
   onSaveToLibrary?: (listenerId: string) => void;
+  /** Called when the user wants to export this listener as a portable JSON artefact. */
+  onExport?: (listenerId: string) => void;
   /** Drag-handle props provided by the parent list. */
   dragHandleProps?: HTMLAttributes<HTMLSpanElement>;
   rowProps?: HTMLAttributes<HTMLDivElement>;
@@ -54,6 +56,7 @@ export function BehaviorStackRow({
   onEdit,
   onToggleEnabled,
   onSaveToLibrary,
+  onExport,
   dragHandleProps,
   rowProps,
   rowStyle,
@@ -144,6 +147,21 @@ export function BehaviorStackRow({
           title={enabled ? "Pause this behavior" : "Resume this behavior"}
         >
           {enabled ? "pause" : "resume"}
+        </button>
+      ) : null}
+      {onExport ? (
+        <button
+          type="button"
+          className={iconButtonClass()}
+          style={{ height: "1.5rem", width: "1.5rem" }}
+          onClick={(event) => {
+            event.stopPropagation();
+            onExport(listener.id);
+          }}
+          title="Export this behavior"
+          aria-label="Export behavior"
+        >
+          ↓
         </button>
       ) : null}
       <button

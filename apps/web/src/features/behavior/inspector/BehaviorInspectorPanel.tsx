@@ -13,13 +13,15 @@ export interface BehaviorInspectorPanelProps {
   selectedListenerId: string | null;
   onSelectListener: (listenerId: string) => void;
   onEditListener: (listenerId: string) => void;
-  onToggleListenerEnabled: (listenerId: string, enabled: boolean) => void;
+  onToggleListenerEnabled?: (listenerId: string, enabled: boolean) => void;
   onReorderListener: (listenerId: string, fromIndex: number, toIndex: number) => void;
-  onAddBehavior: () => void;
+  onAddBehavior?: () => void;
   /** Opens the library picker to add a behavior from the library. */
   onAddFromLibrary?: () => void;
   /** Called when the user wants to save a listener to the library. */
   onSaveToLibrary?: (listenerId: string) => void;
+  /** Called when the user wants to export a single listener as a JSON artefact. */
+  onExportListener?: (listenerId: string) => void;
   externalReferenceCount: number;
   editingListenerId?: string | null;
   composer?: ReactNode;
@@ -46,6 +48,7 @@ export function BehaviorInspectorPanel({
   onAddBehavior,
   onAddFromLibrary,
   onSaveToLibrary,
+  onExportListener,
   externalReferenceCount,
   editingListenerId,
   composer,
@@ -73,6 +76,7 @@ export function BehaviorInspectorPanel({
         onAddBehavior={onAddBehavior}
         onAddFromLibrary={onAddFromLibrary}
         onSaveToLibrary={onSaveToLibrary}
+        onExportListener={onExportListener}
         editingListenerId={editingListenerId}
         composer={composer}
         brokenRefsByListenerId={brokenRefsByListenerId}

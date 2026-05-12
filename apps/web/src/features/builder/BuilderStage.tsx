@@ -33,11 +33,15 @@ export function BuilderStage({ stepStrip, previewCanvas, inspector, expandedRail
   const isXl = useIsXlOrLarger();
   const expandedStyle =
     expandedRailWidth != null && isXl
-      ? { gridTemplateColumns: `12.5rem minmax(0, 1fr) ${expandedRailWidth}px` }
+      ? { gridTemplateColumns: `12.5rem minmax(0, 1fr) min(${expandedRailWidth}px, calc(100vw - 42rem))` }
       : undefined;
   return (
     <section
-      className={expandedStyle != null ? "grid gap-5" : "grid gap-5 xl:grid-cols-[12.5rem_minmax(0,1fr)_24rem]"}
+      className={
+        expandedStyle != null
+          ? "grid items-start gap-5"
+          : "grid items-start gap-5 xl:grid-cols-[12.5rem_minmax(0,1fr)_24rem]"
+      }
       style={expandedStyle}
     >
       {stepStrip}

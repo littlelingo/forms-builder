@@ -47,6 +47,8 @@ export interface StepStripProps {
   onDragHandlePointerUp: (event: PointerEvent<HTMLButtonElement>) => void;
   onDragHandlePointerCancel: (event: PointerEvent<HTMLButtonElement>) => void;
   onDragHandleSelect: (payload: DragPayload) => void;
+  /** When true, the Add-step affordance is hidden (viewer role). */
+  isViewerMode?: boolean;
 }
 
 export function StepStrip({
@@ -64,27 +66,30 @@ export function StepStrip({
   onDragHandlePointerUp,
   onDragHandlePointerCancel,
   onDragHandleSelect,
+  isViewerMode = false,
 }: StepStripProps) {
   return (
     <PanelCard
       title="Steps"
       eyebrow="Page strip"
       aside={
-        <div className="flex gap-2">
-          <button
-            type="button"
-            title="Add step"
-            aria-label="Add step"
-            onClick={onAddStep}
-            className={iconButtonClass()}
-          >
-            <PlusIcon />
-          </button>
-        </div>
+        isViewerMode ? null : (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              title="Add step"
+              aria-label="Add step"
+              onClick={onAddStep}
+              className={iconButtonClass()}
+            >
+              <PlusIcon />
+            </button>
+          </div>
+        )
       }
-      className="min-h-[52rem] min-w-0 overflow-hidden"
+      className="min-w-0"
     >
-      <div className="space-y-2 overflow-y-auto pr-1">
+      <div className="space-y-2 pr-1">
         {activeDocument?.steps.map((step, stepIndex) => (
           <div key={step.id} className="space-y-2">
             <DropMarker

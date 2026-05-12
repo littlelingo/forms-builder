@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import type {
   AuthoringDocument,
@@ -13,6 +13,20 @@ import type { AuthoringSelection } from "../../lib/authoring-utils";
 import { actionButtonClass, iconButtonClass } from "../builder/utils/builder-utils";
 import { PropertiesTab } from "./PropertiesTab";
 import { ValidationTab } from "./ValidationTab";
+
+function useIsXlOrLarger(): boolean {
+  const [matches, setMatches] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(min-width: 1280px)").matches : true,
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const query = window.matchMedia("(min-width: 1280px)");
+    const handler = (event: MediaQueryListEvent) => setMatches(event.matches);
+    query.addEventListener("change", handler);
+    return () => query.removeEventListener("change", handler);
+  }, []);
+  return matches;
+}
 
 export type InspectorTab = "properties" | "validation" | "behavior" | "map";
 
@@ -98,6 +112,8 @@ export interface InspectorRailProps {
   onAddField: (container: "section" | "group") => void;
   onOpenBehaviorTab: () => void;
   getButtonBehaviorSummary: (field: AuthoringField) => { action: string; eventName: string | null };
+  /** When true, mutation controls are gated (viewer role). */
+  isViewerMode?: boolean;
 }
 
 export function InspectorRail({
@@ -130,11 +146,13 @@ export function InspectorRail({
   onAddField,
   onOpenBehaviorTab,
   getButtonBehaviorSummary,
+  isViewerMode = false,
 }: InspectorRailProps) {
+  const isXl = useIsXlOrLarger();
   return (
     <div
       className="transition-[width] duration-200 ease-out"
-      style={expandedWidth != null ? { width: `${expandedWidth}px` } : undefined}
+      style={expandedWidth != null && isXl ? { width: `${expandedWidth}px` } : undefined}
     >
       <PanelCard
         title="Inspector"
@@ -182,7 +200,7 @@ export function InspectorRail({
             </button>
           </div>
         }
-        className="min-h-[52rem] min-w-0 overflow-hidden"
+        className="min-w-0"
       >
         {activeDocument ? (
           <div className="space-y-4">
@@ -257,6 +275,7 @@ export function InspectorRail({
                 onAddField={onAddField}
                 onOpenBehaviorTab={onOpenBehaviorTab}
                 getButtonBehaviorSummary={getButtonBehaviorSummary}
+                isViewerMode={isViewerMode}
               />
             ) : activeTab === "validation" ? (
               <ValidationTab

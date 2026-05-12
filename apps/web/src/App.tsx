@@ -87,6 +87,14 @@ import { DragHandle, DropMarker, EmptyDropZone } from "./features/builder/dnd/dr
 import { dropTargetKey, isCompatibleDropTarget, summarizeAuthoringStep } from "./features/builder/utils/builder-utils";
 import { actionButtonClass, formatLabel, iconButtonClass } from "./lib/ui-utils";
 import { ConfirmDialog, type ConfirmDialogState } from "./lib/ConfirmDialog";
+import {
+  applyEnvelopeToDocument,
+  buildDocumentExportEnvelope,
+  buildListenerExportEnvelope,
+  downloadEnvelope,
+  validateExportEnvelope,
+} from "./lib/behavior-export";
+import { useIsViewerMode } from "./lib/viewer-mode";
 import { HomeStage, badgeToneFromProjectStatus } from "./features/project";
 import { ReviewStage } from "./features/review/ReviewStage";
 import { badgeToneFromReview, badgeToneFromStatus, overlayRects } from "./features/review/utils/review-utils";
@@ -1781,6 +1789,7 @@ function PreFlightDeleteModal({
 export default function App() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const jsonInputRef = useRef<HTMLInputElement | null>(null);
+  const behaviorImportInputRef = useRef<HTMLInputElement | null>(null);
   const runtimeSessionInputRef = useRef<HTMLInputElement | null>(null);
   const libraryRegistryRef = useRef<BehaviorLibraryRegistry>(buildLibraryRegistry(SYSTEM_LIBRARY, []));
   const runtimeEngineRef = useRef(
@@ -1824,6 +1833,7 @@ export default function App() {
   const [reviewFlowMode, setReviewFlowMode] = useState<ReviewFlowMode>("new_project");
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("properties");
   const [sourceDrawerOpen, setSourceDrawerOpen] = useState(false);
+  const isViewerMode = useIsViewerMode();
   const [conversions, setConversions] = useState<ConversionRecord[]>([]);
   const [projects, setProjects] = useState<AuthoringProjectRecord[]>([]);
   const [activeConversionId, setActiveConversionId] = useState<string | null>(null);
@@ -6703,6 +6713,84 @@ export default function App() {
     handleRunGuidedListenerTest(listener);
   }
 
+  function handleExportDocumentBehaviors() {
+    if (!activeDocument) {
+      setMessage("Open a project before exporting behaviors.");
+      return;
+    }
+    const envelope = buildDocumentExportEnvelope(
+      activeDocument,
+      activeProjectDetail?.project ?? null,
+    );
+    if (envelope.entries.length === 0) {
+      setMessage("Nothing to export — this document has no authored behaviors yet.");
+      return;
+    }
+    downloadEnvelope(envelope, "document");
+    setMessage(`Exported ${envelope.entries.length} behavior${envelope.entries.length === 1 ? "" : "s"}.`);
+  }
+
+  function handleExportListenerBehavior(listenerId: string) {
+    if (!activeDocument) return;
+    const envelope = buildListenerExportEnvelope(
+      activeDocument,
+      activeProjectDetail?.project ?? null,
+      listenerId,
+    );
+    if (!envelope) {
+      setErrorMessage(`Could not find listener ${listenerId} to export.`);
+      return;
+    }
+    downloadEnvelope(envelope, "listener");
+    setMessage("Exported behavior.");
+  }
+
+  function handleRequestImportBehaviors() {
+    if (!activeDocument) {
+      setMessage("Open a project before importing behaviors.");
+      return;
+    }
+    behaviorImportInputRef.current?.click();
+  }
+
+  async function onBehaviorImportFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!activeDocument) {
+      setErrorMessage("Open a project before importing behaviors.");
+      return;
+    }
+    let payload: unknown;
+    try {
+      const text = await file.text();
+      payload = JSON.parse(text);
+    } catch (error) {
+      setErrorMessage(`Could not parse JSON: ${error instanceof Error ? error.message : "unknown error"}`);
+      return;
+    }
+    const validation = validateExportEnvelope(payload);
+    if (!validation.ok || !validation.envelope) {
+      setErrorMessage(`Invalid behavior export: ${validation.error ?? "unknown reason"}`);
+      return;
+    }
+    let result = { imported: 0, skipped: 0, reasons: [] as string[] };
+    updateAuthoringDocument((document) => {
+      result = applyEnvelopeToDocument(document, validation.envelope!);
+    });
+    if (result.imported === 0 && result.skipped > 0) {
+      setErrorMessage(
+        `No behaviors imported. ${result.skipped} entries skipped because their owner nodes are not in this document.`,
+      );
+      return;
+    }
+    setMessage(
+      result.skipped > 0
+        ? `Imported ${result.imported} behaviors (skipped ${result.skipped} with missing owners).`
+        : `Imported ${result.imported} behaviors.`,
+    );
+  }
+
   /**
    * Phase 2C-2: trace-from-event sim. Spins up an ephemeral engine seeded
    * with the live document + current session, dispatches the chosen event
@@ -9691,17 +9779,22 @@ export default function App() {
           setEditingListenerId(listenerId);
           setBehaviorStudioOpen(false);
         }}
-        onToggleListenerEnabled={onToggleListenerEnabled}
+        onToggleListenerEnabled={isViewerMode ? undefined : onToggleListenerEnabled}
         onReorderListener={onReorderListener}
-        onAddBehavior={() => {
-          const newListener = createRuntimeListener(defaultBehaviorTriggerName(), []);
-          addRuntimeListener(newListener);
-          justCreatedListenerIdsRef.current.add(newListener.id);
-          setEditingListenerId(newListener.id);
-          setSelectedBehaviorListenerId(newListener.id);
-          setBehaviorStudioOpen(false);
-        }}
-        onAddFromLibrary={() => setLibraryPickerOpen(true)}
+        onAddBehavior={
+          isViewerMode
+            ? undefined
+            : () => {
+                const newListener = createRuntimeListener(defaultBehaviorTriggerName(), []);
+                addRuntimeListener(newListener);
+                justCreatedListenerIdsRef.current.add(newListener.id);
+                setEditingListenerId(newListener.id);
+                setSelectedBehaviorListenerId(newListener.id);
+                setBehaviorStudioOpen(false);
+              }
+        }
+        onAddFromLibrary={isViewerMode ? undefined : () => setLibraryPickerOpen(true)}
+        onExportListener={handleExportListenerBehavior}
         onSaveToLibrary={(listenerId) => {
           setSavingFromExistingListenerId(listenerId);
           setSaveToLibraryName("");
@@ -10073,32 +10166,53 @@ export default function App() {
                 >
                   Library
                 </button>
-                <button
-                  type="button"
-                  onClick={() => void handleSaveProject()}
-                  disabled={!activeProjectDetail || isSavingProject}
-                  className={actionButtonClass()}
-                >
-                  {isSavingProject ? "Saving..." : projectDirty ? "Save" : "Saved"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleTogglePublishProject()}
-                  disabled={!activeProjectDetail || isPublishingProject}
-                  className={actionButtonClass("primary")}
-                >
-                  {isPublishingProject
-                    ? "Updating status..."
-                    : activeProjectDetail?.project.status === "published"
-                      ? "Mark draft"
-                      : "Publish"}
-                </button>
+                {isViewerMode ? null : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveProject()}
+                      disabled={!activeProjectDetail || isSavingProject}
+                      className={actionButtonClass()}
+                    >
+                      {isSavingProject ? "Saving..." : projectDirty ? "Save" : "Saved"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleTogglePublishProject()}
+                      disabled={!activeProjectDetail || isPublishingProject}
+                      className={actionButtonClass("primary")}
+                    >
+                      {isPublishingProject
+                        ? "Updating status..."
+                        : activeProjectDetail?.project.status === "published"
+                          ? "Mark draft"
+                          : "Publish"}
+                    </button>
+                  </>
+                )}
               </>
             ) : null}
           </div>
           <input ref={inputRef} hidden type="file" accept="application/pdf,.pdf" onChange={onFileChange} />
           <input ref={jsonInputRef} hidden type="file" accept="application/json,.json" onChange={onJsonFileChange} />
+          <input
+            ref={behaviorImportInputRef}
+            hidden
+            type="file"
+            accept="application/json,.json"
+            onChange={onBehaviorImportFileChange}
+          />
         </header>
+
+        {isViewerMode ? (
+          <div
+            role="status"
+            className="rounded-[1.2rem] border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900"
+          >
+            <strong className="font-semibold">Viewer mode</strong> · this URL hides save, publish, and behavior
+            mutation controls. Remove <code>?role=viewer</code> from the address to edit.
+          </div>
+        ) : null}
 
         {(flashMessage || errorMessage) && (
           <div className="grid gap-3 md:grid-cols-2">
@@ -10267,6 +10381,7 @@ export default function App() {
                     onDragHandlePointerUp={handleSelectionPointerUp}
                     onDragHandlePointerCancel={handleSelectionPointerCancel}
                     onDragHandleSelect={setSelectedAuthoring}
+                    isViewerMode={isViewerMode}
                   />
                 }
                 previewCanvas={
@@ -10348,6 +10463,7 @@ export default function App() {
                     )}
                     renderDispatchKeyBadge={renderDispatchKeyBadge}
                     renderBuilderFieldCard={renderBuilderFieldCard}
+                    isViewerMode={isViewerMode}
                   />
                 }
                 inspector={
@@ -10381,6 +10497,7 @@ export default function App() {
                     onAddField={handleAddField}
                     onOpenBehaviorTab={() => setInspectorTab("behavior")}
                     getButtonBehaviorSummary={getButtonBehaviorSummary}
+                    isViewerMode={isViewerMode}
                   />
                 }
               />
@@ -10456,6 +10573,10 @@ export default function App() {
                         onRemoveRuntimeEventSourceForSelection={removeRuntimeEventSourceForSelection}
                         onHandleTestSelectedRule={handleTestSelectedRule}
                         onHandleTestSelectedChain={handleTestSelectedChain}
+                        onExportDocumentBehaviors={handleExportDocumentBehaviors}
+                        onExportListenerBehavior={handleExportListenerBehavior}
+                        onRequestImportBehaviors={handleRequestImportBehaviors}
+                        isViewerMode={isViewerMode}
                       />
                     ) : behaviorStudioMode === "event" ? (
                       renderBehaviorEventAuthoringStudio()
@@ -11362,26 +11483,30 @@ export default function App() {
                 >
                   Revision history
                 </button>
-                <button
-                  type="button"
-                  onClick={() => void handleSaveProject()}
-                  disabled={!activeProjectDetail || isSavingProject}
-                  className={actionButtonClass()}
-                >
-                  {isSavingProject ? "Saving..." : projectDirty ? "Save JSON" : "JSON saved"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleTogglePublishProject()}
-                  disabled={!activeProjectDetail || isPublishingProject}
-                  className={actionButtonClass("primary")}
-                >
-                  {isPublishingProject
-                    ? "Updating status..."
-                    : activeProjectDetail.project.status === "published"
-                      ? "Mark draft"
-                      : "Publish"}
-                </button>
+                {isViewerMode ? null : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveProject()}
+                      disabled={!activeProjectDetail || isSavingProject}
+                      className={actionButtonClass()}
+                    >
+                      {isSavingProject ? "Saving..." : projectDirty ? "Save JSON" : "JSON saved"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleTogglePublishProject()}
+                      disabled={!activeProjectDetail || isPublishingProject}
+                      className={actionButtonClass("primary")}
+                    >
+                      {isPublishingProject
+                        ? "Updating status..."
+                        : activeProjectDetail.project.status === "published"
+                          ? "Mark draft"
+                          : "Publish"}
+                    </button>
+                  </>
+                )}
               </div>
               <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
                 <PanelCard title="Release state" eyebrow="Current output">

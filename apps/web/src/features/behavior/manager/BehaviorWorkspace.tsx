@@ -1873,7 +1873,7 @@ export function BehaviorWorkspace({
                     onPointerUp={handleDocumentBehaviorGraphPointerEnd}
                     onPointerCancel={handleDocumentBehaviorGraphPointerEnd}
                     onKeyDown={handleDocumentBehaviorGraphViewportKeyDown}
-                    className="min-h-[34rem] cursor-grab overflow-hidden rounded-[1rem] outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:cursor-grabbing"
+                    className="min-h-[24rem] cursor-grab overflow-hidden rounded-[1rem] outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:cursor-grabbing lg:min-h-[34rem]"
                   >
                     <div
                       style={{
@@ -2779,7 +2779,7 @@ export function BehaviorWorkspace({
                     onPointerUp={handleDocumentBehaviorGraphPointerEnd}
                     onPointerCancel={handleDocumentBehaviorGraphPointerEnd}
                     onKeyDown={handleDocumentBehaviorGraphViewportKeyDown}
-                    className="min-h-[38rem] cursor-grab overflow-hidden rounded-[1rem] outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:cursor-grabbing"
+                    className="min-h-[28rem] cursor-grab overflow-hidden rounded-[1rem] outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:cursor-grabbing lg:min-h-[38rem]"
                   >
                     <div
                       style={{

@@ -91,6 +91,19 @@ export interface BehaviorManagerProps {
   onHandleTestSelectedRule: (rule: LegacyConditionalRule | null) => void;
   onHandleTestSelectedChain: (listener: RuntimeListenerDefinition | null) => void;
   /**
+   * MVP scope assessment #3: one-way export. When set, the manager toolbar
+   * renders an "Export" button that hands off to the host (App.tsx) which
+   * builds the versioned envelope and triggers a download. Single-listener
+   * export is delegated through the per-row contextual menu via
+   * `onExportListener` so authors can also save individual chains.
+   */
+  onExportDocumentBehaviors?: () => void;
+  onExportListenerBehavior?: (listenerId: string) => void;
+  /** When set, the manager toolbar shows an Import button that delegates the file pick to the host. */
+  onRequestImportBehaviors?: () => void;
+  /** When true, mutation/authoring controls are hidden (viewer role, #2). */
+  isViewerMode?: boolean;
+  /**
    * Phase 2C-2: trace-from-event sim. Manager surfaces a "Trace from event"
    * action on every Raised by row in the by-event layout; the host runs an
    * ephemeral `dispatchWithReport` and pipes the matched/skipped listener
@@ -199,6 +212,10 @@ export function BehaviorManager({
   traceFromEventReport,
   onRunTraceFromEvent,
   onClearTraceFromEvent,
+  onExportDocumentBehaviors,
+  onExportListenerBehavior,
+  onRequestImportBehaviors,
+  isViewerMode = false,
 }: BehaviorManagerProps) {
   const [managerFilters, setManagerFilters] = useState<ManagerFilterState>({
     provenance: "all",
@@ -1014,6 +1031,26 @@ export function BehaviorManager({
                   {layout === "table" ? "Table" : layout === "by_event" ? "By event" : "Map"}
                 </button>
               ))}
+              {onExportDocumentBehaviors ? (
+                <button
+                  type="button"
+                  onClick={onExportDocumentBehaviors}
+                  className={actionButtonClass("secondary")}
+                  title="Download every authored listener in this document as a versioned JSON artefact"
+                >
+                  Export behaviors
+                </button>
+              ) : null}
+              {onRequestImportBehaviors && !isViewerMode ? (
+                <button
+                  type="button"
+                  onClick={onRequestImportBehaviors}
+                  className={actionButtonClass("secondary")}
+                  title="Import a previously exported behavior JSON envelope into this document"
+                >
+                  Import behaviors
+                </button>
+              ) : null}
             </div>
 
             <div className="grid gap-2 sm:grid-cols-2">

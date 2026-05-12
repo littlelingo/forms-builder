@@ -123,6 +123,8 @@ export interface PreviewCanvasProps {
     fieldIndex: number,
     groupId?: string,
   ) => ReactNode;
+  /** When true, structural add/remove controls are hidden (viewer role). */
+  isViewerMode?: boolean;
 }
 
 export function PreviewCanvas({
@@ -168,6 +170,7 @@ export function PreviewCanvas({
   renderBehaviorToolbar,
   renderDispatchKeyBadge,
   renderBuilderFieldCard,
+  isViewerMode = false,
 }: PreviewCanvasProps) {
   return (
     <PanelCard
@@ -185,10 +188,10 @@ export function PreviewCanvas({
           </div>
         ) : undefined
       }
-      className="min-h-[52rem] min-w-0 overflow-hidden"
+      className="min-w-0"
     >
       {activeDocument && activeStep ? (
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+        <div className="space-y-4 pr-1">
           {isPdfBackedProject && workspaceLandingMode ? (
             <div className="rounded-[1.35rem] border border-blue-200 bg-[linear-gradient(135deg,#eff6ff_0%,#ffffff_62%)] p-4 shadow-[0_20px_40px_rgba(37,99,235,0.10)]">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -316,15 +319,17 @@ export function PreviewCanvas({
                     {sourceReferenceActionLabel}
                   </button>
                 ) : null}
-                <button
-                  type="button"
-                  title="Add section"
-                  aria-label="Add section"
-                  onClick={() => onAddSectionToStep(activeStep.id)}
-                  className={iconButtonClass("primary")}
-                >
-                  <PlusIcon />
-                </button>
+                {isViewerMode ? null : (
+                  <button
+                    type="button"
+                    title="Add section"
+                    aria-label="Add section"
+                    onClick={() => onAddSectionToStep(activeStep.id)}
+                    className={iconButtonClass("primary")}
+                  >
+                    <PlusIcon />
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -459,42 +464,46 @@ export function PreviewCanvas({
                             {selectedAuthoring?.kind === "section" && selectedAuthoring.sectionId === section.id
                               ? renderDispatchKeyBadge(section.dispatchKey)
                               : null}
-                            <button
-                              type="button"
-                              title="Add group"
-                              aria-label="Add group"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                onAddGroupToSection(activeStep.id, section.id);
-                              }}
-                              className={iconButtonClass("primary")}
-                            >
-                              <GroupIcon />
-                            </button>
-                            <button
-                              type="button"
-                              title="Add field"
-                              aria-label="Add field"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                onAddFieldToContainer(activeStep.id, section.id);
-                              }}
-                              className={iconButtonClass()}
-                            >
-                              <FieldIcon />
-                            </button>
-                            <button
-                              type="button"
-                              title="Remove section"
-                              aria-label="Remove section"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                onRemoveSection(activeStep.id, section.id);
-                              }}
-                              className={iconButtonClass("danger")}
-                            >
-                              <RemoveIcon />
-                            </button>
+                            {isViewerMode ? null : (
+                              <>
+                                <button
+                                  type="button"
+                                  title="Add group"
+                                  aria-label="Add group"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    onAddGroupToSection(activeStep.id, section.id);
+                                  }}
+                                  className={iconButtonClass("primary")}
+                                >
+                                  <GroupIcon />
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Add field"
+                                  aria-label="Add field"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    onAddFieldToContainer(activeStep.id, section.id);
+                                  }}
+                                  className={iconButtonClass()}
+                                >
+                                  <FieldIcon />
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Remove section"
+                                  aria-label="Remove section"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    onRemoveSection(activeStep.id, section.id);
+                                  }}
+                                  className={iconButtonClass("danger")}
+                                >
+                                  <RemoveIcon />
+                                </button>
+                              </>
+                            )}
                           </div>
                         </div>
 
@@ -628,30 +637,34 @@ export function PreviewCanvas({
                                         {selectedAuthoring?.kind === "group" && selectedAuthoring.groupId === group.id
                                           ? renderDispatchKeyBadge(group.dispatchKey)
                                           : null}
-                                        <button
-                                          type="button"
-                                          title="Add field"
-                                          aria-label="Add field"
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            onAddFieldToContainer(activeStep.id, section.id, group.id);
-                                          }}
-                                          className={iconButtonClass("primary")}
-                                        >
-                                          <FieldIcon />
-                                        </button>
-                                        <button
-                                          type="button"
-                                          title="Remove group"
-                                          aria-label="Remove group"
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            onRemoveGroup(activeStep.id, section.id, group.id);
-                                          }}
-                                          className={iconButtonClass("danger")}
-                                        >
-                                          <RemoveIcon />
-                                        </button>
+                                        {isViewerMode ? null : (
+                                          <>
+                                            <button
+                                              type="button"
+                                              title="Add field"
+                                              aria-label="Add field"
+                                              onClick={(event) => {
+                                                event.stopPropagation();
+                                                onAddFieldToContainer(activeStep.id, section.id, group.id);
+                                              }}
+                                              className={iconButtonClass("primary")}
+                                            >
+                                              <FieldIcon />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              title="Remove group"
+                                              aria-label="Remove group"
+                                              onClick={(event) => {
+                                                event.stopPropagation();
+                                                onRemoveGroup(activeStep.id, section.id, group.id);
+                                              }}
+                                              className={iconButtonClass("danger")}
+                                            >
+                                              <RemoveIcon />
+                                            </button>
+                                          </>
+                                        )}
                                       </div>
                                     </div>
                                     <div
