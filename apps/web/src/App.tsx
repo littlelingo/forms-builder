@@ -118,7 +118,6 @@ import {
   CreationGuide,
   CrossItemEventPicker,
   EventCreationForm,
-  EventFlowStudio,
   LegacyConditionalRuleEditor,
   LibraryPage,
   LibraryPicker,
@@ -9435,42 +9434,14 @@ export default function App() {
             />
           </div>
         ) : (
-          <EventFlowStudio
-            eventFlowSourceId={eventFlowSourceId}
-            eventFlowEventType={eventFlowEventType}
-            activeRuntimeTarget={activeRuntimeTarget}
-            activeRuntimeScope={activeRuntimeScope}
-            activeDocument={activeDocument}
-            runtimeEventSourceCandidates={runtimeEventSourceCandidates}
-            runtimeEventSourceCandidateById={runtimeEventSourceCandidateById}
-            runtimeNodeLabelById={runtimeNodeLabelById}
-            selectedBehaviorNode={selectedBehaviorNode}
-            lastDispatchReport={lastDispatchReport}
-            logicMapData={logicMapData}
-            eventFlowOptionsForSource={eventFlowOptionsForSource}
-            eventFlowPayloadRawValue={eventFlowPayloadRawValue}
-            defaultBehaviorTriggerName={defaultBehaviorTriggerName}
-            onRunEventFlowDispatch={runEventFlowDispatch}
-            onSaveEventFlowEvent={saveEventFlowEvent}
-            onAddEventFlowPayloadCondition={addEventFlowPayloadCondition}
-            onOpenBehaviorStudioListenerSection={openBehaviorStudioListenerSection}
-            onOpenRuntimeEventEditorForSelection={openRuntimeEventEditorForSelection}
-            onSetEventFlowSourceId={setEventFlowSourceId}
-            onSetEventFlowEventType={setEventFlowEventType}
-            onSetEventFlowPayloadValues={setEventFlowPayloadValues}
-            onSetSelectedBehaviorNode={setSelectedBehaviorNode}
-            onSetLastDispatchReport={setLastDispatchReport}
-            onSetSelectedAuthoring={setSelectedAuthoring}
-            onSetBehaviorStudioCreating={setBehaviorStudioCreating}
-            onSetBehaviorStudioManagerMode={setBehaviorStudioManagerMode}
-            onSetBehaviorStudioMode={setBehaviorStudioMode}
-            onSetBehaviorEventType={setBehaviorEventType}
-            onSetBehaviorEventBubbles={setBehaviorEventBubbles}
-            onSetBehaviorEventDescription={setBehaviorEventDescription}
-            onSetBehaviorEventPayloadFields={setBehaviorEventPayloadFields}
-            onSetBehaviorEventMetadataExample={setBehaviorEventMetadataExample}
-            onSetBehaviorCreationPath={setBehaviorCreationPath}
-          />
+          // Phase 10 — the legacy EventFlowStudio surface has been deleted. When
+          // "create" mode opens without an active creation flow or a selected
+          // legacy rule, surface a hint to drive authors back to the manager /
+          // creation flow rather than rendering a defunct simulator.
+          <div className="rounded-[1.05rem] border border-soft bg-white p-4 text-sm text-slate-600">
+            Pick a behavior from the Behavior Manager, start a new flow, or test from the unified Test Panel
+            (Cmd/Ctrl+K).
+          </div>
         )}
       </div>
     );

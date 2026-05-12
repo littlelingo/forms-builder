@@ -25,8 +25,6 @@ export { BehaviorManager } from "./manager/BehaviorManager";
 export type { BehaviorManagerProps } from "./manager/BehaviorManager";
 export { BehaviorWorkspace } from "./manager/BehaviorWorkspace";
 export type { BehaviorWorkspaceProps } from "./manager/BehaviorWorkspace";
-export { EventFlowStudio } from "./manager/EventFlowStudio";
-export type { EventFlowStudioProps } from "./manager/EventFlowStudio";
 export { MapGraphOverview } from "./manager/MapGraphOverview";
 export type { MapGraphOverviewProps } from "./manager/MapGraphOverview";
 export { BehaviorInspectorPanel } from "./inspector/BehaviorInspectorPanel";
