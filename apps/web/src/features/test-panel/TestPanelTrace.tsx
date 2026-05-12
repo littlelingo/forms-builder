@@ -40,6 +40,7 @@ export function TestPanelTrace({
           <button
             type="button"
             onClick={() => setView("by-listener")}
+            aria-pressed={view === "by-listener"}
             className={`rounded px-2 py-0.5 ${view === "by-listener" ? "bg-blue-600 text-white" : "bg-slate-100"}`}
           >
             By listener
@@ -47,6 +48,7 @@ export function TestPanelTrace({
           <button
             type="button"
             onClick={() => setView("by-receiver")}
+            aria-pressed={view === "by-receiver"}
             className={`rounded px-2 py-0.5 ${view === "by-receiver" ? "bg-blue-600 text-white" : "bg-slate-100"}`}
           >
             By receiver
@@ -86,6 +88,13 @@ function describeBeforeAfter(action: { before?: unknown; after?: unknown }): str
   return `${JSON.stringify(action.before)} → ${JSON.stringify(action.after)}`;
 }
 
+function describeActualValue(value: unknown): string | null {
+  if (value === undefined) return null;
+  const json = JSON.stringify(value);
+  if (json === undefined) return null;
+  return json.length > 60 ? `${json.slice(0, 57)}...` : json;
+}
+
 function ByListenerView({
   report,
   nodeLabelById,
@@ -105,6 +114,24 @@ function ByListenerView({
           </div>
           {listener.skippedReason ? (
             <div className="text-xs text-slate-500">Reason: {listener.skippedReason}</div>
+          ) : null}
+          {listener.conditions.length ? (
+            <ul className="mt-1 ml-3 space-y-1 text-xs">
+              {listener.conditions.map((condition) => {
+                const actual = describeActualValue(condition.actualValue);
+                return (
+                  <li key={condition.conditionId} className="flex flex-wrap items-center gap-1">
+                    <span className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-700">
+                      {condition.label ?? "Condition"}
+                    </span>
+                    <span className={condition.passed ? "text-emerald-700" : "text-rose-700"}>
+                      {condition.passed ? "passed" : "failed"}
+                    </span>
+                    {actual ? <span className="text-slate-500">actual: {actual}</span> : null}
+                  </li>
+                );
+              })}
+            </ul>
           ) : null}
           {listener.actions.length ? (
             <ul className="mt-1 ml-3 space-y-1 text-xs">
