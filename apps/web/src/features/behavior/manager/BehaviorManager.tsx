@@ -1,10 +1,5 @@
 import { useState } from "react";
-import type {
-  AuthoringField,
-  BehaviorSafetyClass,
-  RuntimeEventDefinition,
-  RuntimeListenerDefinition,
-} from "@form-builder/schema";
+import type { AuthoringField, BehaviorSafetyClass, RuntimeEventDefinition } from "@form-builder/schema";
 import type { RuntimeDispatchReport } from "@form-builder/runtime";
 import { runtimeActionSafetyClass } from "@form-builder/schema";
 import type { AuthoringSelection } from "../../../lib/authoring-utils";
@@ -17,7 +12,6 @@ import type {
   BehaviorStudioManagerMode,
   BehaviorStudioMode,
   BehaviorStudioView,
-  LegacyConditionalRule,
   LegacyConditionalRuleGroup,
   LogicMapConditionalEntry,
   LogicMapListenerEntry,
@@ -88,8 +82,6 @@ export interface BehaviorManagerProps {
   onRemoveRuntimeListenerForSelection: (selection: AuthoringSelection | null, listenerId: string) => void;
   onDuplicateRuntimeEventSourceForSelection: (selection: AuthoringSelection | null, eventId: string) => void;
   onRemoveRuntimeEventSourceForSelection: (selection: AuthoringSelection | null, eventId: string) => void;
-  onHandleTestSelectedRule: (rule: LegacyConditionalRule | null) => void;
-  onHandleTestSelectedChain: (listener: RuntimeListenerDefinition | null) => void;
   /**
    * Phase 10 — opens the unified TestPanel pre-filled for the given listener.
    * Replaces the old `onSetBehaviorStudioMode("test")` flow.
@@ -217,8 +209,6 @@ export function BehaviorManager({
   onRemoveRuntimeListenerForSelection,
   onDuplicateRuntimeEventSourceForSelection,
   onRemoveRuntimeEventSourceForSelection,
-  onHandleTestSelectedRule,
-  onHandleTestSelectedChain,
   onOpenTestPanelForListener,
   onOpenTestPanelFromSelection,
   traceFromEventReport,

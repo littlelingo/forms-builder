@@ -1921,7 +1921,6 @@ export default function App() {
   const [openedRevisionView, setOpenedRevisionView] = useState<OpenedRevisionView | null>(null);
   const [pendingWorkspaceTransition, setPendingWorkspaceTransition] = useState<WorkspaceTransitionRequest | null>(null);
   const [runtimePayloadEditors, setRuntimePayloadEditors] = useState<Record<string, RuntimePayloadEditorState>>({});
-  const [listenerTestValues, setListenerTestValues] = useState<Record<string, unknown>>({});
   const [eventFlowSourceId, setEventFlowSourceId] = useState("");
   const [eventFlowEventType, setEventFlowEventType] = useState("");
   const [eventFlowPayloadValues, setEventFlowPayloadValues] = useState<EventFlowPayloadValues>({});
@@ -6577,209 +6576,6 @@ export default function App() {
     } as NonNullable<RuntimeEventEnvelope["target"]>;
   }
 
-  function handleTestSelectedRule(rule: LegacyConditionalRule | null) {
-    if (!activeDocument || !rule) {
-      setMessage("Select a behavior before running a targeted behavior test.");
-      return;
-    }
-    const sourceField = findAuthoringFieldById(activeDocument, rule.whenFieldId);
-    const nextValue =
-      sourceField?.semanticType === "checkbox" && rule.operator === "contains"
-        ? [rule.expectedValue ?? fieldFirstOptionValue(sourceField)]
-        : (rule.expectedValue ?? "");
-    dispatchRuntimeEvent({
-      type: "field.change",
-      version: "1.0",
-      target: {
-        runtimeId: "builder-simulator",
-        formId: activeDocument.id,
-        projectId: activeProjectDetail?.project.id ?? null,
-        nodeId: rule.whenFieldId,
-        nodeKey: sourceField?.dispatchKey ?? null,
-        nodeType: "field",
-      },
-      source: {
-        runtimeId: "builder-simulator",
-        formId: activeDocument.id,
-        projectId: activeProjectDetail?.project.id ?? null,
-        nodeId: rule.whenFieldId,
-        nodeKey: sourceField?.dispatchKey ?? null,
-        nodeType: "field",
-      },
-      payload: {
-        eventType: "field.change",
-        sourceNodeId: rule.whenFieldId,
-        sourceNodeKey: sourceField?.dispatchKey ?? null,
-        sourceNodeType: "field",
-        targetNodeId: rule.whenFieldId,
-        targetNodeKey: sourceField?.dispatchKey ?? null,
-        targetNodeType: "field",
-        metadata: "{}",
-        fieldId: rule.whenFieldId,
-        nextValue,
-        testedRuleId: rule.ruleId,
-      },
-      correlationId: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-    });
-    setSelectedRuntimeEvidenceKey(null);
-    setMessage("Behavior test dispatched a field.change event through the simulator.");
-  }
-
-  function resolveListenerTestSource(listener: RuntimeListenerDefinition): RuntimeEventSourceCandidate | null {
-    return (
-      (listener.eventSourceNodeId ? (runtimeEventSourceCandidateById.get(listener.eventSourceNodeId) ?? null) : null) ??
-      (listener.dispatcherId ? (runtimeEventSourceCandidateById.get(listener.dispatcherId) ?? null) : null) ??
-      (listener.targetNodeId ? (runtimeEventSourceCandidateById.get(listener.targetNodeId) ?? null) : null) ??
-      activeRuntimeTarget ??
-      (activeDocument ? (runtimeEventSourceCandidateById.get(activeDocument.id) ?? null) : null)
-    );
-  }
-
-  function defaultListenerTestValue(listener: RuntimeListenerDefinition, sourceField: AuthoringField | null): unknown {
-    if (!sourceField || sourceField.rendererHints.component === "button" || sourceField.semanticType === "statement") {
-      return "";
-    }
-    const conditionValue = flattenRuntimeConditionAtoms(listener.conditions).find(
-      (condition) =>
-        condition.enabled !== false &&
-        condition.source.kind === "field_value" &&
-        condition.source.fieldId === sourceField.id &&
-        condition.expectedValue !== undefined &&
-        condition.expectedValue !== null &&
-        String(condition.expectedValue).length > 0,
-    )?.expectedValue;
-    const optionValue = conditionValue !== undefined ? String(conditionValue) : fieldFirstOptionValue(sourceField);
-    if (sourceField.semanticType === "checkbox") {
-      return optionValue ? [optionValue] : [];
-    }
-    if (sourceField.semanticType === "radio" || sourceField.semanticType === "select") {
-      return optionValue;
-    }
-    return conditionValue !== undefined ? String(conditionValue) : "Test value";
-  }
-
-  function listenerTestValue(listener: RuntimeListenerDefinition, sourceField: AuthoringField | null): unknown {
-    return listenerTestValues[listener.id] ?? defaultListenerTestValue(listener, sourceField);
-  }
-
-  function updateListenerTestValue(listenerId: string, nextValue: unknown) {
-    setListenerTestValues((current) => ({
-      ...current,
-      [listenerId]: nextValue,
-    }));
-  }
-
-  function buildGuidedListenerTestEvent(listener: RuntimeListenerDefinition): RuntimeEventEnvelope | null {
-    if (!activeDocument) {
-      return null;
-    }
-    const source = resolveListenerTestSource(listener);
-    if (!source) {
-      return null;
-    }
-    const sourceField =
-      source.nodeType === "field" || source.nodeType === "component"
-        ? findAuthoringFieldById(activeDocument, source.id)
-        : null;
-    const nextValue = listenerTestValue(listener, sourceField);
-    const eventType = getRuntimeListenerEventType(listener);
-    const sourceEvent = source.events.find((eventOption) => eventOption.type === eventType);
-    const target: NonNullable<RuntimeEventEnvelope["target"]> = {
-      runtimeId: "builder-simulator",
-      formId: activeDocument.id,
-      projectId: activeProjectDetail?.project.id ?? null,
-      nodeId: source.id,
-      nodeKey: source.dispatchKey ?? null,
-      nodeType: source.nodeType,
-    };
-    const payload: Record<string, unknown> = {
-      listenerId: listener.id,
-      testOrigin: "behavior_studio",
-      eventType,
-      sourceNodeId: source.id,
-      sourceNodeKey: source.dispatchKey ?? null,
-      sourceNodeType: source.nodeType,
-      sourceLabel: source.label,
-      targetNodeId: target.nodeId,
-      targetNodeKey: target.nodeKey ?? null,
-      targetNodeType: target.nodeType,
-      metadata: "{}",
-      nextValue,
-      value: nextValue,
-    };
-    if (sourceField) {
-      const selectedValues =
-        sourceField.semanticType === "checkbox"
-          ? Array.isArray(nextValue)
-            ? nextValue
-            : nextValue
-              ? [String(nextValue)]
-              : []
-          : undefined;
-      payload.fieldId = sourceField.id;
-      payload.componentType = sourceField.semanticType;
-      payload.selectionMode = fieldSelectionMode(sourceField);
-      payload.selectedValues = selectedValues;
-      payload.selectedValue =
-        sourceField.semanticType === "radio" || sourceField.semanticType === "select" ? nextValue : undefined;
-      payload.changedOption = Array.isArray(selectedValues)
-        ? (selectedValues[0] ?? null)
-        : fieldFirstOptionValue(sourceField) || null;
-    }
-    return {
-      type: eventType,
-      version: "1.0",
-      target,
-      source: target,
-      bubbles: sourceEvent?.bubbles ?? true,
-      payload,
-      correlationId: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-    };
-  }
-
-  function handleRunGuidedListenerTest(listener: RuntimeListenerDefinition | null) {
-    if (!activeDocument || !listener) {
-      setMessage("Select a behavior before running a targeted behavior test.");
-      return;
-    }
-    const event = buildGuidedListenerTestEvent(listener);
-    if (!event) {
-      setMessage("Choose a source item before running this behavior test.");
-      return;
-    }
-    try {
-      const report = runtimeEngineRef.current.dispatchWithReport(event);
-      runtimeSessionRef.current = report.stateAfter;
-      setRuntimeSessionState(report.stateAfter);
-      setLastDispatchReport(report);
-      setSelectedRuntimeEvidenceKey(null);
-      const selectedListenerReport = report.listeners.find((entry) => entry.listenerId === listener.id);
-      if (!selectedListenerReport) {
-        setMessage(
-          `${event.type} dispatched from ${event.target?.nodeKey ?? event.target?.nodeId ?? "the source"}, but this behavior was not reached.`,
-        );
-        return;
-      }
-      if (!selectedListenerReport.matched) {
-        setMessage(
-          `${event.type} reached the behavior but did not run because ${formatLabel(selectedListenerReport.skippedReason ?? "conditions_failed")}.`,
-        );
-        return;
-      }
-      setMessage(
-        `${event.type} reached the behavior and ran ${selectedListenerReport.actions.length} action${selectedListenerReport.actions.length === 1 ? "" : "s"}.`,
-      );
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Guided behavior test failed.");
-    }
-  }
-
-  function handleTestSelectedChain(listener: RuntimeListenerDefinition | null) {
-    handleRunGuidedListenerTest(listener);
-  }
-
   function handleExportDocumentBehaviors() {
     if (!activeDocument) {
       setMessage("Open a project before exporting behaviors.");
@@ -7220,71 +7016,6 @@ export default function App() {
     });
     setSelectedBehaviorNode({ kind: "listener", listenerId: listener.id, phase: "trigger" });
     setMessage(`${formatLabel(payloadFieldName)} payload check added.`);
-  }
-
-  function renderGuidedListenerValueControl(listener: RuntimeListenerDefinition, sourceField: AuthoringField | null) {
-    if (!sourceField || sourceField.rendererHints.component === "button" || sourceField.semanticType === "statement") {
-      return (
-        <div className="rounded-[0.85rem] border border-soft bg-slate-50 px-3 py-2 text-sm text-slate-500">
-          This event source does not need a field value.
-        </div>
-      );
-    }
-    const value = listenerTestValue(listener, sourceField);
-    if (sourceField.semanticType === "checkbox") {
-      const selectedValues = Array.isArray(value) ? value.map((entry) => String(entry)) : [];
-      return (
-        <div className="grid gap-2 sm:grid-cols-2">
-          {sourceField.options.map((option) => {
-            const optionValue = option.value || option.label;
-            return (
-              <label
-                key={`${listener.id}-test-checkbox-${optionValue}`}
-                className="flex items-center gap-2 rounded-[0.8rem] border border-soft bg-white px-3 py-2 text-sm text-slate-700"
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedValues.includes(optionValue)}
-                  onChange={(event) => {
-                    const nextValues = event.target.checked
-                      ? [...selectedValues, optionValue]
-                      : selectedValues.filter((entry) => entry !== optionValue);
-                    updateListenerTestValue(listener.id, nextValues);
-                  }}
-                />
-                <span>{option.label || optionValue}</span>
-              </label>
-            );
-          })}
-        </div>
-      );
-    }
-    if (sourceField.semanticType === "radio" || sourceField.semanticType === "select") {
-      return (
-        <select
-          value={typeof value === "string" ? value : ""}
-          onChange={(event) => updateListenerTestValue(listener.id, event.target.value)}
-          className="w-full rounded-2xl border border-soft bg-white px-4 py-3 text-sm text-slate-800"
-        >
-          <option value="">No selection</option>
-          {sourceField.options.map((option) => {
-            const optionValue = option.value || option.label;
-            return (
-              <option key={`${listener.id}-test-option-${optionValue}`} value={optionValue}>
-                {option.label || optionValue}
-              </option>
-            );
-          })}
-        </select>
-      );
-    }
-    return (
-      <input
-        value={typeof value === "string" || typeof value === "number" ? String(value) : ""}
-        onChange={(event) => updateListenerTestValue(listener.id, event.target.value)}
-        className="w-full rounded-2xl border border-soft bg-white px-4 py-3 text-sm text-slate-800"
-      />
-    );
   }
 
   function beginBehaviorStudioCreation(anchor: BehaviorStudioAnchor | null = null) {
@@ -10622,8 +10353,6 @@ export default function App() {
                         onRemoveRuntimeListenerForSelection={removeRuntimeListenerForSelection}
                         onDuplicateRuntimeEventSourceForSelection={duplicateRuntimeEventSourceForSelection}
                         onRemoveRuntimeEventSourceForSelection={removeRuntimeEventSourceForSelection}
-                        onHandleTestSelectedRule={handleTestSelectedRule}
-                        onHandleTestSelectedChain={handleTestSelectedChain}
                         onOpenTestPanelForListener={openTestPanelForListener}
                         onOpenTestPanelFromSelection={openTestPanelFromSelection}
                         onExportDocumentBehaviors={handleExportDocumentBehaviors}
@@ -10687,8 +10416,8 @@ export default function App() {
                         onOpenBehaviorStudioAddBehavior={openBehaviorStudioAddBehavior}
                         onOpenBehaviorStudioReactToAnotherItem={openBehaviorStudioReactToAnotherItem}
                         onCloseBehaviorStudio={closeBehaviorStudio}
-                        onHandleTestSelectedRule={handleTestSelectedRule}
-                        onHandleTestSelectedChain={handleTestSelectedChain}
+                        onOpenTestPanelForListener={openTestPanelForListener}
+                        onOpenTestPanelFromSelection={openTestPanelFromSelection}
                         onHandleResetRuntimeSession={handleResetRuntimeSession}
                         onHandlePopulateRequiredRuntimeValues={handlePopulateRequiredRuntimeValues}
                         onHandleRunCurrentRuntimeStep={handleRunCurrentRuntimeStep}

@@ -232,8 +232,13 @@ export interface BehaviorWorkspaceProps {
   onOpenBehaviorStudioAddBehavior: (anchor?: null) => void;
   onOpenBehaviorStudioReactToAnotherItem: (anchor?: null) => void;
   onCloseBehaviorStudio: () => void;
-  onHandleTestSelectedRule: (rule: LegacyConditionalRule | null) => void;
-  onHandleTestSelectedChain: (listener: import("@form-builder/schema").RuntimeListenerDefinition | null) => void;
+  /**
+   * Phase 10 — open the unified TestPanel pre-filled for the given listener.
+   * Replaces the legacy "Test behavior" / "Run behavior test" buttons.
+   */
+  onOpenTestPanelForListener?: (listenerId: string) => void;
+  /** Phase 10 — fallback for "test from current selection" (e.g. legacy rule rows). */
+  onOpenTestPanelFromSelection?: () => void;
   onHandleResetRuntimeSession: () => void;
   onHandlePopulateRequiredRuntimeValues: () => void;
   onHandleRunCurrentRuntimeStep: () => void;
@@ -321,8 +326,8 @@ export function BehaviorWorkspace({
   onOpenBehaviorStudioAddBehavior: openBehaviorStudioAddBehavior,
   onOpenBehaviorStudioReactToAnotherItem: openBehaviorStudioReactToAnotherItem,
   onCloseBehaviorStudio: closeBehaviorStudio,
-  onHandleTestSelectedRule: handleTestSelectedRule,
-  onHandleTestSelectedChain: handleTestSelectedChain,
+  onOpenTestPanelForListener,
+  onOpenTestPanelFromSelection,
   onHandleResetRuntimeSession: handleResetRuntimeSession,
   onHandlePopulateRequiredRuntimeValues: handlePopulateRequiredRuntimeValues,
   onHandleRunCurrentRuntimeStep: handleRunCurrentRuntimeStep,
@@ -3769,22 +3774,26 @@ export function BehaviorWorkspace({
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => handleTestSelectedRule(selectedRule)}
-              disabled={!selectedRule}
-              className={actionButtonClass(selectedRule ? "primary" : "secondary")}
-            >
-              Test behavior
-            </button>
-            <button
-              type="button"
-              onClick={() => handleTestSelectedChain(selectedListener)}
-              disabled={!selectedListener}
-              className={actionButtonClass(selectedListener ? "primary" : "secondary")}
-            >
-              Run behavior test
-            </button>
+            {/* Phase 10 — legacy "Test behavior" + "Run behavior test" buttons replaced
+                by the unified TestPanel (opens with Cmd/Ctrl+K or from the Behavior
+                Manager / inspector rows). */}
+            {selectedListener && onOpenTestPanelForListener ? (
+              <button
+                type="button"
+                onClick={() => onOpenTestPanelForListener(selectedListener.id)}
+                className={actionButtonClass("primary")}
+              >
+                Test selected behavior
+              </button>
+            ) : onOpenTestPanelFromSelection ? (
+              <button
+                type="button"
+                onClick={() => onOpenTestPanelFromSelection()}
+                className={actionButtonClass("secondary")}
+              >
+                Test selected behavior
+              </button>
+            ) : null}
             <button type="button" onClick={handleResetRuntimeSession} className={actionButtonClass()}>
               Reset session
             </button>
@@ -3806,30 +3815,6 @@ export function BehaviorWorkspace({
               className={actionButtonClass("primary")}
             >
               Run submit
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-4 rounded-[1rem] border border-blue-200 bg-blue-50/60 p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-blue-700">Selected runtime target</p>
-              <p className="mt-2 font-semibold text-slate-950">{selectedBehaviorSummary}</p>
-              <p className="mt-2 text-sm leading-6 text-slate-700">
-                {selectedRule
-                  ? "Testing dispatches a field.change event for the watched field so the behavior condition can resolve in the live session."
-                  : selectedListener
-                    ? `Testing dispatches ${selectedListener.eventName} through the current runtime scope and shows the resulting authored evidence.`
-                    : "Pick a behavior from the Behavior Manager, studio, or graph before using targeted tests."}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSelectedRuntimeEvidenceKey(null)}
-              disabled={!authoredRuntimeTraceEntries.length}
-              className={actionButtonClass("secondary")}
-            >
-              Show latest runtime effect
             </button>
           </div>
         </div>
