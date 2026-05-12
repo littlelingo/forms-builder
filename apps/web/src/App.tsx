@@ -1,5 +1,5 @@
 import type { CSSProperties, ChangeEvent, DragEvent, MouseEvent, PointerEvent, ReactNode } from "react";
-import { Fragment, startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { createRuntimeEngine } from "@form-builder/runtime";
 import type { BehaviorLibraryRegistry, RuntimeDispatchReport, RuntimeTraceEntry } from "@form-builder/runtime";
@@ -2821,12 +2821,63 @@ export default function App() {
     return map;
   }, [activeDocument]);
   const testPanel = useTestPanelState(runtimeEngineRef.current);
+
+  /**
+   * Derive the TestPanel selection (source + event) from the current authoring
+   * selection or a selected listener id. Used both for the auto-mirror effect
+   * (Task 7.2) and any explicit "open test panel" trigger that reuses the
+   * current selection context.
+   */
+  const deriveSelectionFromAuthoring = useCallback(
+    (authoring: AuthoringSelection | null, listenerId: string | null): TestPanelSelection => {
+      const listener = listenerId ? runtimeListenerById.get(listenerId) ?? null : null;
+      const sourceId =
+        (listener ? listener.eventSourceNodeId ?? null : null) ??
+        (authoring?.kind === "field" ? authoring.fieldId : null) ??
+        null;
+      const candidate = sourceId ? runtimeEventSourceCandidateById.get(sourceId) ?? null : null;
+      const eventType =
+        (listener ? getRuntimeListenerEventType(listener) : null) ??
+        (candidate?.eventDefinitions[0] ? runtimeEventDefinitionType(candidate.eventDefinitions[0]) : null) ??
+        null;
+      return { sourceId, eventType, payload: {}, payloadEdited: false };
+    },
+    [runtimeListenerById, runtimeEventSourceCandidateById],
+  );
+
+  const openTestPanelFromSelection = useCallback(() => {
+    testPanel.open(deriveSelectionFromAuthoring(selectedAuthoring, selectedBehaviorListenerId));
+  }, [testPanel, deriveSelectionFromAuthoring, selectedAuthoring, selectedBehaviorListenerId]);
+
+  const deriveTestPanelSelectionFromSelection = useCallback(
+    (): TestPanelSelection => deriveSelectionFromAuthoring(selectedAuthoring, selectedBehaviorListenerId),
+    [deriveSelectionFromAuthoring, selectedAuthoring, selectedBehaviorListenerId],
+  );
+
   // Auto-mirror authoring / listener selection into the panel while it's open in synth mode.
   // The reducer keeps user-edited payloads intact, so this only refreshes source + event.
   useEffect(() => {
     if (!testPanel.state.open || testPanel.state.mode !== "synth") return;
     testPanel.mirrorSelection(deriveSelectionFromAuthoring(selectedAuthoring, selectedBehaviorListenerId));
-  }, [selectedAuthoring, selectedBehaviorListenerId, testPanel.state.open, testPanel.state.mode]);
+  }, [
+    deriveSelectionFromAuthoring,
+    selectedAuthoring,
+    selectedBehaviorListenerId,
+    testPanel.state.open,
+    testPanel.state.mode,
+    testPanel,
+  ]);
+  // Global Cmd/Ctrl+K — open the unified TestPanel pre-filled from current selection.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        openTestPanelFromSelection();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openTestPanelFromSelection]);
   const activeSelectionNodeId: string | null = useMemo(() => {
     if (!selectedAuthoring) return null;
     if (selectedAuthoring.kind === "field") return selectedAuthoring.fieldId;
@@ -6884,33 +6935,6 @@ export default function App() {
     setTraceFromEventReport(null);
   }
 
-  /**
-   * Derive the TestPanel selection (source + event) from the current authoring
-   * selection or a selected listener id. Used both for the auto-mirror effect
-   * (Task 7.2) and any explicit "open test panel" trigger that reuses the
-   * current selection context.
-   */
-  function deriveSelectionFromAuthoring(
-    authoring: AuthoringSelection | null,
-    listenerId: string | null,
-  ): TestPanelSelection {
-    const listener = listenerId ? runtimeListenerById.get(listenerId) ?? null : null;
-    const sourceId =
-      (listener ? listener.eventSourceNodeId ?? null : null) ??
-      (authoring?.kind === "field" ? authoring.fieldId : null) ??
-      null;
-    const candidate = sourceId ? runtimeEventSourceCandidateById.get(sourceId) ?? null : null;
-    const eventType =
-      (listener ? getRuntimeListenerEventType(listener) : null) ??
-      (candidate?.eventDefinitions[0] ? runtimeEventDefinitionType(candidate.eventDefinitions[0]) : null) ??
-      null;
-    return { sourceId, eventType, payload: {}, payloadEdited: false };
-  }
-
-  function openTestPanelFromSelection() {
-    testPanel.open(deriveSelectionFromAuthoring(selectedAuthoring, selectedBehaviorListenerId));
-  }
-
   function eventFlowOptionsForSource(source: RuntimeEventSourceCandidate): RuntimeSourceEventOption[] {
     const options = new Map<string, RuntimeSourceEventOption>();
     source.events.forEach((eventOption) => {
@@ -10428,6 +10452,8 @@ export default function App() {
               ) : null}
               <BuilderStage
                 expandedRailWidth={editingListenerId ? 540 : undefined}
+                onOpenTestPanel={testPanel.open}
+                deriveTestPanelSelection={deriveTestPanelSelectionFromSelection}
                 stepStrip={
                   <StepStrip
                     activeDocument={activeDocument}
