@@ -1,0 +1,114 @@
+{
+  "id": "doc-checkbox-to-radio",
+  "dispatchKey": null,
+  "title": "Checkbox → Radio E2E",
+  "documentClass": "acroform_only",
+  "reviewStatus": "ready",
+  "targetRuntime": "va_web_form",
+  "visualBaseline": "va.gov",
+  "sourcePriority": [],
+  "sourceConflicts": [],
+  "metadata": {},
+  "runtime": null,
+  "steps": [
+    {
+      "id": "step-personal-info",
+      "dispatchKey": null,
+      "title": "Personal Info",
+      "description": null,
+      "kind": "page",
+      "layoutHints": {},
+      "sourcePageIds": [],
+      "provenanceAnchorIds": [],
+      "runtime": null,
+      "sections": [
+        {
+          "id": "section-benefits",
+          "dispatchKey": null,
+          "title": "Benefits",
+          "description": null,
+          "layoutHints": {},
+          "lineage": [],
+          "sourceSectionIds": [],
+          "provenanceAnchorIds": [],
+          "groups": [],
+          "fields": [
+            {
+              "id": "field-benefit-type",
+              "dispatchKey": null,
+              "stableKey": "benefit_type",
+              "label": "Type of benefit(s) applying for",
+              "helpText": null,
+              "semanticType": "checkbox",
+              "required": false,
+              "confidence": 1,
+              "options": [
+                { "value": "Disability", "label": "Disability" },
+                { "value": "Education", "label": "Education" }
+              ],
+              "validations": [],
+              "layoutHints": { "width": "full", "presentation": "checkboxes" },
+              "rendererHints": {},
+              "sourcePriority": [],
+              "sourceConflicts": [],
+              "lineage": [],
+              "sourceFieldIds": [],
+              "provenanceAnchorIds": [],
+              "runtime": {
+                "eventSources": [],
+                "listeners": [
+                  {
+                    "id": "lst_benefit_requires_sex",
+                    "label": "Disability benefit requires Sex",
+                    "enabled": true,
+                    "priority": 0,
+                    "eventName": "field.change",
+                    "useCapture": false,
+                    "source": { "id": "field-benefit-type" },
+                    "target": { "id": "field-sex" },
+                    "conditions": [],
+                    "actions": [
+                      {
+                        "id": "act_mark_sex_required",
+                        "label": "Mark Sex as required",
+                        "kind": "mark_required",
+                        "target": { "nodeId": "field-sex", "nodeType": "field" },
+                        "config": {},
+                        "continueOnError": false,
+                        "onError": "halt_and_raise"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "id": "field-sex",
+              "dispatchKey": null,
+              "stableKey": "sex",
+              "label": "Sex",
+              "helpText": null,
+              "semanticType": "radio",
+              "required": false,
+              "confidence": 1,
+              "options": [
+                { "value": "Male", "label": "Male" },
+                { "value": "Female", "label": "Female" }
+              ],
+              "validations": [],
+              "layoutHints": { "width": "full", "presentation": "radios" },
+              "rendererHints": {},
+              "sourcePriority": [],
+              "sourceConflicts": [],
+              "lineage": [],
+              "sourceFieldIds": [],
+              "provenanceAnchorIds": [],
+              "runtime": null
+            }
+          ],
+          "runtime": null
+        }
+      ]
+    }
+  ]
+}
