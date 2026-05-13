@@ -31,24 +31,14 @@ export function TestPanelSession({
           <span className="text-xs uppercase tracking-wide text-slate-500">Lifecycle</span>
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <SessionButton
-            label="Reset"
-            hint="Clear values + state"
-            onClick={onResetSession}
-            disabled={!documentReady}
-          />
+          <SessionButton label="Reset" hint="Clear values + state" onClick={onResetSession} disabled={!documentReady} />
           <SessionButton
             label="Fill required"
             hint="Auto-fill required fields"
             onClick={onFillRequired}
             disabled={!documentReady}
           />
-          <SessionButton
-            label="Run step"
-            hint="Advance to next step"
-            onClick={onRunStep}
-            disabled={!documentReady}
-          />
+          <SessionButton label="Run step" hint="Advance to next step" onClick={onRunStep} disabled={!documentReady} />
           <SessionButton
             label="Submit"
             hint="Trigger form.submit"

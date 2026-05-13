@@ -20,16 +20,16 @@ This spec folds the Simulator's session-lifecycle controls and host-loop stubs i
 
 ## Decisions (locked during brainstorm)
 
-| Topic | Decision |
-|---|---|
-| Goal | Single test surface (TestPanel) covering event/listener/action/session. |
-| Structure | Third mode tab: `Synth \| Live \| Session`. |
-| Trace inspector | Extend the existing `TestPanelTrace` with a `History` view (scroll list of past `recordedReports` + chain context). Drop the "Advanced session debug" panel — power-user noise. |
-| Engine wiring | Panel drives the **same** runtime engine that powers the builder's PreviewCanvas (matches today's Simulator behavior). Walkthrough route still uses its own dedicated engine. |
-| Discoverability / clarity | Persistent "Drives preview" badge in header (always visible). Always-visible status strip (step / validation / submit). Onboarding tooltips on Session tab controls. |
-| Layout | Badge in header, status strip above tabs, host-loop section always rendered (Success/Error disabled when no pending host call). |
-| Cleanup | Delete BehaviorWorkspace Simulator section (~460 lines) and orphaned App.tsx handlers. Replace its slot with a one-line breadcrumb pointer to TestPanel. |
-| Walkthrough | Untouched. |
+| Topic                     | Decision                                                                                                                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Goal                      | Single test surface (TestPanel) covering event/listener/action/session.                                                                                                         |
+| Structure                 | Third mode tab: `Synth \| Live \| Session`.                                                                                                                                     |
+| Trace inspector           | Extend the existing `TestPanelTrace` with a `History` view (scroll list of past `recordedReports` + chain context). Drop the "Advanced session debug" panel — power-user noise. |
+| Engine wiring             | Panel drives the **same** runtime engine that powers the builder's PreviewCanvas (matches today's Simulator behavior). Walkthrough route still uses its own dedicated engine.   |
+| Discoverability / clarity | Persistent "Drives preview" badge in header (always visible). Always-visible status strip (step / validation / submit). Onboarding tooltips on Session tab controls.            |
+| Layout                    | Badge in header, status strip above tabs, host-loop section always rendered (Success/Error disabled when no pending host call).                                                 |
+| Cleanup                   | Delete BehaviorWorkspace Simulator section (~460 lines) and orphaned App.tsx handlers. Replace its slot with a one-line breadcrumb pointer to TestPanel.                        |
+| Walkthrough               | Untouched.                                                                                                                                                                      |
 
 ## Architecture
 
@@ -68,26 +68,26 @@ TestPanel (existing floating dock)
 
 ### New files
 
-| File | Purpose |
-|---|---|
-| `apps/web/src/features/test-panel/TestPanelSession.tsx` | Session tab body: lifecycle controls (Reset / Fill / Step / Submit), host loop (Success / Error), helper text + onboarding tooltips. |
-| `apps/web/src/features/test-panel/TestPanelStatusStrip.tsx` | Always-visible status pills: step / validation / submit. |
-| `apps/web/src/features/test-panel/session-actions.ts` | Pure helpers: which fields qualify as "required to fill", default value derivation per field semantic type. |
-| `apps/web/src/features/test-panel/session-actions.test.ts` | TDD tests for the helpers. |
+| File                                                        | Purpose                                                                                                                              |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `apps/web/src/features/test-panel/TestPanelSession.tsx`     | Session tab body: lifecycle controls (Reset / Fill / Step / Submit), host loop (Success / Error), helper text + onboarding tooltips. |
+| `apps/web/src/features/test-panel/TestPanelStatusStrip.tsx` | Always-visible status pills: step / validation / submit.                                                                             |
+| `apps/web/src/features/test-panel/session-actions.ts`       | Pure helpers: which fields qualify as "required to fill", default value derivation per field semantic type.                          |
+| `apps/web/src/features/test-panel/session-actions.test.ts`  | TDD tests for the helpers.                                                                                                           |
 
 ### Modified files
 
-| File | Change |
-|---|---|
-| `apps/web/src/features/test-panel/types.ts` | `TestPanelMode = "synth" \| "record" \| "session"` (adds `"session"`). New optional field `statusSnapshot: TestPanelStatusSnapshot \| null` on `TestPanelState`. New interface `TestPanelStatusSnapshot { currentStepLabel, currentStepIndex, totalSteps, validationValid, submitStatus }`. |
-| `apps/web/src/features/test-panel/state.ts` | New action `set-status-snapshot`; reducer writes `statusSnapshot`. |
-| `apps/web/src/features/test-panel/state.test.ts` | New tests for `set-status-snapshot` + mode union widening. |
-| `apps/web/src/features/test-panel/useTestPanelState.ts` | Add `setStatusSnapshot` callback. Subscribe to `engine.subscribeReports` ALSO when `mode === "session"` (today only when `mode === "record"`). |
-| `apps/web/src/features/test-panel/TestPanelHeader.tsx` | Add 3rd mode button "Session" with `aria-pressed`. Add persistent "Drives preview" badge. |
-| `apps/web/src/features/test-panel/TestPanel.tsx` | Render `<TestPanelStatusStrip>` between header and tabs. Branch on `mode === "session"` to render `<TestPanelSession>`. Pipe new callbacks. |
-| `apps/web/src/features/test-panel/TestPanelTrace.tsx` | Extend toggle: `By listener \| By receiver \| History`. Add history view (scrolling list of `recordedReports`; click row to expand inline). |
-| `apps/web/src/App.tsx` | Pipe session-lifecycle callbacks into TestPanel (`onResetSession`, `onFillRequired`, `onRunStep`, `onSubmit`, `onSimulateHostSuccess`, `onSimulateHostError`). Add `useEffect` deriving status snapshot from `runtimeSessionState` → `setStatusSnapshot`. Delete the BehaviorWorkspace Simulator-related props it currently passes (`onHandleResetRuntimeSession`, etc.). |
-| `apps/web/src/features/behavior/manager/BehaviorWorkspace.tsx` | Delete entire Simulator section (lines ~3781–4220). Replace with single-line breadcrumb: "Session controls moved to Test panel · open with ⌘K". Drop simulator-related props from interface. |
+| File                                                           | Change                                                                                                                                                                                                                                                                                                                                                                    |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web/src/features/test-panel/types.ts`                    | `TestPanelMode = "synth" \| "record" \| "session"` (adds `"session"`). New optional field `statusSnapshot: TestPanelStatusSnapshot \| null` on `TestPanelState`. New interface `TestPanelStatusSnapshot { currentStepLabel, currentStepIndex, totalSteps, validationValid, submitStatus }`.                                                                               |
+| `apps/web/src/features/test-panel/state.ts`                    | New action `set-status-snapshot`; reducer writes `statusSnapshot`.                                                                                                                                                                                                                                                                                                        |
+| `apps/web/src/features/test-panel/state.test.ts`               | New tests for `set-status-snapshot` + mode union widening.                                                                                                                                                                                                                                                                                                                |
+| `apps/web/src/features/test-panel/useTestPanelState.ts`        | Add `setStatusSnapshot` callback. Subscribe to `engine.subscribeReports` ALSO when `mode === "session"` (today only when `mode === "record"`).                                                                                                                                                                                                                            |
+| `apps/web/src/features/test-panel/TestPanelHeader.tsx`         | Add 3rd mode button "Session" with `aria-pressed`. Add persistent "Drives preview" badge.                                                                                                                                                                                                                                                                                 |
+| `apps/web/src/features/test-panel/TestPanel.tsx`               | Render `<TestPanelStatusStrip>` between header and tabs. Branch on `mode === "session"` to render `<TestPanelSession>`. Pipe new callbacks.                                                                                                                                                                                                                               |
+| `apps/web/src/features/test-panel/TestPanelTrace.tsx`          | Extend toggle: `By listener \| By receiver \| History`. Add history view (scrolling list of `recordedReports`; click row to expand inline).                                                                                                                                                                                                                               |
+| `apps/web/src/App.tsx`                                         | Pipe session-lifecycle callbacks into TestPanel (`onResetSession`, `onFillRequired`, `onRunStep`, `onSubmit`, `onSimulateHostSuccess`, `onSimulateHostError`). Add `useEffect` deriving status snapshot from `runtimeSessionState` → `setStatusSnapshot`. Delete the BehaviorWorkspace Simulator-related props it currently passes (`onHandleResetRuntimeSession`, etc.). |
+| `apps/web/src/features/behavior/manager/BehaviorWorkspace.tsx` | Delete entire Simulator section (lines ~3781–4220). Replace with single-line breadcrumb: "Session controls moved to Test panel · open with ⌘K". Drop simulator-related props from interface.                                                                                                                                                                              |
 
 Engine: **no changes.** Existing `dispatch`, `dispatchWithReport`, `subscribeReports`, `dispatchAsync` cover everything.
 
@@ -167,15 +167,15 @@ click row → expand inline:
 
 ## Error Handling & Edge Cases
 
-| Case | Behavior |
-|---|---|
-| No active document | Status strip shows "No document loaded". Lifecycle buttons disabled. Helper text: "Open a project to enable session controls." |
-| Engine not mounted yet | Status snapshot shows "Initializing". Buttons disabled. |
-| Reset during pending host loop | Confirm dialog: "Reset will discard the in-flight submit (correlation X). Continue?" — type "reset" or one-click confirm (consistent with destructive-action pattern). |
-| Submit when validation invalid | Engine emits validation errors as usual; trace shows them. Submit button stays clickable but tooltip warns. |
-| Host loop timeout | Engine times out pending continuations after configured limit. Status pill shows "Submit: error". Helper: "Host bridge timed out. Click Reset to clear." |
-| History click on report whose source node was deleted | Render with "broken target" badge per existing pattern; chain context degrades gracefully. |
-| User on Synth tab when status changes | Status strip updates regardless of active tab — that's the point of always-visible. |
+| Case                                                  | Behavior                                                                                                                                                               |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No active document                                    | Status strip shows "No document loaded". Lifecycle buttons disabled. Helper text: "Open a project to enable session controls."                                         |
+| Engine not mounted yet                                | Status snapshot shows "Initializing". Buttons disabled.                                                                                                                |
+| Reset during pending host loop                        | Confirm dialog: "Reset will discard the in-flight submit (correlation X). Continue?" — type "reset" or one-click confirm (consistent with destructive-action pattern). |
+| Submit when validation invalid                        | Engine emits validation errors as usual; trace shows them. Submit button stays clickable but tooltip warns.                                                            |
+| Host loop timeout                                     | Engine times out pending continuations after configured limit. Status pill shows "Submit: error". Helper: "Host bridge timed out. Click Reset to clear."               |
+| History click on report whose source node was deleted | Render with "broken target" badge per existing pattern; chain context degrades gracefully.                                                                             |
+| User on Synth tab when status changes                 | Status strip updates regardless of active tab — that's the point of always-visible.                                                                                    |
 
 ## Testing
 
@@ -188,12 +188,14 @@ click row → expand inline:
 ### New unit tests
 
 `apps/web/src/features/test-panel/state.test.ts` — extend with:
+
 - `set-status-snapshot writes the snapshot field`
 - `mode union accepts session value`
 
 (Total: 8 → 11 tests.)
 
 `apps/web/src/features/test-panel/session-actions.test.ts` (new):
+
 - `derives required-fill list from current step's required fields`
 - `default value derivation: text → "Test value", number → 0, boolean → true, radio/select → first option, checkbox → first option as array, date → today's ISO`
 - `skips fields whose visibility flag is false`
@@ -204,6 +206,7 @@ click row → expand inline:
 ### E2E
 
 Extend `apps/web/e2e/test-panel.run.mjs` with a Session flow:
+
 - Open panel, switch to Session tab.
 - Click Fill required → expect form fields populated in preview.
 - Click Submit → expect status strip "Submit: submitting".
@@ -244,19 +247,19 @@ Extend `apps/web/e2e/test-panel.run.mjs` with a Session flow:
 
 ## A vs B Comparison (recap)
 
-| Dimension | A (surgical relabel) | B (this design) |
-|---|---|---|
-| User goal "one surface" | partial — Simulator stays | yes — TestPanel = single surface |
-| User goal "session in TestPanel" | no — stays in Simulator | yes — Session tab |
-| LoC delta | ~50 (relabel + cross-link) | ~+400 / -550 = -150 net |
-| Files touched | 1–2 | ~10 |
-| Risk | very low | medium (new tab + state strip + history view + delete 460-line region) |
-| Time | ~1–2 h | ~6–10 h |
-| New tests required | none | ~10 (state + session-actions + E2E extension) |
-| Walkthrough impact | none | none |
-| Engine changes | none | none |
-| User retraining | minimal | moderate (offset by breadcrumb + badge + ⌘K) |
-| Surface area to maintain | same (panel + simulator) | smaller (one panel) |
+| Dimension                        | A (surgical relabel)       | B (this design)                                                        |
+| -------------------------------- | -------------------------- | ---------------------------------------------------------------------- |
+| User goal "one surface"          | partial — Simulator stays  | yes — TestPanel = single surface                                       |
+| User goal "session in TestPanel" | no — stays in Simulator    | yes — Session tab                                                      |
+| LoC delta                        | ~50 (relabel + cross-link) | ~+400 / -550 = -150 net                                                |
+| Files touched                    | 1–2                        | ~10                                                                    |
+| Risk                             | very low                   | medium (new tab + state strip + history view + delete 460-line region) |
+| Time                             | ~1–2 h                     | ~6–10 h                                                                |
+| New tests required               | none                       | ~10 (state + session-actions + E2E extension)                          |
+| Walkthrough impact               | none                       | none                                                                   |
+| Engine changes                   | none                       | none                                                                   |
+| User retraining                  | minimal                    | moderate (offset by breadcrumb + badge + ⌘K)                           |
+| Surface area to maintain         | same (panel + simulator)   | smaller (one panel)                                                    |
 
 Recommendation locked: **B**.
 

@@ -14,28 +14,28 @@
 
 ### New files
 
-| File | Responsibility |
-|---|---|
-| `apps/web/src/features/test-panel/TestPanelStatusStrip.tsx` | Always-visible status pills (step / validation / submit). |
-| `apps/web/src/features/test-panel/TestPanelSession.tsx` | Session tab body — lifecycle controls, host loop, helper text. |
-| `apps/web/src/features/test-panel/session-actions.ts` | Pure helpers: required-fill list derivation + per-semantic-type default values. |
-| `apps/web/src/features/test-panel/session-actions.test.ts` | TDD tests for the helpers. |
+| File                                                        | Responsibility                                                                  |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `apps/web/src/features/test-panel/TestPanelStatusStrip.tsx` | Always-visible status pills (step / validation / submit).                       |
+| `apps/web/src/features/test-panel/TestPanelSession.tsx`     | Session tab body — lifecycle controls, host loop, helper text.                  |
+| `apps/web/src/features/test-panel/session-actions.ts`       | Pure helpers: required-fill list derivation + per-semantic-type default values. |
+| `apps/web/src/features/test-panel/session-actions.test.ts`  | TDD tests for the helpers.                                                      |
 
 ### Modified files
 
-| File | Change |
-|---|---|
-| `apps/web/src/features/test-panel/types.ts` | `TestPanelMode` adds `"session"`. Add `TestPanelStatusSnapshot` interface and `statusSnapshot` field on `TestPanelState`. |
-| `apps/web/src/features/test-panel/state.ts` | New action `set-status-snapshot`. Reducer writes `statusSnapshot`. |
-| `apps/web/src/features/test-panel/state.test.ts` | New tests for the action and the widened mode union. |
-| `apps/web/src/features/test-panel/useTestPanelState.ts` | Add `setStatusSnapshot` callback. Subscribe to `engine.subscribeReports` when `mode === "session"` (in addition to `"record"`). |
-| `apps/web/src/features/test-panel/TestPanelHeader.tsx` | Add 3rd mode button "Session" with `aria-pressed`. Add persistent "Drives preview" badge in header. |
-| `apps/web/src/features/test-panel/TestPanel.tsx` | Render `<TestPanelStatusStrip>` between header and tabs. Branch on `mode === "session"` to render `<TestPanelSession>`. Pipe new callbacks. |
-| `apps/web/src/features/test-panel/TestPanelTrace.tsx` | Extend toggle to `By listener \| By receiver \| History`. Add history view (scrolling list of `recordedReports`; click to expand inline with chain context). |
-| `apps/web/src/features/test-panel/index.ts` | Re-export new types if needed. |
-| `apps/web/src/App.tsx` | Add `useEffect` deriving status snapshot from `runtimeSessionState` → `setStatusSnapshot`. Pipe session-lifecycle + host-loop callbacks into TestPanel. Drop the Simulator-related props from BehaviorWorkspace mount. Eventually remove orphaned handlers. |
-| `apps/web/src/features/behavior/manager/BehaviorWorkspace.tsx` | Delete entire Simulator section (~lines 3781–4220). Replace with single-line breadcrumb. Drop simulator-related props from interface. |
-| `apps/web/e2e/test-panel.run.mjs` | Extend with a Session-tab flow (Fill → Submit → Success → History). |
+| File                                                           | Change                                                                                                                                                                                                                                                      |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web/src/features/test-panel/types.ts`                    | `TestPanelMode` adds `"session"`. Add `TestPanelStatusSnapshot` interface and `statusSnapshot` field on `TestPanelState`.                                                                                                                                   |
+| `apps/web/src/features/test-panel/state.ts`                    | New action `set-status-snapshot`. Reducer writes `statusSnapshot`.                                                                                                                                                                                          |
+| `apps/web/src/features/test-panel/state.test.ts`               | New tests for the action and the widened mode union.                                                                                                                                                                                                        |
+| `apps/web/src/features/test-panel/useTestPanelState.ts`        | Add `setStatusSnapshot` callback. Subscribe to `engine.subscribeReports` when `mode === "session"` (in addition to `"record"`).                                                                                                                             |
+| `apps/web/src/features/test-panel/TestPanelHeader.tsx`         | Add 3rd mode button "Session" with `aria-pressed`. Add persistent "Drives preview" badge in header.                                                                                                                                                         |
+| `apps/web/src/features/test-panel/TestPanel.tsx`               | Render `<TestPanelStatusStrip>` between header and tabs. Branch on `mode === "session"` to render `<TestPanelSession>`. Pipe new callbacks.                                                                                                                 |
+| `apps/web/src/features/test-panel/TestPanelTrace.tsx`          | Extend toggle to `By listener \| By receiver \| History`. Add history view (scrolling list of `recordedReports`; click to expand inline with chain context).                                                                                                |
+| `apps/web/src/features/test-panel/index.ts`                    | Re-export new types if needed.                                                                                                                                                                                                                              |
+| `apps/web/src/App.tsx`                                         | Add `useEffect` deriving status snapshot from `runtimeSessionState` → `setStatusSnapshot`. Pipe session-lifecycle + host-loop callbacks into TestPanel. Drop the Simulator-related props from BehaviorWorkspace mount. Eventually remove orphaned handlers. |
+| `apps/web/src/features/behavior/manager/BehaviorWorkspace.tsx` | Delete entire Simulator section (~lines 3781–4220). Replace with single-line breadcrumb. Drop simulator-related props from interface.                                                                                                                       |
+| `apps/web/e2e/test-panel.run.mjs`                              | Extend with a Session-tab flow (Fill → Submit → Success → History).                                                                                                                                                                                         |
 
 ---
 
@@ -44,6 +44,7 @@
 ### Task 1.1: Extend types
 
 **Files:**
+
 - Modify: `apps/web/src/features/test-panel/types.ts`
 
 - [ ] **Step 1: Update the type module**
@@ -93,6 +94,7 @@ git commit -m "feat(test-panel): types for Session mode + status snapshot"
 ### Task 1.2: Reducer + tests
 
 **Files:**
+
 - Modify: `apps/web/src/features/test-panel/state.ts`
 - Modify: `apps/web/src/features/test-panel/state.test.ts`
 
@@ -180,6 +182,7 @@ git commit -m "feat(test-panel): reducer set-status-snapshot + session mode in u
 ### Task 1.3: Hook — setStatusSnapshot + session subscribe
 
 **Files:**
+
 - Modify: `apps/web/src/features/test-panel/useTestPanelState.ts`
 
 - [ ] **Step 1: Add setStatusSnapshot callback**
@@ -188,8 +191,7 @@ In `useTestPanelState.ts`, after the existing `setLastReport` callback, add:
 
 ```ts
 const setStatusSnapshot = useCallback(
-  (snapshot: TestPanelStatusSnapshot | null) =>
-    dispatch({ type: "set-status-snapshot", snapshot }),
+  (snapshot: TestPanelStatusSnapshot | null) => dispatch({ type: "set-status-snapshot", snapshot }),
   [],
 );
 ```
@@ -238,6 +240,7 @@ git commit -m "feat(test-panel): hook exposes setStatusSnapshot + subscribes in 
 ### Task 1.4: TestPanelStatusStrip component
 
 **Files:**
+
 - Create: `apps/web/src/features/test-panel/TestPanelStatusStrip.tsx`
 
 - [ ] **Step 1: Implement**
@@ -301,6 +304,7 @@ git commit -m "feat(test-panel): TestPanelStatusStrip (always-visible step/valid
 ### Task 2.1: session-actions pure helpers + tests
 
 **Files:**
+
 - Create: `apps/web/src/features/test-panel/session-actions.ts`
 - Create: `apps/web/src/features/test-panel/session-actions.test.ts`
 
@@ -309,10 +313,7 @@ git commit -m "feat(test-panel): TestPanelStatusStrip (always-visible step/valid
 ```ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  collectRequiredFillTargets,
-  defaultValueForField,
-} from "./session-actions";
+import { collectRequiredFillTargets, defaultValueForField } from "./session-actions";
 import type { AuthoringField, AuthoringStep, RuntimeSessionState } from "@form-builder/schema";
 
 const baseField = (over: Partial<AuthoringField>): AuthoringField =>
@@ -330,18 +331,12 @@ test("defaultValueForField returns sensible defaults per semantic type", () => {
   assert.equal(defaultValueForField(baseField({ semanticType: "text" })), "Test value");
   assert.equal(defaultValueForField(baseField({ semanticType: "number" })), 0);
   assert.equal(defaultValueForField(baseField({ semanticType: "boolean" })), true);
-  assert.equal(
-    defaultValueForField(baseField({ semanticType: "radio", options: [{ value: "a", label: "A" }] })),
-    "a",
-  );
+  assert.equal(defaultValueForField(baseField({ semanticType: "radio", options: [{ value: "a", label: "A" }] })), "a");
   assert.deepEqual(
     defaultValueForField(baseField({ semanticType: "checkbox", options: [{ value: "x", label: "X" }] })),
     ["x"],
   );
-  assert.match(
-    defaultValueForField(baseField({ semanticType: "date" })) as string,
-    /^\d{4}-\d{2}-\d{2}$/,
-  );
+  assert.match(defaultValueForField(baseField({ semanticType: "date" })) as string, /^\d{4}-\d{2}-\d{2}$/);
 });
 
 test("collectRequiredFillTargets returns required, visible, enabled fields with no value yet", () => {
@@ -370,16 +365,17 @@ test("collectRequiredFillTargets returns required, visible, enabled fields with 
   } as unknown as RuntimeSessionState;
   const targets = collectRequiredFillTargets(step, sessionState);
   // Should pick "a" (required + empty), skip "b" (not required), skip "c" (already filled).
-  assert.deepEqual(targets.map((t) => t.field.id), ["a"]);
+  assert.deepEqual(
+    targets.map((t) => t.field.id),
+    ["a"],
+  );
 });
 
 test("collectRequiredFillTargets skips invisible fields", () => {
   const step = {
     id: "s1",
     title: "Step",
-    sections: [
-      { id: "sec", fields: [baseField({ id: "x" })], groups: [] },
-    ],
+    sections: [{ id: "sec", fields: [baseField({ id: "x" })], groups: [] }],
   } as unknown as AuthoringStep;
   const sessionState = {
     values: {},
@@ -392,9 +388,7 @@ test("collectRequiredFillTargets skips disabled fields", () => {
   const step = {
     id: "s1",
     title: "Step",
-    sections: [
-      { id: "sec", fields: [baseField({ id: "y" })], groups: [] },
-    ],
+    sections: [{ id: "sec", fields: [baseField({ id: "y" })], groups: [] }],
   } as unknown as AuthoringStep;
   const sessionState = {
     values: {},
@@ -499,6 +493,7 @@ git commit -m "feat(test-panel): session-actions helpers (required-fill targets 
 ### Task 2.2: TestPanelSession component
 
 **Files:**
+
 - Create: `apps/web/src/features/test-panel/TestPanelSession.tsx`
 
 - [ ] **Step 1: Implement**
@@ -535,24 +530,14 @@ export function TestPanelSession({
           <span className="text-xs uppercase tracking-wide text-slate-500">Lifecycle</span>
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <SessionButton
-            label="Reset"
-            hint="Clear values + state"
-            onClick={onResetSession}
-            disabled={!documentReady}
-          />
+          <SessionButton label="Reset" hint="Clear values + state" onClick={onResetSession} disabled={!documentReady} />
           <SessionButton
             label="Fill required"
             hint="Auto-fill required fields"
             onClick={onFillRequired}
             disabled={!documentReady}
           />
-          <SessionButton
-            label="Run step"
-            hint="Advance to next step"
-            onClick={onRunStep}
-            disabled={!documentReady}
-          />
+          <SessionButton label="Run step" hint="Advance to next step" onClick={onRunStep} disabled={!documentReady} />
           <SessionButton
             label="Submit"
             hint="Trigger form.submit"
@@ -638,6 +623,7 @@ git commit -m "feat(test-panel): TestPanelSession (lifecycle + host loop control
 ### Task 2.3: Update TestPanelHeader (3rd tab + badge)
 
 **Files:**
+
 - Modify: `apps/web/src/features/test-panel/TestPanelHeader.tsx`
 
 - [ ] **Step 1: Add session button + drives-preview badge**
@@ -684,6 +670,7 @@ git commit -m "feat(test-panel): Header gets Session mode tab + Drives-preview b
 ### Task 2.4: Update TestPanel container (render strip + session branch)
 
 **Files:**
+
 - Modify: `apps/web/src/features/test-panel/TestPanel.tsx`
 
 - [ ] **Step 1: Add new props**
@@ -749,6 +736,7 @@ git commit -m "feat(test-panel): container renders StatusStrip + Session mode bo
 ### Task 3.1: Extend TestPanelTrace with History toggle
 
 **Files:**
+
 - Modify: `apps/web/src/features/test-panel/TestPanelTrace.tsx`
 
 - [ ] **Step 1: Add new props**
@@ -860,7 +848,8 @@ function ChainContext({
           <ul className="ml-2">
             {beforeWindow.map((entry) => (
               <li key={entry.id}>
-                ▸ {entry.report.event.type} <span className="text-slate-500">@ {formatRelativeTime(entry.timestamp)}</span>
+                ▸ {entry.report.event.type}{" "}
+                <span className="text-slate-500">@ {formatRelativeTime(entry.timestamp)}</span>
               </li>
             ))}
           </ul>
@@ -872,7 +861,8 @@ function ChainContext({
           <ul className="ml-2">
             {afterWindow.map((entry) => (
               <li key={entry.id}>
-                ▸ {entry.report.event.type} <span className="text-slate-500">@ {formatRelativeTime(entry.timestamp)}</span>
+                ▸ {entry.report.event.type}{" "}
+                <span className="text-slate-500">@ {formatRelativeTime(entry.timestamp)}</span>
               </li>
             ))}
           </ul>
@@ -904,6 +894,7 @@ git commit -m "feat(test-panel): TestPanelTrace History view with chain context"
 ### Task 4.1: Status snapshot derivation effect
 
 **Files:**
+
 - Modify: `apps/web/src/App.tsx`
 
 - [ ] **Step 1: Add the effect**
@@ -924,8 +915,7 @@ useEffect(() => {
   const currentStepIndex = sessionState.currentStepId
     ? activeDocument.steps.findIndex((s) => s.id === sessionState.currentStepId)
     : -1;
-  const currentStepLabel =
-    currentStepIndex >= 0 ? (activeDocument.steps[currentStepIndex]?.title ?? null) : null;
+  const currentStepLabel = currentStepIndex >= 0 ? (activeDocument.steps[currentStepIndex]?.title ?? null) : null;
   testPanel.setStatusSnapshot({
     currentStepLabel,
     currentStepIndex,
@@ -952,6 +942,7 @@ git commit -m "feat(web): derive TestPanel status snapshot from runtimeSessionSt
 ### Task 4.2: Wire session lifecycle callbacks
 
 **Files:**
+
 - Modify: `apps/web/src/App.tsx`
 
 - [ ] **Step 1: Promote existing handlers to useCallback**
@@ -986,6 +977,7 @@ git commit -m "feat(web): wire session-lifecycle handlers into TestPanel-Session
 ### Task 4.3: Wire host loop callbacks
 
 **Files:**
+
 - Modify: `apps/web/src/App.tsx`
 
 - [ ] **Step 1: Promote handlers**
@@ -995,8 +987,8 @@ Wrap `handleMockSubmitSuccess` and `handleMockSubmitError` (lines 4826, 4856) in
 - [ ] **Step 2: Pass into TestPanel**
 
 ```tsx
-onSimulateHostSuccess={handleMockSubmitSuccess}
-onSimulateHostError={handleMockSubmitError}
+onSimulateHostSuccess = { handleMockSubmitSuccess };
+onSimulateHostError = { handleMockSubmitError };
 ```
 
 - [ ] **Step 3: Pass recordedReports to TestPanel for History view**
@@ -1027,6 +1019,7 @@ git commit -m "feat(web): wire host-loop simulate buttons + recordedReports into
 ### Task 5.1: Delete the simulator render block
 
 **Files:**
+
 - Modify: `apps/web/src/features/behavior/manager/BehaviorWorkspace.tsx`
 
 - [ ] **Step 1: Find the boundaries**
@@ -1069,6 +1062,7 @@ git commit -m "refactor(behavior): delete Simulator section + replace with TestP
 ### Task 5.2: Drop simulator-related props from BehaviorWorkspace interface
 
 **Files:**
+
 - Modify: `apps/web/src/features/behavior/manager/BehaviorWorkspace.tsx`
 - Modify: `apps/web/src/App.tsx`
 
@@ -1103,6 +1097,7 @@ git commit -m "refactor(behavior): drop simulator-related props from BehaviorWor
 ### Task 5.3: Remove orphaned trace-evidence state from App.tsx + BehaviorWorkspace
 
 **Files:**
+
 - Modify: `apps/web/src/App.tsx`
 - Modify: `apps/web/src/features/behavior/manager/BehaviorWorkspace.tsx`
 
@@ -1136,6 +1131,7 @@ git commit -m "refactor(web): remove trace-evidence state orphaned by Simulator 
 ### Task 6.1: Extend test-panel E2E with Session flow
 
 **Files:**
+
 - Modify: `apps/web/e2e/test-panel.run.mjs`
 
 - [ ] **Step 1: Add the Session-tab flow**
@@ -1154,18 +1150,18 @@ await page.getByRole("button", { name: /Fill required/i }).click();
 await page.getByRole("button", { name: /^Submit$/i }).click();
 
 // Status strip should show "Submit: submitting" or "success" depending on whether host_call_await is in the fixture
-await page.locator('text=/Submit:.*(submitting|success)/i').waitFor({ timeout: 5000 });
+await page.locator("text=/Submit:.*(submitting|success)/i").waitFor({ timeout: 5000 });
 
 // If submitting, simulate success
-const submittingNow = await page.locator('text=/Submit: submitting/i').count();
+const submittingNow = await page.locator("text=/Submit: submitting/i").count();
 if (submittingNow > 0) {
   await page.getByRole("button", { name: /Simulate success/i }).click();
-  await page.locator('text=/Submit: success/i').waitFor({ timeout: 5000 });
+  await page.locator("text=/Submit: success/i").waitFor({ timeout: 5000 });
 }
 
 // Switch trace toggle to History → expect ≥1 entry
 await page.getByRole("button", { name: /History/i }).click();
-await page.locator('text=/0\\d:\\d\\d:\\d\\d/').first().waitFor({ timeout: 3000 });
+await page.locator("text=/0\\d:\\d\\d:\\d\\d/").first().waitFor({ timeout: 3000 });
 ```
 
 - [ ] **Step 2: Run E2E**
@@ -1200,6 +1196,7 @@ npm run format:check
 ```
 
 All must pass:
+
 - Runtime: 105/105 (no engine change)
 - API: 99/99
 - E2E: 3/3
@@ -1217,6 +1214,7 @@ git diff --cached --quiet || git commit -m "chore: format after Session tab impl
 ### Task 6.3: RESUME refresh
 
 **Files:**
+
 - Modify: `RESUME.md`
 - Modify: `docs/project-plan.md`
 
@@ -1252,6 +1250,7 @@ git commit -m "docs: RESUME + project-plan refresh for Session-tab fold"
 ## Self-Review
 
 **Spec coverage:**
+
 - Status snapshot: Phase 1.1 (types) + 1.2 (reducer) + 1.3 (hook) + 1.4 (StatusStrip) + 4.1 (App effect)
 - Session tab body: Phase 2.1 (helpers) + 2.2 (component) + 2.3 (header tab) + 2.4 (container branch) + 4.2-4.3 (App callbacks)
 - History view: Phase 3.1 (toggle + component + chain context)
@@ -1266,6 +1265,7 @@ git commit -m "docs: RESUME + project-plan refresh for Session-tab fold"
 In `TestPanelSession.onResetSession` handler (App side), wrap with the existing `ConfirmDialog`:
 
 If `statusSnapshot.submitStatus === "submitting"`, show confirm dialog:
+
 > "Reset will discard the in-flight submit (correlation X). Continue?" — type "reset" to confirm.
 
 Otherwise call `onResetSession()` directly.

@@ -2958,8 +2958,7 @@ export default function App() {
     const currentStepIndex = sessionState.currentStepId
       ? activeDocument.steps.findIndex((step) => step.id === sessionState.currentStepId)
       : -1;
-    const currentStepLabel =
-      currentStepIndex >= 0 ? (activeDocument.steps[currentStepIndex]?.title ?? null) : null;
+    const currentStepLabel = currentStepIndex >= 0 ? (activeDocument.steps[currentStepIndex]?.title ?? null) : null;
     testPanelSetStatusSnapshot({
       currentStepLabel,
       currentStepIndex,
