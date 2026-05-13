@@ -11357,15 +11357,9 @@ export default function App() {
         onFillRequired={handlePopulateRequiredRuntimeValues}
         onRunStep={handleRunCurrentRuntimeStep}
         onSubmit={handleRunRuntimeSubmit}
-        onSimulateHostSuccess={noopSessionHandler}
-        onSimulateHostError={noopSessionHandler}
+        onSimulateHostSuccess={handleMockSubmitSuccess}
+        onSimulateHostError={handleMockSubmitError}
       />
     </main>
   );
 }
-
-// Phase 2: TestPanel Session-tab handlers are stubbed. Phase 4 wires them to
-// the App-level session lifecycle (handleResetRuntimeSession, etc).
-const noopSessionHandler = (): void => {
-  /* wired in Phase 4 */
-};
