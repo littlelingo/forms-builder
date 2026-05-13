@@ -20,7 +20,10 @@
  */
 import type { AuthoringDocument, RuntimeActionDefinition, RuntimeListenerDefinition } from "@form-builder/schema";
 
-export type AuthoringLintCode = "correlation_id_collision" | "response_token_out_of_scope";
+export type AuthoringLintCode =
+  | "correlation_id_collision"
+  | "response_token_out_of_scope"
+  | "host-call-await-handlerkey-collision";
 
 export interface AuthoringLintFinding {
   code: AuthoringLintCode;
@@ -75,6 +78,54 @@ export function lintRuntimeListener(listener: RuntimeListenerDefinition): Author
     }
   });
 
+  // Rule 3: handlerKey collision among host_call_await actions within a single
+  // execution scope. Branch arms get independent scopes — the same handlerKey
+  // across mutually-exclusive arms cannot collide at runtime.
+  findings.push(...lintHandlerKeyCollisions(listener));
+
+  return findings;
+}
+
+/**
+ * Find host_call_await actions sharing a handlerKey within one execution
+ * scope. A scope is either the listener's top-level action list or a single
+ * branch arm (then or else). Two awaits with the same handlerKey in the same
+ * scope risk correlation collisions when the host responds; the author should
+ * either rename one handlerKey or ensure they sit in different branch arms.
+ */
+function lintHandlerKeyCollisions(listener: RuntimeListenerDefinition): AuthoringLintFinding[] {
+  const findings: AuthoringLintFinding[] = [];
+  const listenerLabel = listener.label ?? listener.id;
+
+  function walkScope(actions: readonly RuntimeActionDefinition[]): void {
+    const counts = new Map<string, number>();
+    for (const action of actions) {
+      if (action.kind === "host_call_await") {
+        const config = isRecord(action.config) ? action.config : {};
+        const key = typeof config.handlerKey === "string" ? config.handlerKey : null;
+        if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+      if (action.kind === "branch" && isRecord(action.config)) {
+        const config = action.config;
+        const thenArm = Array.isArray(config.actions) ? (config.actions as RuntimeActionDefinition[]) : [];
+        const elseArm = Array.isArray(config.else) ? (config.else as RuntimeActionDefinition[]) : [];
+        walkScope(thenArm);
+        walkScope(elseArm);
+      }
+    }
+    for (const [key, count] of counts.entries()) {
+      if (count >= 2) {
+        findings.push({
+          code: "host-call-await-handlerkey-collision",
+          listenerId: listener.id,
+          message: `Listener "${listenerLabel}" has ${count} host_call_await actions with handlerKey "${key}". Correlation collision risk — give each action a distinct handlerKey or ensure they run in separate branch arms.`,
+          details: { handlerKey: key, count },
+        });
+      }
+    }
+  }
+
+  walkScope(listener.actions);
   return findings;
 }
 

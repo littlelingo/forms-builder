@@ -88,7 +88,9 @@ test("authoring-lints: blank/missing correlationId never flags collision", () =>
       continueOnError: false,
     },
   ]);
-  assert.deepEqual(lintRuntimeListener(listener), []);
+  const findings = lintRuntimeListener(listener);
+  // No correlation-id finding: blank/missing correlationId is engine-generated, not a collision risk.
+  assert.equal(findings.filter((f) => f.code === "correlation_id_collision").length, 0);
 });
 
 test("authoring-lints: collision detection walks into branch arms", () => {
@@ -181,4 +183,121 @@ test("authoring-lints: literal $response string in config is detected too", () =
   const findings = lintRuntimeListener(listener);
   assert.equal(findings.length, 1);
   assert.equal(findings[0].code, "response_token_out_of_scope");
+});
+
+// ---------------------------------------------------------------------------
+// host-call-await-handlerkey-collision rule
+// ---------------------------------------------------------------------------
+
+const HANDLERKEY_COLLISION_CODE = "host-call-await-handlerkey-collision";
+
+test("authoring-lints: handlerkey collision — warns when listener has 2 host_call_await actions sharing handlerKey", () => {
+  const listener = makeListener([
+    {
+      id: "a1",
+      kind: "host_call_await",
+      target: null,
+      config: { handlerKey: "submit" },
+      continueOnError: false,
+    },
+    {
+      id: "a2",
+      kind: "host_call_await",
+      target: null,
+      config: { handlerKey: "submit" },
+      continueOnError: false,
+    },
+  ]);
+  const findings = lintRuntimeListener(listener);
+  const collisions = findings.filter((f) => f.code === HANDLERKEY_COLLISION_CODE);
+  assert.equal(collisions.length, 1);
+  assert.match(collisions[0].message, /submit/);
+});
+
+test("authoring-lints: handlerkey collision — passes when handlerKeys differ across actions", () => {
+  const listener = makeListener([
+    {
+      id: "a1",
+      kind: "host_call_await",
+      target: null,
+      config: { handlerKey: "submit" },
+      continueOnError: false,
+    },
+    {
+      id: "a2",
+      kind: "host_call_await",
+      target: null,
+      config: { handlerKey: "prefill" },
+      continueOnError: false,
+    },
+  ]);
+  const findings = lintRuntimeListener(listener);
+  assert.equal(findings.filter((f) => f.code === HANDLERKEY_COLLISION_CODE).length, 0);
+});
+
+test("authoring-lints: handlerkey collision — passes when same handlerKey used across mutually-exclusive branch arms", () => {
+  const listener = makeListener([
+    {
+      id: "branch-1",
+      kind: "branch",
+      target: null,
+      config: {
+        conditions: [],
+        actions: [
+          {
+            id: "then-await",
+            kind: "host_call_await",
+            target: null,
+            config: { handlerKey: "submit" },
+            continueOnError: false,
+          },
+        ],
+        else: [
+          {
+            id: "else-await",
+            kind: "host_call_await",
+            target: null,
+            config: { handlerKey: "submit" },
+            continueOnError: false,
+          },
+        ],
+      },
+      continueOnError: false,
+    },
+  ]);
+  const findings = lintRuntimeListener(listener);
+  assert.equal(findings.filter((f) => f.code === HANDLERKEY_COLLISION_CODE).length, 0);
+});
+
+test("authoring-lints: handlerkey collision — warns when same handlerKey appears within one branch arm", () => {
+  const listener = makeListener([
+    {
+      id: "branch-1",
+      kind: "branch",
+      target: null,
+      config: {
+        conditions: [],
+        actions: [
+          {
+            id: "then-await-1",
+            kind: "host_call_await",
+            target: null,
+            config: { handlerKey: "submit" },
+            continueOnError: false,
+          },
+          {
+            id: "then-await-2",
+            kind: "host_call_await",
+            target: null,
+            config: { handlerKey: "submit" },
+            continueOnError: false,
+          },
+        ],
+        else: [],
+      },
+      continueOnError: false,
+    },
+  ]);
+  const findings = lintRuntimeListener(listener);
+  assert.equal(findings.filter((f) => f.code === HANDLERKEY_COLLISION_CODE).length, 1);
 });
