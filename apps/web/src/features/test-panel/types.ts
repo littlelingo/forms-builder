@@ -2,7 +2,7 @@ import type { RuntimeDispatchReport } from "@form-builder/runtime";
 
 import type { RuntimeEventSourceCandidate } from "../behavior/utils/runtime-helpers";
 
-export type TestPanelMode = "synth" | "record";
+export type TestPanelMode = "synth" | "record" | "session";
 export type TestPanelDockSide = "left" | "right" | "float";
 
 export interface TestPanelSelection {
@@ -19,6 +19,15 @@ export interface TestPanelSelection {
   sourceEditedByUser?: boolean;
 }
 
+export interface TestPanelStatusSnapshot {
+  currentStepLabel: string | null;
+  currentStepIndex: number;
+  totalSteps: number;
+  validationValid: boolean;
+  submitStatus: "idle" | "submitting" | "success" | "error";
+  pendingCorrelationId: string | null;
+}
+
 export interface TestPanelState {
   open: boolean;
   mode: TestPanelMode;
@@ -26,6 +35,7 @@ export interface TestPanelState {
   selection: TestPanelSelection;
   lastReport: RuntimeDispatchReport | null;
   recordedReports: { id: string; timestamp: string; report: RuntimeDispatchReport }[];
+  statusSnapshot: TestPanelStatusSnapshot | null;
 }
 
 export interface SourcePickerNode {
