@@ -27,6 +27,7 @@ import type {
   BehaviorLibraryRegistry,
   CreateRuntimeEngineOptions,
   PendingContinuation,
+  PendingContinuationSnapshot,
   RuntimeActionDiagnostic,
   RuntimeConditionDiagnostic,
   RuntimeDispatchReport,
@@ -1166,6 +1167,8 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
         correlationId,
         listenerId: report?.listeners[report.listeners.length - 1]?.listenerId ?? "",
         actionId: action.id,
+        handlerKey,
+        createdAt: Date.now(),
         resolve: (responsePayload) => {
           // Phase 3: write the response into the chain's responseScope so
           // subsequent $response token resolutions in this listener pick it up.
@@ -1781,6 +1784,15 @@ export function createRuntimeEngine(options?: CreateRuntimeEngineOptions): Runti
     },
     getTrace(): RuntimeTraceEntry[] {
       return structuredClone(trace);
+    },
+    getPendingContinuations(): PendingContinuationSnapshot[] {
+      return [...pendingContinuations.values()].map((c) => ({
+        correlationId: c.correlationId,
+        listenerId: c.listenerId,
+        actionId: c.actionId,
+        handlerKey: c.handlerKey,
+        createdAt: c.createdAt,
+      }));
     },
   };
 }

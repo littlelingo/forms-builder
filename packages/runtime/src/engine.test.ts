@@ -3486,3 +3486,93 @@ test("subscribeReports receives a report for every dispatch", () => {
   assert.equal(captured[0].event.type, "field.change");
   assert.equal(captured[1].event.type, "field.change");
 });
+
+test("getPendingContinuations exposes a sanitized snapshot of in-flight host_call_await entries", async () => {
+  const document = createDocument();
+  document.runtime!.formEvents.push({
+    id: "evt-pending-tick",
+    type: "form.tick",
+    dispatcherId: "form-test",
+    dispatcherType: "form",
+    bubbles: false,
+    description: "Tick event for pending-continuation test",
+  });
+  document.runtime!.formListeners.push({
+    id: "listener-pending-await",
+    label: "Pending host_call_await listener",
+    eventName: "form.tick",
+    enabled: true,
+    conditions: [],
+    actions: [
+      {
+        id: "action-pending-await",
+        kind: "host_call_await",
+        target: null,
+        config: { handlerKey: "test-handler", timeoutMs: 1000 },
+        continueOnError: false,
+      },
+    ],
+  });
+
+  const engine = createRuntimeEngine();
+  engine.mount(document, {
+    runtimeId: "runtime-test",
+    projectId: "project-test",
+    hostContext: createHostContext(),
+    emitLoadEvent: false,
+  });
+
+  // Kick off async dispatch — chain suspends on host_call_await without awaiting.
+  const inflight = engine.dispatchAsync({
+    type: "form.tick",
+    version: "1.0",
+    source: {
+      runtimeId: "runtime-test",
+      formId: "form-test",
+      projectId: "project-test",
+      nodeId: "form-test",
+      nodeType: "form",
+    },
+    payload: {},
+    correlationId: "corr-pending-tick",
+    timestamp: "2026-06-01T00:00:00.000Z",
+  });
+
+  // Give the suspension a tick to register the continuation.
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  const pending = engine.getPendingContinuations();
+  assert.equal(pending.length, 1, "exactly one pending continuation expected");
+  const entry = pending[0];
+  assert.equal(entry.handlerKey, "test-handler");
+  assert.ok(entry.correlationId.length > 0, "correlationId must be non-empty");
+  assert.equal(typeof entry.createdAt, "number", "createdAt must be a number");
+
+  // Snapshot must NOT carry function refs or timer handles.
+  assert.equal((entry as unknown as Record<string, unknown>).resolve, undefined, "snapshot must not expose resolve");
+  assert.equal((entry as unknown as Record<string, unknown>).reject, undefined, "snapshot must not expose reject");
+  assert.equal(
+    (entry as unknown as Record<string, unknown>).timeoutHandle,
+    undefined,
+    "snapshot must not expose timeoutHandle",
+  );
+
+  // Resolve so the test doesn't leak a timer + the dispatchAsync promise settles.
+  engine.dispatch({
+    type: "host.action_response",
+    version: "1.0",
+    source: {
+      runtimeId: "runtime-test",
+      formId: "form-test",
+      projectId: "project-test",
+      nodeId: null,
+      nodeType: null,
+    },
+    payload: { correlationId: entry.correlationId },
+    correlationId: entry.correlationId,
+    timestamp: "2026-06-01T00:00:01.000Z",
+  });
+
+  await inflight;
+  assert.equal(engine.getPendingContinuations().length, 0, "continuation must clear after resolution");
+});
