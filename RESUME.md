@@ -3,7 +3,7 @@
 ## Workspace
 
 - Repo: `/Users/clint/Workspace/forms-builder`
-- Current focus: `Unified TestPanel shipped end-to-end (Phases 1-13). Replaces EventFlowStudio + Behavior Studio test mode + Simulator + PreviewTestRecorder + per-listener Run-test buttons. New Walkthrough route is the hosted-user full-canvas preview. Runtime 103/103, pytest 99/99, web typecheck clean, three E2E suites green (phase3 / test-panel / walkthrough). Branch feat/unified-test-panel ready for merge.`
+- Current focus: `TestPanel Session-tab fold shipped on feat/test-panel-session-fold. BehaviorWorkspace Simulator absorbed (~630 lines deleted) as the unified TestPanel's third Session tab — always-visible status strip, Reset/Fill/Run/Submit lifecycle, Simulate success/error host loop, History view with chain context. Runtime 105/105, pytest 99/99, web typecheck clean, three E2E suites green (phase3 / test-panel-extended / walkthrough). Branch ready for merge review.`
 - Baseline target: `VA.gov-style web form flow`, not PDF round-trip
 
 ## Current State
@@ -24,6 +24,18 @@
   - `Open JSON` is now a first-class intake path alongside `Import PDF`
 
 ## What Was Just Completed
+
+- **TestPanel Session tab — Simulator fold** (this run, branch `feat/test-panel-session-fold`):
+  - Folded the BehaviorWorkspace Simulator section (~630 lines deleted across `BehaviorWorkspace.tsx` + `App.tsx`) into the unified TestPanel as a third **Session** tab. Spec [docs/superpowers/specs/2026-05-12-test-panel-session-fold-design.md](/Users/clint/Workspace/forms-builder/docs/superpowers/specs/2026-05-12-test-panel-session-fold-design.md), plan [docs/superpowers/plans/2026-05-12-test-panel-session-fold.md](/Users/clint/Workspace/forms-builder/docs/superpowers/plans/2026-05-12-test-panel-session-fold.md).
+  - Always-visible **status strip** (step / validation / submit pill) rendered between TestPanelHeader and the active tab body via new `TestPanelStatusStrip`, fed by an App-level `useEffect` that derives a `TestPanelStatusSnapshot` from `runtimeSessionState`.
+  - Persistent **"Drives preview"** badge in panel header makes it clear the panel mutates the live preview engine.
+  - Session lifecycle controls: **Reset** (with submit-in-flight confirm guard via `handleResetSessionWithConfirm`) / **Fill required** / **Run step** / **Submit**.
+  - Host loop: **Simulate success** / **Simulate error** — enabled only while the status pill says "submitting".
+  - **TestPanelTrace History view** — third toggle alongside "By listener" / "By receiver". Scroll list of past dispatch reports with click-to-expand per-listener breakdown and chain context (prior 2 / next 2 reports relative to the selected entry).
+  - Drive-by fix to TestPanelTrace: previously the toggle header was hidden when `report === null`, making History unreachable from an empty state. Header now always renders; the per-view body handles the empty case.
+  - BehaviorWorkspace Simulator block was replaced with a one-line breadcrumb pointing to the Test panel. Existing header "Simulator" button now opens the TestPanel directly in Session mode.
+  - No engine changes. New pure helpers in `apps/web/src/features/test-panel/session-actions.ts` (required-fill targets + per-semantic-type default values). Reducer extended with `set-status-snapshot` and `"session"` mode union member.
+  - Gates: typecheck:web clean, build:schema/runtime/web clean, runtime tests **105/105**, pytest **99/99**, E2E **3/3** (test-panel suite extended with the Session flow — Reset → Fill required → Submit → Simulate success → History), reducer tests **11/11**, session-actions tests **4/4**, format:check clean.
 
 - **Unified TestPanel — Phases 1-13 (39 commits on `feat/unified-test-panel`)**. Replaces five legacy test surfaces (EventFlowStudio, Behavior Studio "Test behavior" mode, BehaviorWorkspace SimulatorPanel, PreviewTestRecorder, per-listener "Run behavior test" buttons) with a single dockable panel mounted from `App.tsx`. Plan + spec: [docs/superpowers/plans/2026-05-11-unified-test-panel.md](/Users/clint/Workspace/forms-builder/docs/superpowers/plans/2026-05-11-unified-test-panel.md), [docs/superpowers/specs/2026-05-11-unified-test-panel-design.md](/Users/clint/Workspace/forms-builder/docs/superpowers/specs/2026-05-11-unified-test-panel-design.md).
   - **Phase 1 — engine extensions** (`packages/runtime/src/engine.ts`, `types.ts`). `RuntimeActionDiagnostic` extended with `before` / `after` / `skipped` / `skippedReason`. New `RuntimeEngine.subscribeReports(listener)` channel emits a `RuntimeDispatchReport` for every dispatch (sync + async). 11 new diagnostic tests + 1 subscribe test (runtime suite now 103/103, up from 89).
