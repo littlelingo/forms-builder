@@ -11305,7 +11305,20 @@ export default function App() {
           testPanel.setLastReport(report);
         }}
         onClearRecorded={testPanel.clearRecorded}
+        statusSnapshot={testPanel.state.statusSnapshot}
+        onResetSession={noopSessionHandler}
+        onFillRequired={noopSessionHandler}
+        onRunStep={noopSessionHandler}
+        onSubmit={noopSessionHandler}
+        onSimulateHostSuccess={noopSessionHandler}
+        onSimulateHostError={noopSessionHandler}
       />
     </main>
   );
 }
+
+// Phase 2: TestPanel Session-tab handlers are stubbed. Phase 4 wires them to
+// the App-level session lifecycle (handleResetRuntimeSession, etc).
+const noopSessionHandler = (): void => {
+  /* wired in Phase 4 */
+};
