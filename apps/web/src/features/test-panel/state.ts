@@ -1,6 +1,12 @@
 import type { RuntimeDispatchReport } from "@form-builder/runtime";
 
-import type { TestPanelDockSide, TestPanelMode, TestPanelSelection, TestPanelState } from "./types";
+import type {
+  TestPanelDockSide,
+  TestPanelMode,
+  TestPanelSelection,
+  TestPanelState,
+  TestPanelStatusSnapshot,
+} from "./types";
 
 export const RECORD_BUFFER_CAP = 50;
 
@@ -13,6 +19,7 @@ export type TestPanelAction =
   | { type: "edit-payload"; name: string; value: string }
   | { type: "reset-payload"; payload: Record<string, string> }
   | { type: "set-last-report"; report: RuntimeDispatchReport | null }
+  | { type: "set-status-snapshot"; snapshot: TestPanelStatusSnapshot | null }
   | { type: "append-report"; entry: { id: string; timestamp: string; report: RuntimeDispatchReport } }
   | { type: "clear-recorded" };
 
@@ -29,6 +36,7 @@ export const initialTestPanelState: TestPanelState = {
   },
   lastReport: null,
   recordedReports: [],
+  statusSnapshot: null,
 };
 
 export function testPanelReducer(state: TestPanelState, action: TestPanelAction): TestPanelState {
@@ -96,6 +104,8 @@ export function testPanelReducer(state: TestPanelState, action: TestPanelAction)
       };
     case "set-last-report":
       return { ...state, lastReport: action.report };
+    case "set-status-snapshot":
+      return { ...state, statusSnapshot: action.snapshot };
     case "append-report": {
       const next = [...state.recordedReports, action.entry];
       // FIFO cap: drop the oldest entries when over the buffer cap.

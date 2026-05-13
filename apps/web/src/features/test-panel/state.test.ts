@@ -163,6 +163,43 @@ test("set-mode: updates mode without touching other state", () => {
   assert.equal(next.dockSide, initialTestPanelState.dockSide);
 });
 
+test("set-status-snapshot writes the snapshot field", () => {
+  const snapshot = {
+    currentStepLabel: "Personal Info",
+    currentStepIndex: 0,
+    totalSteps: 3,
+    validationValid: true,
+    submitStatus: "idle" as const,
+    pendingCorrelationId: null,
+  };
+  const next = testPanelReducer(initialTestPanelState, {
+    type: "set-status-snapshot",
+    snapshot,
+  });
+  assert.deepEqual(next.statusSnapshot, snapshot);
+});
+
+test("set-status-snapshot can clear the snapshot to null", () => {
+  const seeded = testPanelReducer(initialTestPanelState, {
+    type: "set-status-snapshot",
+    snapshot: {
+      currentStepLabel: "Step",
+      currentStepIndex: 0,
+      totalSteps: 1,
+      validationValid: true,
+      submitStatus: "idle",
+      pendingCorrelationId: null,
+    },
+  });
+  const cleared = testPanelReducer(seeded, { type: "set-status-snapshot", snapshot: null });
+  assert.equal(cleared.statusSnapshot, null);
+});
+
+test("set-mode accepts session mode", () => {
+  const next = testPanelReducer(initialTestPanelState, { type: "set-mode", mode: "session" });
+  assert.equal(next.mode, "session");
+});
+
 test("append-report: enforces RECORD_BUFFER_CAP via FIFO eviction", () => {
   let state: TestPanelState = initialTestPanelState;
   for (let i = 0; i < RECORD_BUFFER_CAP + 5; i += 1) {
