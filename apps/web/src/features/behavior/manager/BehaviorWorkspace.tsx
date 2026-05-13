@@ -12,15 +12,8 @@ import type {
 import type { RuntimeTraceEntry } from "@form-builder/runtime";
 import type { AuthoringSelection } from "../../../lib/authoring-utils";
 import {
-  buildRuntimeTraceContextSummary,
-  buildStructuredRuntimeTraceEvidence,
   describeRuntimeAction,
   documentBehaviorClusterFocusLabel,
-  estimateJsonBytes,
-  formatBytes,
-  getRuntimeTraceEntryKey,
-  isAuthoredRuntimeEvidenceEntry,
-  isRuntimeTraceChainRelevantEntry,
   legacyFieldConditionals,
   normalizeDocumentBehaviorClusterKind,
   runtimeNodeTypeLabel,
@@ -48,9 +41,6 @@ import type {
   LogicMapStepEntry,
   RuntimeEditorScope,
   RuntimeEventSourceCandidate,
-  RuntimeTraceChainStep,
-  RuntimeTraceChainSummary,
-  StructuredRuntimeTraceEvidence,
 } from "../utils/runtime-helpers";
 import type { InspectorTab } from "../../inspector";
 import { BehaviorEdgeLabel, BehaviorGraphNode } from "../cards/BehaviorGraphNode";
@@ -214,7 +204,6 @@ export interface BehaviorWorkspaceProps {
   documentBehaviorGraphZoom: number;
   documentBehaviorGraphOffset: { x: number; y: number };
   selectedBehaviorNode: BehaviorGraphSelection | null;
-  selectedRuntimeEvidenceKey: string | null;
   runtimeSessionInputRef: React.RefObject<HTMLInputElement>;
   builderFieldOptions: Array<{ id: string; label: string }>;
   buildLegacyConditionalRuleGroups: (conditions: LegacyConditionalRule[]) => LegacyConditionalRuleGroup[];
@@ -269,7 +258,6 @@ export interface BehaviorWorkspaceProps {
   onSetSelectedBehaviorNode: (node: BehaviorGraphSelection | null) => void;
   onSetEditingRuleIndex: (index: number | null) => void;
   onSetInspectorTab: (tab: InspectorTab) => void;
-  onSetSelectedRuntimeEvidenceKey: (key: string | null) => void;
 }
 
 export function BehaviorWorkspace({
@@ -304,7 +292,6 @@ export function BehaviorWorkspace({
   documentBehaviorGraphZoom,
   documentBehaviorGraphOffset,
   selectedBehaviorNode,
-  selectedRuntimeEvidenceKey,
   runtimeSessionInputRef,
   builderFieldOptions,
   buildLegacyConditionalRuleGroups,
@@ -351,7 +338,6 @@ export function BehaviorWorkspace({
   onSetSelectedBehaviorNode: setSelectedBehaviorNode,
   onSetEditingRuleIndex: setEditingRuleIndex,
   onSetInspectorTab: setInspectorTab,
-  onSetSelectedRuntimeEvidenceKey: setSelectedRuntimeEvidenceKey,
 }: BehaviorWorkspaceProps) {
   const selectedRuleIndex =
     selectedBehaviorNode?.kind === "rule" && selectedAuthoring?.kind === "field" && activeBuilderField
@@ -445,116 +431,6 @@ export function BehaviorWorkspace({
           : selectedAuthoring.kind === "section"
             ? `Section · ${activeSection?.title ?? "Current section"}`
             : `Step · ${activeStep?.title ?? "Current step"}`;
-  const latestTraceEntry = runtimeTraceEntries[0] ?? null;
-  const authoredRuntimeTraceEntries = runtimeTraceEntries.filter(isAuthoredRuntimeEvidenceEntry);
-  const selectedAuthoredTraceEvidence =
-    authoredRuntimeTraceEntries.find((entry) => getRuntimeTraceEntryKey(entry) === selectedRuntimeEvidenceKey) ??
-    authoredRuntimeTraceEntries[0] ??
-    null;
-  const selectedAuthoredTraceEvidenceKey = selectedAuthoredTraceEvidence
-    ? getRuntimeTraceEntryKey(selectedAuthoredTraceEvidence)
-    : null;
-  const isShowingLatestAuthoredEvidence =
-    selectedAuthoredTraceEvidence !== null &&
-    authoredRuntimeTraceEntries[0] !== undefined &&
-    getRuntimeTraceEntryKey(selectedAuthoredTraceEvidence) === getRuntimeTraceEntryKey(authoredRuntimeTraceEntries[0]);
-  const resolveRuntimeEvidenceNodeLabel = (nodeId: unknown, fallbackType?: string | null) => {
-    if (typeof nodeId === "string" && nodeId) {
-      return runtimeNodeLabelById.get(nodeId) ?? nodeId;
-    }
-    if (fallbackType === "form") {
-      return activeDocument ? `Form · ${activeDocument.title}` : "Form";
-    }
-    return "Unknown node";
-  };
-  const selectedStructuredTraceEvidence = selectedAuthoredTraceEvidence
-    ? buildStructuredRuntimeTraceEvidence(selectedAuthoredTraceEvidence, resolveRuntimeEvidenceNodeLabel)
-    : null;
-  const selectedTraceIndex = selectedAuthoredTraceEvidence
-    ? runtimeTraceEntries.findIndex(
-        (entry) => getRuntimeTraceEntryKey(entry) === getRuntimeTraceEntryKey(selectedAuthoredTraceEvidence),
-      )
-    : -1;
-  const selectedTraceChain =
-    selectedTraceIndex >= 0
-      ? (() => {
-          const olderRelevantIndices: number[] = [];
-          for (
-            let index = selectedTraceIndex + 1;
-            index < runtimeTraceEntries.length && olderRelevantIndices.length < 2;
-            index += 1
-          ) {
-            if (isRuntimeTraceChainRelevantEntry(runtimeTraceEntries[index])) {
-              olderRelevantIndices.push(index);
-            }
-          }
-          const newerRelevantIndices: number[] = [];
-          for (let index = selectedTraceIndex - 1; index >= 0 && newerRelevantIndices.length < 1; index -= 1) {
-            if (isRuntimeTraceChainRelevantEntry(runtimeTraceEntries[index])) {
-              newerRelevantIndices.push(index);
-            }
-          }
-          const chronologicalOlderIndices = [...olderRelevantIndices].reverse();
-          const relevantIndices = [...chronologicalOlderIndices, selectedTraceIndex, ...newerRelevantIndices];
-          return relevantIndices.map<RuntimeTraceChainStep>((index) => {
-            const entry = runtimeTraceEntries[index];
-            const summary = buildRuntimeTraceContextSummary(entry, resolveRuntimeEvidenceNodeLabel);
-            return {
-              ...summary,
-              role:
-                index === selectedTraceIndex
-                  ? "selected"
-                  : index > selectedTraceIndex
-                    ? chronologicalOlderIndices.length > 0 && index === chronologicalOlderIndices[0]
-                      ? "trigger"
-                      : "before"
-                    : "after",
-            };
-          });
-        })()
-      : [];
-  const authoredTraceChainSummaries = authoredRuntimeTraceEntries.reduce<RuntimeTraceChainSummary[]>(
-    (groups, entry) => {
-      const correlationId = entry.event.correlationId;
-      if (groups.some((group) => group.correlationId === correlationId)) {
-        return groups;
-      }
-      const correlationEntries = runtimeTraceEntries.filter(
-        (candidate) => candidate.event.correlationId === correlationId && isRuntimeTraceChainRelevantEntry(candidate),
-      );
-      const authoredEntries = correlationEntries.filter(isAuthoredRuntimeEvidenceEntry);
-      if (!authoredEntries.length) {
-        return groups;
-      }
-      const chronologicalEntries = [...correlationEntries].reverse();
-      const triggerEntry = chronologicalEntries.find((candidate) => !isAuthoredRuntimeEvidenceEntry(candidate)) ?? null;
-      const primaryEntry = authoredEntries[0];
-      const sourceLabel = triggerEntry
-        ? resolveRuntimeEvidenceNodeLabel(triggerEntry.event.source.nodeId, triggerEntry.event.source.nodeType)
-        : resolveRuntimeEvidenceNodeLabel(primaryEntry.event.source.nodeId, primaryEntry.event.source.nodeType);
-      const stepLabels = chronologicalEntries.map((candidate) => candidate.event.type);
-      groups.push({
-        correlationId,
-        entryKey: getRuntimeTraceEntryKey(primaryEntry),
-        title: stepLabels.join(" -> "),
-        summary: `Started from ${sourceLabel} with ${authoredEntries.length} authored ${
-          authoredEntries.length === 1 ? "step" : "steps"
-        } captured in this chain.`,
-        stepLabels,
-        authoredCount: authoredEntries.length,
-        latestTimestamp: primaryEntry.event.timestamp,
-        active: selectedAuthoredTraceEvidenceKey
-          ? authoredEntries.some((candidate) => getRuntimeTraceEntryKey(candidate) === selectedAuthoredTraceEvidenceKey)
-          : false,
-      });
-      return groups;
-    },
-    [],
-  );
-  const canRunSubmit = Boolean(activeDocument);
-  const canResolveHostLoop = runtimeSessionState?.submit.status === "submitting";
-  const runtimeSubmitPayloadBytes = formatBytes(estimateJsonBytes(runtimeSubmitPreview));
-  const runtimeSessionSnapshotBytes = formatBytes(estimateJsonBytes(runtimeSessionState));
   const activeLogicMapStep =
     selectedAuthoring?.kind === "step"
       ? (logicMapData?.steps.find((step) => step.id === selectedAuthoring.stepId) ?? null)

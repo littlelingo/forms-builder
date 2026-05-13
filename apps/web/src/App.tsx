@@ -128,7 +128,6 @@ import {
   applyEntryToListener,
   behaviorPresetCategoryLabels,
   builtInRuntimeEventNames,
-  buildStructuredRuntimeTraceEvidence,
   cloneRuntimePayloadShape,
   createEventPayloadCondition,
   createFieldValueCondition,
@@ -154,9 +153,7 @@ import {
   getRuntimeActionEventType,
   getRuntimeActionPayload,
   getRuntimeListenerEventType,
-  getRuntimeTraceEntryKey,
   inferRuntimePayloadFieldType,
-  isAuthoredRuntimeEvidenceEntry,
   isAutomaticRuntimePayloadField,
   isLegacyConditionalRuleEnabled,
   isRecord,
@@ -1826,7 +1823,6 @@ export default function App() {
     startX: number;
     startY: number;
   } | null>(null);
-  const simulatorSectionRef = useRef<HTMLDivElement | null>(null);
   const justCreatedListenerIdsRef = useRef<Set<string>>(new Set());
   const [stage, setStage] = useState<AppStage>("home");
   const [reviewPreviewMode, setReviewPreviewMode] = useState<ReviewPreviewMode>("overlay");
@@ -1926,7 +1922,6 @@ export default function App() {
     sourceLabel: string;
     report: RuntimeDispatchReport;
   } | null>(null);
-  const [selectedRuntimeEvidenceKey, setSelectedRuntimeEvidenceKey] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingProject, setIsLoadingProject] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -2989,20 +2984,6 @@ export default function App() {
     setPendingBehaviorEventEditId(null);
   }, [activeRuntimeScope, pendingBehaviorEventEditId]);
 
-  useEffect(() => {
-    setSelectedRuntimeEvidenceKey(null);
-  }, [activeDocument?.id]);
-
-  useEffect(() => {
-    if (!selectedRuntimeEvidenceKey) {
-      return;
-    }
-    if (runtimeTraceEntries.some((entry) => getRuntimeTraceEntryKey(entry) === selectedRuntimeEvidenceKey)) {
-      return;
-    }
-    setSelectedRuntimeEvidenceKey(null);
-  }, [runtimeTraceEntries, selectedRuntimeEvidenceKey]);
-
   function getRuntimePayloadEditorState(action: RuntimeActionDefinition): RuntimePayloadEditorState {
     const current = runtimePayloadEditors[action.id];
     if (current) {
@@ -3210,14 +3191,6 @@ export default function App() {
       setSelectedBehaviorNode(null);
     }
   }, [activeBuilderField, activeRuntimeScope, selectedBehaviorNode]);
-
-  useEffect(() => {
-    if (behaviorStudioOpen || inspectorTab !== "behavior" || behaviorFocusTarget !== "simulator") {
-      return;
-    }
-    simulatorSectionRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
-    setBehaviorFocusTarget(null);
-  }, [behaviorFocusTarget, behaviorStudioOpen, inspectorTab]);
 
   useEffect(() => {
     if (behaviorStudioOpen) {
@@ -9644,8 +9617,8 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => {
-                    setInspectorTab("behavior");
-                    setBehaviorFocusTarget("simulator");
+                    openTestPanelFromSelection();
+                    testPanel.setMode("session");
                   }}
                   disabled={!activeDocument}
                   className={actionButtonClass()}
@@ -10118,7 +10091,6 @@ export default function App() {
                         documentBehaviorGraphZoom={documentBehaviorGraphZoom}
                         documentBehaviorGraphOffset={documentBehaviorGraphOffset}
                         selectedBehaviorNode={selectedBehaviorNode}
-                        selectedRuntimeEvidenceKey={selectedRuntimeEvidenceKey}
                         runtimeSessionInputRef={runtimeSessionInputRef}
                         builderFieldOptions={builderFieldOptions}
                         buildLegacyConditionalRuleGroups={buildLegacyConditionalRuleGroups}
@@ -10165,7 +10137,6 @@ export default function App() {
                         onSetSelectedBehaviorNode={setSelectedBehaviorNode}
                         onSetEditingRuleIndex={setEditingRuleIndex}
                         onSetInspectorTab={setInspectorTab}
-                        onSetSelectedRuntimeEvidenceKey={setSelectedRuntimeEvidenceKey}
                       />
                     )
                   }
