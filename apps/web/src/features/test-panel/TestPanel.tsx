@@ -126,6 +126,7 @@ export function TestPanel(props: TestPanelProps): ReactElement | null {
           report={traceReport}
           nodeLabelById={nodeLabelById}
           onCreateListenerForSource={onCreateListenerForSource}
+          recordedReports={recordedReports}
         />
       </div>
     </aside>
