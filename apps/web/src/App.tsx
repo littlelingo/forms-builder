@@ -3335,12 +3335,12 @@ export default function App() {
     setRuntimeSessionState(nextState);
   }, [selectedAuthoring?.stepId]);
 
-  function setMessage(message: string | null) {
+  const setMessage = useCallback((message: string | null) => {
     setFlashMessage(message);
     if (message) {
       setErrorMessage(null);
     }
-  }
+  }, []);
 
   function copyDispatchKey(dispatchKey: string | null | undefined) {
     if (!dispatchKey) {
@@ -4603,7 +4603,7 @@ export default function App() {
    * sync listeners unaffected while letting authored async chains run
    * without crashing the preview.
    */
-  function safeDispatch(event: RuntimeEventEnvelope): RuntimeSessionState | null {
+  const safeDispatch = useCallback((event: RuntimeEventEnvelope): RuntimeSessionState | null => {
     try {
       return runtimeEngineRef.current.dispatch(event);
     } catch (err) {
@@ -4623,15 +4623,18 @@ export default function App() {
       }
       throw err;
     }
-  }
+  }, []);
 
-  function dispatchRuntimeEvent(event: RuntimeEventEnvelope) {
-    const nextState = safeDispatch(event);
-    if (nextState) {
-      runtimeSessionRef.current = nextState;
-      setRuntimeSessionState(nextState);
-    }
-  }
+  const dispatchRuntimeEvent = useCallback(
+    (event: RuntimeEventEnvelope) => {
+      const nextState = safeDispatch(event);
+      if (nextState) {
+        runtimeSessionRef.current = nextState;
+        setRuntimeSessionState(nextState);
+      }
+    },
+    [safeDispatch],
+  );
 
   function handleRuntimeFieldValueChange(field: AuthoringField, nextValue: unknown) {
     if (!activeDocument) {
@@ -4826,7 +4829,7 @@ export default function App() {
     setMessage("Runtime session state exported.");
   }
 
-  function handleResetRuntimeSession() {
+  const handleResetRuntimeSession = useCallback(() => {
     if (!activeDocument) {
       return;
     }
@@ -4850,9 +4853,24 @@ export default function App() {
     runtimeSessionRef.current = nextState;
     setRuntimeSessionState(nextState);
     setMessage("Simulator session reset to the current authored step.");
-  }
+  }, [activeDocument, selectedAuthoring, activeProjectDetail, projectEventCatalog, setMessage]);
 
-  function handleMockSubmitSuccess() {
+  // TestPanel Session-tab reset entry point. Confirms before discarding an
+  // in-flight submit so an accidental click doesn't erase mid-flight host-loop
+  // state that the author may still want to inspect.
+  const handleResetSessionWithConfirm = useCallback(() => {
+    const submitStatus = testPanel.state.statusSnapshot?.submitStatus;
+    if (submitStatus === "submitting") {
+      const correlationId = testPanel.state.statusSnapshot?.pendingCorrelationId ?? "unknown";
+      const confirmed = window.confirm(
+        `Reset will discard the in-flight submit (correlation ${correlationId}). Continue?`,
+      );
+      if (!confirmed) return;
+    }
+    handleResetRuntimeSession();
+  }, [testPanel.state.statusSnapshot, handleResetRuntimeSession]);
+
+  const handleMockSubmitSuccess = useCallback(() => {
     if (!activeDocument) {
       return;
     }
@@ -4880,9 +4898,9 @@ export default function App() {
       correlationId: runtimeSessionState?.submit.lastCorrelationId ?? crypto.randomUUID(),
       timestamp: new Date().toISOString(),
     });
-  }
+  }, [activeDocument, activeProjectDetail, dispatchRuntimeEvent, runtimeSessionState]);
 
-  function handleMockSubmitError() {
+  const handleMockSubmitError = useCallback(() => {
     if (!activeDocument) {
       return;
     }
@@ -4910,9 +4928,9 @@ export default function App() {
       correlationId: runtimeSessionState?.submit.lastCorrelationId ?? crypto.randomUUID(),
       timestamp: new Date().toISOString(),
     });
-  }
+  }, [activeDocument, activeProjectDetail, dispatchRuntimeEvent, runtimeSessionState]);
 
-  function handlePopulateRequiredRuntimeValues() {
+  const handlePopulateRequiredRuntimeValues = useCallback(() => {
     if (!activeDocument || !runtimeSessionState) {
       return;
     }
@@ -4951,9 +4969,9 @@ export default function App() {
     runtimeSessionRef.current = nextState;
     setRuntimeSessionState(nextState);
     setMessage("Required runtime fields were seeded with sample values for roundtrip testing.");
-  }
+  }, [activeDocument, runtimeSessionState, setMessage]);
 
-  function handleRunCurrentRuntimeStep() {
+  const handleRunCurrentRuntimeStep = useCallback(() => {
     if (!activeStep) {
       return;
     }
@@ -4972,9 +4990,9 @@ export default function App() {
     runtimeSessionRef.current = nextState;
     setRuntimeSessionState(nextState);
     setMessage(`Simulator focused ${activeStep.title}.`);
-  }
+  }, [activeStep, setMessage]);
 
-  function handleRunRuntimeSubmit() {
+  const handleRunRuntimeSubmit = useCallback(() => {
     if (!activeDocument) {
       return;
     }
@@ -4990,7 +5008,7 @@ export default function App() {
     });
     runtimeSessionRef.current = nextState;
     setRuntimeSessionState(nextState);
-  }
+  }, [activeDocument]);
 
   function selectedRuntimeNodeIdForScope(scopeKind: RuntimeEditorScope["scopeKind"]): string | undefined {
     if (scopeKind === "form") {
@@ -11335,10 +11353,10 @@ export default function App() {
         }}
         onClearRecorded={testPanel.clearRecorded}
         statusSnapshot={testPanel.state.statusSnapshot}
-        onResetSession={noopSessionHandler}
-        onFillRequired={noopSessionHandler}
-        onRunStep={noopSessionHandler}
-        onSubmit={noopSessionHandler}
+        onResetSession={handleResetSessionWithConfirm}
+        onFillRequired={handlePopulateRequiredRuntimeValues}
+        onRunStep={handleRunCurrentRuntimeStep}
+        onSubmit={handleRunRuntimeSubmit}
         onSimulateHostSuccess={noopSessionHandler}
         onSimulateHostError={noopSessionHandler}
       />
