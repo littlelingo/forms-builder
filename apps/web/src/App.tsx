@@ -2946,6 +2946,35 @@ export default function App() {
     }
   }, [activeDocument, runtimeSessionState]);
 
+  // Derive TestPanel status snapshot from the current runtime session state +
+  // authoring document. The Session tab reads `statusSnapshot` for the status
+  // strip (current step, validation, submit progress).
+  const testPanelSetStatusSnapshot = testPanel.setStatusSnapshot;
+  useEffect(() => {
+    if (!activeDocument) {
+      testPanelSetStatusSnapshot(null);
+      return;
+    }
+    const sessionState = runtimeSessionState;
+    if (!sessionState) {
+      testPanelSetStatusSnapshot(null);
+      return;
+    }
+    const currentStepIndex = sessionState.currentStepId
+      ? activeDocument.steps.findIndex((step) => step.id === sessionState.currentStepId)
+      : -1;
+    const currentStepLabel =
+      currentStepIndex >= 0 ? (activeDocument.steps[currentStepIndex]?.title ?? null) : null;
+    testPanelSetStatusSnapshot({
+      currentStepLabel,
+      currentStepIndex,
+      totalSteps: activeDocument.steps.length,
+      validationValid: sessionState.validation?.valid !== false,
+      submitStatus: sessionState.submit?.status ?? "idle",
+      pendingCorrelationId: sessionState.submit?.lastCorrelationId ?? null,
+    });
+  }, [activeDocument, runtimeSessionState, testPanelSetStatusSnapshot]);
+
   useEffect(() => {
     if (!pendingBehaviorEventEditId || !activeRuntimeScope) {
       return;
