@@ -1,6 +1,9 @@
 import type { RuntimeDispatchReport } from "@form-builder/runtime";
 
 import type {
+  BridgePendingEntry,
+  CollisionEntry,
+  MockHostConfig,
   TestPanelDockSide,
   TestPanelMode,
   TestPanelSelection,
@@ -20,6 +23,9 @@ export type TestPanelAction =
   | { type: "reset-payload"; payload: Record<string, string> }
   | { type: "set-last-report"; report: RuntimeDispatchReport | null }
   | { type: "set-status-snapshot"; snapshot: TestPanelStatusSnapshot | null }
+  | { type: "set-mock-host-config"; config: MockHostConfig }
+  | { type: "set-pending-continuations"; entries: BridgePendingEntry[] }
+  | { type: "append-collision"; entry: CollisionEntry }
   | { type: "append-report"; entry: { id: string; timestamp: string; report: RuntimeDispatchReport } }
   | { type: "clear-recorded" };
 
@@ -116,6 +122,15 @@ export function testPanelReducer(state: TestPanelState, action: TestPanelAction)
       return { ...state, lastReport: action.report };
     case "set-status-snapshot":
       return { ...state, statusSnapshot: action.snapshot };
+    case "set-mock-host-config":
+      return { ...state, mockHostConfig: action.config };
+    case "set-pending-continuations":
+      return { ...state, pendingContinuations: action.entries };
+    case "append-collision": {
+      const next = [...state.collisionEvents, action.entry];
+      if (next.length > 20) next.splice(0, next.length - 20);
+      return { ...state, collisionEvents: next };
+    }
     case "append-report": {
       const next = [...state.recordedReports, action.entry];
       // FIFO cap: drop the oldest entries when over the buffer cap.
