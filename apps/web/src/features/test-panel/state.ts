@@ -37,6 +37,16 @@ export const initialTestPanelState: TestPanelState = {
   lastReport: null,
   recordedReports: [],
   statusSnapshot: null,
+  mockHostConfig: {
+    defaults: {
+      presetId: null,
+      payload: null,
+      delayMs: 0,
+      failureMode: "none",
+    },
+  },
+  pendingContinuations: [],
+  collisionEvents: [],
 };
 
 export function testPanelReducer(state: TestPanelState, action: TestPanelAction): TestPanelState {
