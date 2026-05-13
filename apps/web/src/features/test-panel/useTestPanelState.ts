@@ -18,7 +18,13 @@ import { useCallback, useEffect, useReducer } from "react";
 import type { RuntimeDispatchReport, RuntimeEngine } from "@form-builder/runtime";
 
 import { initialTestPanelState, testPanelReducer } from "./state";
-import type { TestPanelDockSide, TestPanelMode, TestPanelSelection, TestPanelState } from "./types";
+import type {
+  TestPanelDockSide,
+  TestPanelMode,
+  TestPanelSelection,
+  TestPanelState,
+  TestPanelStatusSnapshot,
+} from "./types";
 
 const PREFS_STORAGE_KEY = "test-panel-prefs-v1";
 
@@ -28,7 +34,7 @@ interface PersistedPrefs {
 }
 
 function isPanelMode(value: unknown): value is TestPanelMode {
-  return value === "synth" || value === "record";
+  return value === "synth" || value === "record" || value === "session";
 }
 
 function isDockSide(value: unknown): value is TestPanelDockSide {
@@ -71,6 +77,7 @@ export interface UseTestPanelStateResult {
   editPayload: (name: string, value: string) => void;
   resetPayload: (payload: Record<string, string>) => void;
   setLastReport: (report: RuntimeDispatchReport | null) => void;
+  setStatusSnapshot: (snapshot: TestPanelStatusSnapshot | null) => void;
   clearRecorded: () => void;
 }
 
@@ -95,10 +102,10 @@ export function useTestPanelState(engine: RuntimeEngine | null): UseTestPanelSta
     }
   }, [state.mode, state.dockSide]);
 
-  // Live-record subscription: only active when panel is open AND mode is "record".
+  // Live-record subscription: active when panel is open AND mode is "record" or "session".
   useEffect(() => {
     if (!engine) return;
-    if (!state.open || state.mode !== "record") return;
+    if (!state.open || (state.mode !== "record" && state.mode !== "session")) return;
     const unsubscribe = engine.subscribeReports((report) => {
       const id =
         typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -144,6 +151,11 @@ export function useTestPanelState(engine: RuntimeEngine | null): UseTestPanelSta
     dispatch({ type: "set-last-report", report });
   }, []);
 
+  const setStatusSnapshot = useCallback(
+    (snapshot: TestPanelStatusSnapshot | null) => dispatch({ type: "set-status-snapshot", snapshot }),
+    [],
+  );
+
   const clearRecorded = useCallback(() => {
     dispatch({ type: "clear-recorded" });
   }, []);
@@ -158,6 +170,7 @@ export function useTestPanelState(engine: RuntimeEngine | null): UseTestPanelSta
     editPayload,
     resetPayload,
     setLastReport,
+    setStatusSnapshot,
     clearRecorded,
   };
 }
