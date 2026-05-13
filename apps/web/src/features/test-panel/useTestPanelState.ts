@@ -19,6 +19,9 @@ import type { RuntimeDispatchReport, RuntimeEngine } from "@form-builder/runtime
 
 import { initialTestPanelState, testPanelReducer } from "./state";
 import type {
+  BridgePendingEntry,
+  CollisionEntry,
+  MockHostConfig,
   TestPanelDockSide,
   TestPanelMode,
   TestPanelSelection,
@@ -27,14 +30,62 @@ import type {
 } from "./types";
 
 const PREFS_STORAGE_KEY = "test-panel-prefs-v1";
+const HOST_CONFIG_KEY = "mock-host-config-v1";
 
 interface PersistedPrefs {
   mode: TestPanelMode;
   dockSide: TestPanelDockSide;
 }
 
+interface StoredHostConfig {
+  defaults: {
+    presetId: string | null;
+    payload: Record<string, unknown> | null;
+    delayMs: number;
+    failureMode: "none" | "timeout" | "network-error";
+  };
+}
+
+function isFailureMode(v: unknown): v is StoredHostConfig["defaults"]["failureMode"] {
+  return v === "none" || v === "timeout" || v === "network-error";
+}
+
+function isStoredHostConfig(v: unknown): v is StoredHostConfig {
+  if (!v || typeof v !== "object") return false;
+  const obj = v as { defaults?: unknown };
+  if (!obj.defaults || typeof obj.defaults !== "object") return false;
+  const d = obj.defaults as Record<string, unknown>;
+  return (
+    (d.presetId === null || typeof d.presetId === "string") &&
+    (d.payload === null || (typeof d.payload === "object" && d.payload !== null && !Array.isArray(d.payload))) &&
+    typeof d.delayMs === "number" &&
+    isFailureMode(d.failureMode)
+  );
+}
+
+function readPersistedHostConfig(): MockHostConfig | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(HOST_CONFIG_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    return isStoredHostConfig(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedHostConfig(config: MockHostConfig): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(HOST_CONFIG_KEY, JSON.stringify(config));
+  } catch {
+    // Storage quota / privacy mode — swallow silently.
+  }
+}
+
 function isPanelMode(value: unknown): value is TestPanelMode {
-  return value === "synth" || value === "record" || value === "session";
+  return value === "synth" || value === "record" || value === "session" || value === "host";
 }
 
 function isDockSide(value: unknown): value is TestPanelDockSide {
@@ -60,10 +111,12 @@ function readPersistedPrefs(): Partial<PersistedPrefs> {
 
 function makeInitialState(): TestPanelState {
   const prefs = readPersistedPrefs();
+  const hostConfig = readPersistedHostConfig();
   return {
     ...initialTestPanelState,
     mode: prefs.mode ?? initialTestPanelState.mode,
     dockSide: prefs.dockSide ?? initialTestPanelState.dockSide,
+    mockHostConfig: hostConfig ?? initialTestPanelState.mockHostConfig,
   };
 }
 
@@ -78,6 +131,9 @@ export interface UseTestPanelStateResult {
   resetPayload: (payload: Record<string, string>) => void;
   setLastReport: (report: RuntimeDispatchReport | null) => void;
   setStatusSnapshot: (snapshot: TestPanelStatusSnapshot | null) => void;
+  setMockHostConfig: (config: MockHostConfig) => void;
+  setPendingContinuations: (entries: BridgePendingEntry[]) => void;
+  appendCollision: (entry: CollisionEntry) => void;
   clearRecorded: () => void;
 }
 
@@ -101,6 +157,11 @@ export function useTestPanelState(engine: RuntimeEngine | null): UseTestPanelSta
       // Storage quota / privacy mode — swallow silently.
     }
   }, [state.mode, state.dockSide]);
+
+  // Persist mock-host config separately so its lifecycle is independent of mode/dock.
+  useEffect(() => {
+    writePersistedHostConfig(state.mockHostConfig);
+  }, [state.mockHostConfig]);
 
   // Live-record subscription: active when panel is open AND mode is "record" or "session".
   useEffect(() => {
@@ -156,6 +217,21 @@ export function useTestPanelState(engine: RuntimeEngine | null): UseTestPanelSta
     [],
   );
 
+  const setMockHostConfig = useCallback(
+    (config: MockHostConfig) => dispatch({ type: "set-mock-host-config", config }),
+    [],
+  );
+
+  const setPendingContinuations = useCallback(
+    (entries: BridgePendingEntry[]) => dispatch({ type: "set-pending-continuations", entries }),
+    [],
+  );
+
+  const appendCollision = useCallback(
+    (entry: CollisionEntry) => dispatch({ type: "append-collision", entry }),
+    [],
+  );
+
   const clearRecorded = useCallback(() => {
     dispatch({ type: "clear-recorded" });
   }, []);
@@ -171,6 +247,9 @@ export function useTestPanelState(engine: RuntimeEngine | null): UseTestPanelSta
     resetPayload,
     setLastReport,
     setStatusSnapshot,
+    setMockHostConfig,
+    setPendingContinuations,
+    appendCollision,
     clearRecorded,
   };
 }
