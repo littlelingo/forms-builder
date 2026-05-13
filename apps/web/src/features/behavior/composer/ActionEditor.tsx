@@ -454,10 +454,7 @@ export function ActionEditor({
   // per render from the active authoring document; collectKeys walks every
   // listener (including branch arms) and returns each unique handlerKey
   // with its frequency and the listener labels using it.
-  const handlerKeyOptions = useMemo(
-    () => (activeDocument ? collectKeys(activeDocument) : []),
-    [activeDocument],
-  );
+  const handlerKeyOptions = useMemo(() => (activeDocument ? collectKeys(activeDocument) : []), [activeDocument]);
   const handlerKeyDatalistId = useId();
   const safetyClassName = (() => {
     switch (runtimeActionSafetyClass(action.kind)) {
