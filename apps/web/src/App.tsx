@@ -10119,7 +10119,6 @@ export default function App() {
                         documentBehaviorGraphOffset={documentBehaviorGraphOffset}
                         selectedBehaviorNode={selectedBehaviorNode}
                         selectedRuntimeEvidenceKey={selectedRuntimeEvidenceKey}
-                        simulatorSectionRef={simulatorSectionRef}
                         runtimeSessionInputRef={runtimeSessionInputRef}
                         builderFieldOptions={builderFieldOptions}
                         buildLegacyConditionalRuleGroups={buildLegacyConditionalRuleGroups}
@@ -10135,13 +10134,7 @@ export default function App() {
                         onCloseBehaviorStudio={closeBehaviorStudio}
                         onOpenTestPanelForListener={openTestPanelForListener}
                         onOpenTestPanelFromSelection={openTestPanelFromSelection}
-                        onHandleResetRuntimeSession={handleResetRuntimeSession}
-                        onHandlePopulateRequiredRuntimeValues={handlePopulateRequiredRuntimeValues}
-                        onHandleRunCurrentRuntimeStep={handleRunCurrentRuntimeStep}
-                        onHandleRunRuntimeSubmit={handleRunRuntimeSubmit}
                         onHandleExportRuntimeSession={handleExportRuntimeSession}
-                        onHandleMockSubmitSuccess={handleMockSubmitSuccess}
-                        onHandleMockSubmitError={handleMockSubmitError}
                         onHandleBehaviorGraphPointerDown={handleBehaviorGraphPointerDown}
                         onHandleBehaviorGraphPointerMove={handleBehaviorGraphPointerMove}
                         onHandleBehaviorGraphPointerEnd={handleBehaviorGraphPointerEnd}

@@ -215,7 +215,6 @@ export interface BehaviorWorkspaceProps {
   documentBehaviorGraphOffset: { x: number; y: number };
   selectedBehaviorNode: BehaviorGraphSelection | null;
   selectedRuntimeEvidenceKey: string | null;
-  simulatorSectionRef: React.RefObject<HTMLDivElement>;
   runtimeSessionInputRef: React.RefObject<HTMLInputElement>;
   builderFieldOptions: Array<{ id: string; label: string }>;
   buildLegacyConditionalRuleGroups: (conditions: LegacyConditionalRule[]) => LegacyConditionalRuleGroup[];
@@ -239,13 +238,7 @@ export interface BehaviorWorkspaceProps {
   onOpenTestPanelForListener?: (listenerId: string) => void;
   /** Phase 10 — fallback for "test from current selection" (e.g. legacy rule rows). */
   onOpenTestPanelFromSelection?: () => void;
-  onHandleResetRuntimeSession: () => void;
-  onHandlePopulateRequiredRuntimeValues: () => void;
-  onHandleRunCurrentRuntimeStep: () => void;
-  onHandleRunRuntimeSubmit: () => void;
   onHandleExportRuntimeSession: () => void;
-  onHandleMockSubmitSuccess: () => void;
-  onHandleMockSubmitError: () => void;
   onHandleBehaviorGraphPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
   onHandleBehaviorGraphPointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
   onHandleBehaviorGraphPointerEnd: (event: React.PointerEvent<HTMLDivElement>) => void;
@@ -312,7 +305,6 @@ export function BehaviorWorkspace({
   documentBehaviorGraphOffset,
   selectedBehaviorNode,
   selectedRuntimeEvidenceKey,
-  simulatorSectionRef,
   runtimeSessionInputRef,
   builderFieldOptions,
   buildLegacyConditionalRuleGroups,
@@ -328,13 +320,7 @@ export function BehaviorWorkspace({
   onCloseBehaviorStudio: closeBehaviorStudio,
   onOpenTestPanelForListener,
   onOpenTestPanelFromSelection,
-  onHandleResetRuntimeSession: handleResetRuntimeSession,
-  onHandlePopulateRequiredRuntimeValues: handlePopulateRequiredRuntimeValues,
-  onHandleRunCurrentRuntimeStep: handleRunCurrentRuntimeStep,
-  onHandleRunRuntimeSubmit: handleRunRuntimeSubmit,
   onHandleExportRuntimeSession: handleExportRuntimeSession,
-  onHandleMockSubmitSuccess: handleMockSubmitSuccess,
-  onHandleMockSubmitError: handleMockSubmitError,
   onHandleBehaviorGraphPointerDown: handleBehaviorGraphPointerDown,
   onHandleBehaviorGraphPointerMove: handleBehaviorGraphPointerMove,
   onHandleBehaviorGraphPointerEnd: handleBehaviorGraphPointerEnd,
