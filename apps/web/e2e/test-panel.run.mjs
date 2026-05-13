@@ -148,6 +148,62 @@ async function main() {
       .first()
       .waitFor({ timeout: 5_000 });
 
+    // === Session tab flow ===
+    // Exercises the Session-tab fold of the legacy BehaviorWorkspace simulator:
+    // lifecycle controls (Reset, Fill required, Submit), the always-visible
+    // status strip's submit pill, the host-loop simulate buttons, and the
+    // trace History view that surfaces recordedReports.
+
+    console.log("[e2e] switching to Session tab");
+    await panel.getByRole("button", { name: /^Session$/i }).click();
+
+    // Wait for Session body to render — Lifecycle heading is a stable anchor.
+    await panel.getByText(/Lifecycle/i).waitFor({ timeout: 3_000 });
+
+    // Reset first. The synth-mode field.change above made the radio
+    // runtime-required via the mark_required listener. We want a clean session
+    // so Submit can reach 'submitting' instead of failing validation.
+    console.log("[e2e] clicking Reset (clears runtime state)");
+    await panel.getByRole("button", { name: /^Reset$/i }).click();
+
+    // Fill required is a no-op here (no statically required fields in this
+    // fixture) but exercising the click path catches regressions in wiring.
+    console.log("[e2e] clicking Fill required");
+    await panel.getByRole("button", { name: /Fill required/i }).click();
+
+    console.log("[e2e] clicking Submit");
+    await panel.getByRole("button", { name: /^Submit$/i }).click();
+
+    // Status strip lives inside the panel — scope to avoid colliding with any
+    // other "Submit:" text the page might surface. The strip shows
+    // "Submit: <status>". After Reset+Submit the engine emits form.submit
+    // and parks at 'submitting' (no auto host_success listener in fixture).
+    console.log("[e2e] waiting for submit pill to flip");
+    const submitPill = panel.locator("text=/Submit:\\s*(submitting|success)/i").first();
+    await submitPill.waitFor({ timeout: 5_000 });
+
+    // If we landed in 'submitting', drive the host loop to success and
+    // verify the pill flips. Conditional handles the unlikely case where a
+    // future fixture wires form.submit_success directly.
+    const submittingNow = await panel.locator("text=/Submit:\\s*submitting/i").count();
+    if (submittingNow > 0) {
+      console.log("[e2e] in submitting — clicking Simulate success");
+      await panel.getByRole("button", { name: /Simulate success/i }).click();
+      await panel.locator("text=/Submit:\\s*success/i").waitFor({ timeout: 5_000 });
+    }
+
+    // Switch trace toggle to History. The view renders either a timestamp
+    // row (HH:MM:SS) for each recorded entry, or the "No recorded events
+    // yet." empty state. Today, Session-mode lifecycle clicks go via
+    // engine.invoke/dispatch which don't broadcast reports — so the History
+    // buffer can be empty in this fixture. Accept either outcome; this
+    // assertion locks in that the History toggle and view component are
+    // reachable from Session mode.
+    console.log("[e2e] switching trace to History view");
+    await panel.getByRole("button", { name: /^History$/i }).click();
+    const timestampOrEmpty = panel.locator("text=/\\d{2}:\\d{2}:\\d{2}|No recorded events yet/i").first();
+    await timestampOrEmpty.waitFor({ timeout: 3_000 });
+
     console.log("\nTestPanel E2E PASSED.");
   } catch (error) {
     console.error("\nTestPanel E2E FAILED:");

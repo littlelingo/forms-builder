@@ -25,14 +25,6 @@ export function TestPanelTrace({
 }: TestPanelTraceProps): ReactElement {
   const [view, setView] = useState<TraceView>("by-listener");
 
-  if (!report && view !== "history") {
-    return (
-      <section className="p-3 text-sm text-slate-500">
-        <p>Fire an event to see the listener trace.</p>
-      </section>
-    );
-  }
-
   const noListeners = report ? report.listeners.length === 0 : true;
 
   return (
@@ -76,6 +68,8 @@ export function TestPanelTrace({
 
       {view === "history" ? (
         <HistoryView recordedReports={recordedReports} nodeLabelById={nodeLabelById} />
+      ) : !report ? (
+        <p className="text-sm text-slate-500">Fire an event to see the listener trace.</p>
       ) : noListeners ? (
         <div className="rounded border border-dashed border-slate-300 p-3 text-sm text-slate-500">
           <p>No listeners reached this event.</p>
@@ -86,9 +80,9 @@ export function TestPanelTrace({
           ) : null}
         </div>
       ) : view === "by-listener" ? (
-        <ByListenerView report={report!} nodeLabelById={nodeLabelById} />
+        <ByListenerView report={report} nodeLabelById={nodeLabelById} />
       ) : (
-        <ByReceiverView report={report!} nodeLabelById={nodeLabelById} />
+        <ByReceiverView report={report} nodeLabelById={nodeLabelById} />
       )}
     </section>
   );
