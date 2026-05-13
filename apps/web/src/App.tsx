@@ -95,6 +95,8 @@ import {
   validateExportEnvelope,
 } from "./lib/behavior-export";
 import { useIsViewerMode } from "./lib/viewer-mode";
+import { createMockHostBridge } from "./lib/host-bridge-shared";
+import type { MockHostBridge } from "./lib/host-bridge-shared";
 import { TestPanel, useTestPanelState } from "./features/test-panel";
 import type { TestPanelSelection } from "./features/test-panel";
 import { HomeStage, badgeToneFromProjectStatus } from "./features/project";
@@ -2804,6 +2806,8 @@ export default function App() {
     return map;
   }, [activeDocument]);
   const testPanel = useTestPanelState(runtimeEngineRef.current);
+  const mockHostBridgeRef = useRef<MockHostBridge | null>(null);
+  const [submitEnvelope, setSubmitEnvelope] = useState<RuntimeEventEnvelope | null>(null);
 
   /**
    * Derive the TestPanel selection (source + event) from the current authoring
@@ -3313,6 +3317,40 @@ export default function App() {
       setErrorMessage(null);
     }
   }, []);
+
+  // Phase 8 Task 8.1: mount the shared mock-host bridge against the persistent
+  // builder runtime engine. The engine ref is created once at App init and
+  // never replaced, so a single mount/dispose pair on App lifetime is correct.
+  // The bridge owns auto-respond timers, pending snapshots, collision capture,
+  // and submit-envelope hand-off to the TestPanel Host tab.
+  useEffect(() => {
+    const engine = runtimeEngineRef.current;
+    if (!engine) return;
+    const bridge = createMockHostBridge({
+      engine,
+      source: "builder",
+      getConfig: () => testPanel.state.mockHostConfig,
+      callbacks: {
+        onPendingChange: testPanel.setPendingContinuations,
+        onCollision: (entry) => {
+          testPanel.appendCollision(entry);
+          setErrorMessage(
+            `Correlation collision detected for handlerKey "${entry.handlerKey ?? "(none)"}". Open the TestPanel Host tab to inspect.`,
+          );
+        },
+        onSubmitEnvelope: setSubmitEnvelope,
+      },
+    });
+    mockHostBridgeRef.current = bridge;
+    return () => {
+      bridge.dispose();
+      mockHostBridgeRef.current = null;
+    };
+    // The engine ref is stable; testPanel callbacks are stable useCallback refs.
+    // We intentionally do not depend on `testPanel.state.mockHostConfig` —
+    // `getConfig` reads it lazily so updates take effect without remounting.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [testPanel.setPendingContinuations, testPanel.appendCollision]);
 
   function copyDispatchKey(dispatchKey: string | null | undefined) {
     if (!dispatchKey) {
@@ -4842,65 +4880,24 @@ export default function App() {
     handleResetRuntimeSession();
   }, [testPanel.state.statusSnapshot, handleResetRuntimeSession]);
 
+  // Phase 8 Task 8.1: route Simulate-success / Simulate-error through the
+  // shared mock-host bridge instead of synthesizing the response envelope here.
+  // The bridge owns timer cancellation + envelope shape, so the handler just
+  // hands it the correlation id from the in-flight submit.
   const handleMockSubmitSuccess = useCallback(() => {
-    if (!activeDocument) {
-      return;
-    }
-    dispatchRuntimeEvent({
-      type: "form.submit_success",
-      version: "1.0",
-      target: {
-        runtimeId: "builder-preview",
-        formId: activeDocument.id,
-        projectId: activeProjectDetail?.project.id ?? null,
-        nodeId: activeDocument.id,
-        nodeType: "form",
-      },
-      source: {
-        runtimeId: "builder-preview",
-        formId: activeDocument.id,
-        projectId: activeProjectDetail?.project.id ?? null,
-        nodeId: activeDocument.id,
-        nodeType: "form",
-      },
-      payload: {
-        message: "Mock host success received.",
-        submissionId: crypto.randomUUID(),
-      },
-      correlationId: runtimeSessionState?.submit.lastCorrelationId ?? crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-    });
-  }, [activeDocument, activeProjectDetail, dispatchRuntimeEvent, runtimeSessionState]);
+    const correlationId = runtimeSessionState?.submit.lastCorrelationId;
+    if (!correlationId || !mockHostBridgeRef.current) return;
+    mockHostBridgeRef.current.resolve(correlationId, "success", { ok: true });
+  }, [runtimeSessionState]);
 
   const handleMockSubmitError = useCallback(() => {
-    if (!activeDocument) {
-      return;
-    }
-    dispatchRuntimeEvent({
-      type: "form.submit_error",
-      version: "1.0",
-      target: {
-        runtimeId: "builder-preview",
-        formId: activeDocument.id,
-        projectId: activeProjectDetail?.project.id ?? null,
-        nodeId: activeDocument.id,
-        nodeType: "form",
-      },
-      source: {
-        runtimeId: "builder-preview",
-        formId: activeDocument.id,
-        projectId: activeProjectDetail?.project.id ?? null,
-        nodeId: activeDocument.id,
-        nodeType: "form",
-      },
-      payload: {
-        message: "Mock host error received.",
-        fieldErrors: {},
-      },
-      correlationId: runtimeSessionState?.submit.lastCorrelationId ?? crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
+    const correlationId = runtimeSessionState?.submit.lastCorrelationId;
+    if (!correlationId || !mockHostBridgeRef.current) return;
+    mockHostBridgeRef.current.resolve(correlationId, "error", {
+      ok: false,
+      error: { code: "SUBMIT_FAILED", message: "Simulated submit failure." },
     });
-  }, [activeDocument, activeProjectDetail, dispatchRuntimeEvent, runtimeSessionState]);
+  }, [runtimeSessionState]);
 
   const handlePopulateRequiredRuntimeValues = useCallback(() => {
     if (!activeDocument || !runtimeSessionState) {
@@ -11320,15 +11317,15 @@ export default function App() {
         onFillRequired={handlePopulateRequiredRuntimeValues}
         onRunStep={handleRunCurrentRuntimeStep}
         onSubmit={handleRunRuntimeSubmit}
-        // Phase 8 will replace these placeholders by wiring the shared mock-host bridge.
+        // Phase 8 Task 8.1: wired to the shared mock-host bridge mounted in App.
         hostConfig={testPanel.state.mockHostConfig}
         pendingContinuations={testPanel.state.pendingContinuations}
         collisionEvents={testPanel.state.collisionEvents}
-        submitEnvelope={null}
+        submitEnvelope={submitEnvelope}
         onMockHostConfigChange={testPanel.setMockHostConfig}
-        onResolveContinuation={() => {
-          /* Phase 8: wired to shared bridge */
-        }}
+        onResolveContinuation={(correlationId, kind, payload) =>
+          mockHostBridgeRef.current?.resolve(correlationId, kind, payload)
+        }
       />
     </main>
   );
