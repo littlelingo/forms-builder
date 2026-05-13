@@ -11,7 +11,7 @@ import type {
   RuntimeSessionState,
 } from "@form-builder/schema";
 
-import { createMockHostBridge } from "./host-bridge-mock";
+import { createMockHostBridge } from "../../lib/host-bridge-shared";
 import { WalkthroughHeader } from "./WalkthroughHeader";
 
 export interface WalkthroughRouteProps {
@@ -25,10 +25,11 @@ const RUNTIME_ID = "walkthrough";
 
 /**
  * Full-canvas hosted-user-style preview. Mounts a fresh runtime engine
- * against the supplied authoring document and lets the author step through
- * the form like an end-user would, with a mock host bridge handling
- * `form.submit` envelopes (no real network calls — see
- * `host-bridge-mock.ts`).
+ * against the supplied authoring document and lets the author step
+ * through the form like an end-user would. The shared mock host bridge
+ * (lib/host-bridge-shared) absorbs `form.submit` envelopes and any
+ * `host_call_await` continuations; Walkthrough renders its own submit
+ * toast separately.
  *
  * The implementation is deliberately self-contained: it does not reuse
  * the authoring `PreviewCanvas`, which is wired to drag/drop,
@@ -58,20 +59,47 @@ export function WalkthroughRoute({ document, onExit }: WalkthroughRouteProps) {
   }, [document, restartTick, onExit]);
 
   // Subscribe to engine events: catch form.submit and surface a toast via
-  // the mock host bridge. Keep state in sync after every emission so that
-  // the rendered UI reflects engine-driven updates (visibility, validation,
-  // step transitions performed by listener-driven actions, etc.).
+  // the shared mock host bridge (Phase 8 Task 8.2). Keep state in sync
+  // after every emission so that the rendered UI reflects engine-driven
+  // updates (visibility, validation, step transitions performed by
+  // listener-driven actions, etc.).
+  //
+  // The shared bridge owns auto-respond timers and submit-envelope
+  // capture, but Walkthrough does not render the Host tab — pending
+  // continuations and collisions only surface when the author also has
+  // the TestPanel open (against this same engine instance). The submit
+  // toast is rendered locally; the bridge's onSubmitEnvelope callback is
+  // therefore a no-op here.
   useEffect(() => {
     if (!engine) return;
-    const bridge = createMockHostBridge();
+    const bridge = createMockHostBridge({
+      engine,
+      source: "walkthrough",
+      getConfig: () => ({
+        defaults: { presetId: null, payload: null, delayMs: 0, failureMode: "none" },
+      }),
+      callbacks: {
+        onPendingChange: () => {
+          /* Walkthrough UI does not render the pending queue. */
+        },
+        onCollision: () => {
+          /* Walkthrough UI does not show a collision banner. */
+        },
+        onSubmitEnvelope: () => {
+          /* Walkthrough already shows its own submit toast below. */
+        },
+      },
+    });
     const unsubscribe = engine.subscribe((envelope) => {
       if (envelope.type === "form.submit") {
-        const result = bridge.onSubmit(envelope);
-        setSubmitToast(`Form submit received at ${result.receivedAt}`);
+        setSubmitToast(`Form submit received at ${new Date().toISOString()}`);
       }
       setSessionState(engine.getState());
     });
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      bridge.dispose();
+    };
   }, [engine]);
 
   const totalSteps = document?.steps.length ?? 0;
