@@ -256,24 +256,36 @@ function WalkthroughSection({ section, sessionState, onFieldChange }: Walkthroug
         {section.description ? <p className="text-sm leading-6 text-slate-600">{section.description}</p> : null}
       </header>
       <div className="space-y-4">
-        {section.groups.map((group) => (
-          <div key={group.id} className="space-y-3 rounded-xl border border-slate-100 bg-slate-50/50 p-4">
-            <div>
-              <p className="text-sm font-semibold text-slate-900">{group.label}</p>
-              {group.description ? <p className="text-xs leading-5 text-slate-600">{group.description}</p> : null}
+        {section.groups.map((group) => {
+          // Skip group label/description when the group has a single child field whose label
+          // matches the group label (case-insensitive trim) — common authoring shape where the
+          // group exists only to wrap one labelled checkbox/radio. Avoids visible duplicate titles.
+          const onlyChild = group.fields.length === 1 ? group.fields[0] : null;
+          const groupLabelNorm = (group.label ?? "").trim().toLowerCase();
+          const onlyChildLabelNorm = (onlyChild?.label ?? "").trim().toLowerCase();
+          const hideGroupHeader =
+            onlyChild !== null && groupLabelNorm.length > 0 && groupLabelNorm === onlyChildLabelNorm;
+          return (
+            <div key={group.id} className="space-y-3 rounded-xl border border-slate-100 bg-slate-50/50 p-4">
+              {hideGroupHeader ? null : (
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{group.label}</p>
+                  {group.description ? <p className="text-xs leading-5 text-slate-600">{group.description}</p> : null}
+                </div>
+              )}
+              <div className="space-y-3">
+                {group.fields.map((field) => (
+                  <WalkthroughField
+                    key={field.id}
+                    field={field}
+                    sessionState={sessionState}
+                    onFieldChange={onFieldChange}
+                  />
+                ))}
+              </div>
             </div>
-            <div className="space-y-3">
-              {group.fields.map((field) => (
-                <WalkthroughField
-                  key={field.id}
-                  field={field}
-                  sessionState={sessionState}
-                  onFieldChange={onFieldChange}
-                />
-              ))}
-            </div>
-          </div>
-        ))}
+          );
+        })}
         {section.fields.map((field) => (
           <WalkthroughField key={field.id} field={field} sessionState={sessionState} onFieldChange={onFieldChange} />
         ))}
