@@ -167,9 +167,25 @@ export interface PendingContinuation {
   correlationId: string;
   listenerId: string;
   actionId: string;
+  /** Authoring-time identifier for the host action (e.g. "submit", "prefill"). Null when unset. */
+  handlerKey: string | null;
+  /** Wall-clock timestamp (ms epoch) when the continuation was registered. */
+  createdAt: number;
   resolve: (responsePayload: Record<string, unknown>) => void;
   reject: (reason: string) => void;
   timeoutHandle: ReturnType<typeof setTimeout> | null;
+}
+
+/**
+ * Read-only snapshot of a pending continuation. Excludes function refs and timer
+ * handles so it can be safely passed to UI consumers and serialized.
+ */
+export interface PendingContinuationSnapshot {
+  correlationId: string;
+  listenerId: string;
+  actionId: string;
+  handlerKey: string | null;
+  createdAt: number;
 }
 
 export interface RuntimeEngine {
@@ -201,4 +217,6 @@ export interface RuntimeEngine {
   getSubmitPayload(): RuntimeSubmitPayload;
   getDocument(): AuthoringDocument | null;
   getTrace(): RuntimeTraceEntry[];
+  /** Read-only view of pending host_call_await continuations. */
+  getPendingContinuations(): PendingContinuationSnapshot[];
 }
