@@ -15,6 +15,7 @@ export function TestPanelHeader({ mode, dockSide, onSetMode, onSetDock, onClose 
     <header className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2">
       <div className="flex items-center gap-2">
         <h3 className="text-sm font-semibold">Test panel</h3>
+        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-800">Drives preview</span>
         <div className="flex gap-0.5 text-xs">
           <button
             type="button"
@@ -28,9 +29,17 @@ export function TestPanelHeader({ mode, dockSide, onSetMode, onSetDock, onClose 
             type="button"
             onClick={() => onSetMode("record")}
             aria-pressed={mode === "record"}
-            className={`rounded-r px-2 py-0.5 ${mode === "record" ? "bg-blue-600 text-white" : "bg-slate-200"}`}
+            className={`px-2 py-0.5 ${mode === "record" ? "bg-blue-600 text-white" : "bg-slate-200"}`}
           >
             Live record
+          </button>
+          <button
+            type="button"
+            onClick={() => onSetMode("session")}
+            aria-pressed={mode === "session"}
+            className={`rounded-r px-2 py-0.5 ${mode === "session" ? "bg-blue-600 text-white" : "bg-slate-200"}`}
+          >
+            Session
           </button>
         </div>
       </div>
