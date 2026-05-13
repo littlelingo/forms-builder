@@ -11,26 +11,21 @@ export interface TestPanelTraceProps {
   /** Optional label resolver — converts a nodeId to a human path label. */
   nodeLabelById?: Map<string, string>;
   onCreateListenerForSource?: () => void;
+  /** History view consumes this; By listener / By receiver use the single `report` prop. */
+  recordedReports?: { id: string; timestamp: string; report: RuntimeDispatchReport }[];
 }
 
-type TraceView = "by-listener" | "by-receiver";
+type TraceView = "by-listener" | "by-receiver" | "history";
 
 export function TestPanelTrace({
   report,
   nodeLabelById,
   onCreateListenerForSource,
+  recordedReports,
 }: TestPanelTraceProps): ReactElement {
   const [view, setView] = useState<TraceView>("by-listener");
 
-  if (!report) {
-    return (
-      <section className="p-3 text-sm text-slate-500">
-        <p>Fire an event to see the listener trace.</p>
-      </section>
-    );
-  }
-
-  const noListeners = report.listeners.length === 0;
+  const noListeners = report ? report.listeners.length === 0 : true;
 
   return (
     <section className="p-3">
@@ -53,15 +48,29 @@ export function TestPanelTrace({
           >
             By receiver
           </button>
+          <button
+            type="button"
+            onClick={() => setView("history")}
+            aria-pressed={view === "history"}
+            className={`rounded px-2 py-0.5 ${view === "history" ? "bg-blue-600 text-white" : "bg-slate-100"}`}
+          >
+            History
+          </button>
         </div>
       </header>
 
-      <div className="mb-2 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-xs">
-        <span className="font-semibold">{report.event.type}</span>
-        <span className="ml-2 text-slate-600">{report.listeners.length} listener checks</span>
-      </div>
+      {view !== "history" && report ? (
+        <div className="mb-2 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-xs">
+          <span className="font-semibold">{report.event.type}</span>
+          <span className="ml-2 text-slate-600">{report.listeners.length} listener checks</span>
+        </div>
+      ) : null}
 
-      {noListeners ? (
+      {view === "history" ? (
+        <HistoryView recordedReports={recordedReports} nodeLabelById={nodeLabelById} />
+      ) : !report ? (
+        <p className="text-sm text-slate-500">Fire an event to see the listener trace.</p>
+      ) : noListeners ? (
         <div className="rounded border border-dashed border-slate-300 p-3 text-sm text-slate-500">
           <p>No listeners reached this event.</p>
           {onCreateListenerForSource ? (
@@ -188,4 +197,101 @@ function ByReceiverView({
       ))}
     </ul>
   );
+}
+
+function HistoryView({
+  recordedReports,
+  nodeLabelById,
+}: {
+  recordedReports: TestPanelTraceProps["recordedReports"];
+  nodeLabelById?: Map<string, string>;
+}): ReactElement {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  if (!recordedReports || recordedReports.length === 0) {
+    return <p className="text-sm text-slate-500">No recorded events yet.</p>;
+  }
+  const reversed = [...recordedReports].reverse();
+  return (
+    <ul className="space-y-1">
+      {reversed.map((entry, idx) => {
+        const isOpen = expandedId === entry.id;
+        return (
+          <li key={entry.id} className="rounded border border-slate-200">
+            <button
+              type="button"
+              onClick={() => setExpandedId(isOpen ? null : entry.id)}
+              aria-expanded={isOpen}
+              className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-xs hover:bg-slate-50"
+            >
+              <span>
+                <span className="font-semibold">{entry.report.event.type}</span>
+                <span className="ml-2 text-slate-500">
+                  {entry.report.listeners.filter((l) => l.matched).length}/{entry.report.listeners.length} listeners
+                </span>
+              </span>
+              <span className="text-slate-500">{formatRelativeTime(entry.timestamp)}</span>
+            </button>
+            {isOpen ? (
+              <div className="border-t border-slate-200 p-2">
+                <ByListenerView report={entry.report} nodeLabelById={nodeLabelById} />
+                <ChainContext recordedReports={reversed} index={idx} />
+              </div>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function ChainContext({
+  recordedReports,
+  index,
+}: {
+  recordedReports: NonNullable<TestPanelTraceProps["recordedReports"]>;
+  index: number;
+}): ReactElement | null {
+  // recordedReports passed here is reverse-chronological (newest first).
+  // Within reverse order:
+  //   - "After this" (chronologically later) = entries with smaller index
+  //   - "Before this" (chronologically earlier) = entries with larger index
+  const afterWindow = recordedReports.slice(Math.max(0, index - 2), index);
+  const beforeWindow = recordedReports.slice(index + 1, index + 3);
+  if (afterWindow.length === 0 && beforeWindow.length === 0) return null;
+  return (
+    <div className="mt-2 rounded border border-slate-200 bg-slate-50 p-2 text-xs">
+      <p className="mb-1 font-semibold text-slate-700">Chain context</p>
+      {afterWindow.length ? (
+        <div>
+          <p className="text-[11px] uppercase tracking-wide text-slate-500">After this</p>
+          <ul className="ml-2">
+            {afterWindow.map((entry) => (
+              <li key={entry.id}>
+                ▸ {entry.report.event.type}{" "}
+                <span className="text-slate-500">@ {formatRelativeTime(entry.timestamp)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {beforeWindow.length ? (
+        <div className="mt-1">
+          <p className="text-[11px] uppercase tracking-wide text-slate-500">Before this</p>
+          <ul className="ml-2">
+            {beforeWindow.map((entry) => (
+              <li key={entry.id}>
+                ▸ {entry.report.event.type}{" "}
+                <span className="text-slate-500">@ {formatRelativeTime(entry.timestamp)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function formatRelativeTime(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}:${d.getSeconds().toString().padStart(2, "0")}`;
 }

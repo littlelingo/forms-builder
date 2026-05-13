@@ -128,7 +128,6 @@ import {
   applyEntryToListener,
   behaviorPresetCategoryLabels,
   builtInRuntimeEventNames,
-  buildStructuredRuntimeTraceEvidence,
   cloneRuntimePayloadShape,
   createEventPayloadCondition,
   createFieldValueCondition,
@@ -154,9 +153,7 @@ import {
   getRuntimeActionEventType,
   getRuntimeActionPayload,
   getRuntimeListenerEventType,
-  getRuntimeTraceEntryKey,
   inferRuntimePayloadFieldType,
-  isAuthoredRuntimeEvidenceEntry,
   isAutomaticRuntimePayloadField,
   isLegacyConditionalRuleEnabled,
   isRecord,
@@ -1826,7 +1823,6 @@ export default function App() {
     startX: number;
     startY: number;
   } | null>(null);
-  const simulatorSectionRef = useRef<HTMLDivElement | null>(null);
   const justCreatedListenerIdsRef = useRef<Set<string>>(new Set());
   const [stage, setStage] = useState<AppStage>("home");
   const [reviewPreviewMode, setReviewPreviewMode] = useState<ReviewPreviewMode>("overlay");
@@ -1926,7 +1922,6 @@ export default function App() {
     sourceLabel: string;
     report: RuntimeDispatchReport;
   } | null>(null);
-  const [selectedRuntimeEvidenceKey, setSelectedRuntimeEvidenceKey] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingProject, setIsLoadingProject] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -2946,6 +2941,34 @@ export default function App() {
     }
   }, [activeDocument, runtimeSessionState]);
 
+  // Derive TestPanel status snapshot from the current runtime session state +
+  // authoring document. The Session tab reads `statusSnapshot` for the status
+  // strip (current step, validation, submit progress).
+  const testPanelSetStatusSnapshot = testPanel.setStatusSnapshot;
+  useEffect(() => {
+    if (!activeDocument) {
+      testPanelSetStatusSnapshot(null);
+      return;
+    }
+    const sessionState = runtimeSessionState;
+    if (!sessionState) {
+      testPanelSetStatusSnapshot(null);
+      return;
+    }
+    const currentStepIndex = sessionState.currentStepId
+      ? activeDocument.steps.findIndex((step) => step.id === sessionState.currentStepId)
+      : -1;
+    const currentStepLabel = currentStepIndex >= 0 ? (activeDocument.steps[currentStepIndex]?.title ?? null) : null;
+    testPanelSetStatusSnapshot({
+      currentStepLabel,
+      currentStepIndex,
+      totalSteps: activeDocument.steps.length,
+      validationValid: sessionState.validation?.valid !== false,
+      submitStatus: sessionState.submit?.status ?? "idle",
+      pendingCorrelationId: sessionState.submit?.lastCorrelationId ?? null,
+    });
+  }, [activeDocument, runtimeSessionState, testPanelSetStatusSnapshot]);
+
   useEffect(() => {
     if (!pendingBehaviorEventEditId || !activeRuntimeScope) {
       return;
@@ -2959,20 +2982,6 @@ export default function App() {
     beginBehaviorEventCreationPath(eventDefinition);
     setPendingBehaviorEventEditId(null);
   }, [activeRuntimeScope, pendingBehaviorEventEditId]);
-
-  useEffect(() => {
-    setSelectedRuntimeEvidenceKey(null);
-  }, [activeDocument?.id]);
-
-  useEffect(() => {
-    if (!selectedRuntimeEvidenceKey) {
-      return;
-    }
-    if (runtimeTraceEntries.some((entry) => getRuntimeTraceEntryKey(entry) === selectedRuntimeEvidenceKey)) {
-      return;
-    }
-    setSelectedRuntimeEvidenceKey(null);
-  }, [runtimeTraceEntries, selectedRuntimeEvidenceKey]);
 
   function getRuntimePayloadEditorState(action: RuntimeActionDefinition): RuntimePayloadEditorState {
     const current = runtimePayloadEditors[action.id];
@@ -3183,14 +3192,6 @@ export default function App() {
   }, [activeBuilderField, activeRuntimeScope, selectedBehaviorNode]);
 
   useEffect(() => {
-    if (behaviorStudioOpen || inspectorTab !== "behavior" || behaviorFocusTarget !== "simulator") {
-      return;
-    }
-    simulatorSectionRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
-    setBehaviorFocusTarget(null);
-  }, [behaviorFocusTarget, behaviorStudioOpen, inspectorTab]);
-
-  useEffect(() => {
     if (behaviorStudioOpen) {
       behaviorStudioDialogRef.current?.focus({ preventScroll: true });
       return;
@@ -3306,12 +3307,12 @@ export default function App() {
     setRuntimeSessionState(nextState);
   }, [selectedAuthoring?.stepId]);
 
-  function setMessage(message: string | null) {
+  const setMessage = useCallback((message: string | null) => {
     setFlashMessage(message);
     if (message) {
       setErrorMessage(null);
     }
-  }
+  }, []);
 
   function copyDispatchKey(dispatchKey: string | null | undefined) {
     if (!dispatchKey) {
@@ -4574,7 +4575,7 @@ export default function App() {
    * sync listeners unaffected while letting authored async chains run
    * without crashing the preview.
    */
-  function safeDispatch(event: RuntimeEventEnvelope): RuntimeSessionState | null {
+  const safeDispatch = useCallback((event: RuntimeEventEnvelope): RuntimeSessionState | null => {
     try {
       return runtimeEngineRef.current.dispatch(event);
     } catch (err) {
@@ -4594,15 +4595,18 @@ export default function App() {
       }
       throw err;
     }
-  }
+  }, []);
 
-  function dispatchRuntimeEvent(event: RuntimeEventEnvelope) {
-    const nextState = safeDispatch(event);
-    if (nextState) {
-      runtimeSessionRef.current = nextState;
-      setRuntimeSessionState(nextState);
-    }
-  }
+  const dispatchRuntimeEvent = useCallback(
+    (event: RuntimeEventEnvelope) => {
+      const nextState = safeDispatch(event);
+      if (nextState) {
+        runtimeSessionRef.current = nextState;
+        setRuntimeSessionState(nextState);
+      }
+    },
+    [safeDispatch],
+  );
 
   function handleRuntimeFieldValueChange(field: AuthoringField, nextValue: unknown) {
     if (!activeDocument) {
@@ -4797,7 +4801,7 @@ export default function App() {
     setMessage("Runtime session state exported.");
   }
 
-  function handleResetRuntimeSession() {
+  const handleResetRuntimeSession = useCallback(() => {
     if (!activeDocument) {
       return;
     }
@@ -4821,9 +4825,24 @@ export default function App() {
     runtimeSessionRef.current = nextState;
     setRuntimeSessionState(nextState);
     setMessage("Simulator session reset to the current authored step.");
-  }
+  }, [activeDocument, selectedAuthoring, activeProjectDetail, projectEventCatalog, setMessage]);
 
-  function handleMockSubmitSuccess() {
+  // TestPanel Session-tab reset entry point. Confirms before discarding an
+  // in-flight submit so an accidental click doesn't erase mid-flight host-loop
+  // state that the author may still want to inspect.
+  const handleResetSessionWithConfirm = useCallback(() => {
+    const submitStatus = testPanel.state.statusSnapshot?.submitStatus;
+    if (submitStatus === "submitting") {
+      const correlationId = testPanel.state.statusSnapshot?.pendingCorrelationId ?? "unknown";
+      const confirmed = window.confirm(
+        `Reset will discard the in-flight submit (correlation ${correlationId}). Continue?`,
+      );
+      if (!confirmed) return;
+    }
+    handleResetRuntimeSession();
+  }, [testPanel.state.statusSnapshot, handleResetRuntimeSession]);
+
+  const handleMockSubmitSuccess = useCallback(() => {
     if (!activeDocument) {
       return;
     }
@@ -4851,9 +4870,9 @@ export default function App() {
       correlationId: runtimeSessionState?.submit.lastCorrelationId ?? crypto.randomUUID(),
       timestamp: new Date().toISOString(),
     });
-  }
+  }, [activeDocument, activeProjectDetail, dispatchRuntimeEvent, runtimeSessionState]);
 
-  function handleMockSubmitError() {
+  const handleMockSubmitError = useCallback(() => {
     if (!activeDocument) {
       return;
     }
@@ -4881,9 +4900,9 @@ export default function App() {
       correlationId: runtimeSessionState?.submit.lastCorrelationId ?? crypto.randomUUID(),
       timestamp: new Date().toISOString(),
     });
-  }
+  }, [activeDocument, activeProjectDetail, dispatchRuntimeEvent, runtimeSessionState]);
 
-  function handlePopulateRequiredRuntimeValues() {
+  const handlePopulateRequiredRuntimeValues = useCallback(() => {
     if (!activeDocument || !runtimeSessionState) {
       return;
     }
@@ -4922,9 +4941,9 @@ export default function App() {
     runtimeSessionRef.current = nextState;
     setRuntimeSessionState(nextState);
     setMessage("Required runtime fields were seeded with sample values for roundtrip testing.");
-  }
+  }, [activeDocument, runtimeSessionState, setMessage]);
 
-  function handleRunCurrentRuntimeStep() {
+  const handleRunCurrentRuntimeStep = useCallback(() => {
     if (!activeStep) {
       return;
     }
@@ -4943,9 +4962,9 @@ export default function App() {
     runtimeSessionRef.current = nextState;
     setRuntimeSessionState(nextState);
     setMessage(`Simulator focused ${activeStep.title}.`);
-  }
+  }, [activeStep, setMessage]);
 
-  function handleRunRuntimeSubmit() {
+  const handleRunRuntimeSubmit = useCallback(() => {
     if (!activeDocument) {
       return;
     }
@@ -4961,7 +4980,7 @@ export default function App() {
     });
     runtimeSessionRef.current = nextState;
     setRuntimeSessionState(nextState);
-  }
+  }, [activeDocument]);
 
   function selectedRuntimeNodeIdForScope(scopeKind: RuntimeEditorScope["scopeKind"]): string | undefined {
     if (scopeKind === "form") {
@@ -9597,8 +9616,8 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => {
-                    setInspectorTab("behavior");
-                    setBehaviorFocusTarget("simulator");
+                    openTestPanelFromSelection();
+                    testPanel.setMode("session");
                   }}
                   disabled={!activeDocument}
                   className={actionButtonClass()}
@@ -10071,8 +10090,6 @@ export default function App() {
                         documentBehaviorGraphZoom={documentBehaviorGraphZoom}
                         documentBehaviorGraphOffset={documentBehaviorGraphOffset}
                         selectedBehaviorNode={selectedBehaviorNode}
-                        selectedRuntimeEvidenceKey={selectedRuntimeEvidenceKey}
-                        simulatorSectionRef={simulatorSectionRef}
                         runtimeSessionInputRef={runtimeSessionInputRef}
                         builderFieldOptions={builderFieldOptions}
                         buildLegacyConditionalRuleGroups={buildLegacyConditionalRuleGroups}
@@ -10088,13 +10105,7 @@ export default function App() {
                         onCloseBehaviorStudio={closeBehaviorStudio}
                         onOpenTestPanelForListener={openTestPanelForListener}
                         onOpenTestPanelFromSelection={openTestPanelFromSelection}
-                        onHandleResetRuntimeSession={handleResetRuntimeSession}
-                        onHandlePopulateRequiredRuntimeValues={handlePopulateRequiredRuntimeValues}
-                        onHandleRunCurrentRuntimeStep={handleRunCurrentRuntimeStep}
-                        onHandleRunRuntimeSubmit={handleRunRuntimeSubmit}
                         onHandleExportRuntimeSession={handleExportRuntimeSession}
-                        onHandleMockSubmitSuccess={handleMockSubmitSuccess}
-                        onHandleMockSubmitError={handleMockSubmitError}
                         onHandleBehaviorGraphPointerDown={handleBehaviorGraphPointerDown}
                         onHandleBehaviorGraphPointerMove={handleBehaviorGraphPointerMove}
                         onHandleBehaviorGraphPointerEnd={handleBehaviorGraphPointerEnd}
@@ -10125,7 +10136,6 @@ export default function App() {
                         onSetSelectedBehaviorNode={setSelectedBehaviorNode}
                         onSetEditingRuleIndex={setEditingRuleIndex}
                         onSetInspectorTab={setInspectorTab}
-                        onSetSelectedRuntimeEvidenceKey={setSelectedRuntimeEvidenceKey}
                       />
                     )
                   }
@@ -11305,6 +11315,13 @@ export default function App() {
           testPanel.setLastReport(report);
         }}
         onClearRecorded={testPanel.clearRecorded}
+        statusSnapshot={testPanel.state.statusSnapshot}
+        onResetSession={handleResetSessionWithConfirm}
+        onFillRequired={handlePopulateRequiredRuntimeValues}
+        onRunStep={handleRunCurrentRuntimeStep}
+        onSubmit={handleRunRuntimeSubmit}
+        onSimulateHostSuccess={handleMockSubmitSuccess}
+        onSimulateHostError={handleMockSubmitError}
       />
     </main>
   );

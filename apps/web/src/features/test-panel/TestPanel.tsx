@@ -6,8 +6,10 @@ import type { RuntimeEventSourceCandidate } from "../behavior/utils/runtime-help
 
 import { TestPanelHeader } from "./TestPanelHeader";
 import { TestPanelInputs } from "./TestPanelInputs";
+import { TestPanelSession } from "./TestPanelSession";
+import { TestPanelStatusStrip } from "./TestPanelStatusStrip";
 import { TestPanelTrace } from "./TestPanelTrace";
-import type { TestPanelDockSide, TestPanelMode, TestPanelSelection } from "./types";
+import type { TestPanelDockSide, TestPanelMode, TestPanelSelection, TestPanelStatusSnapshot } from "./types";
 
 export interface TestPanelProps {
   open: boolean;
@@ -16,6 +18,7 @@ export interface TestPanelProps {
   selection: TestPanelSelection;
   lastReport: RuntimeDispatchReport | null;
   recordedReports: { id: string; timestamp: string; report: RuntimeDispatchReport }[];
+  statusSnapshot: TestPanelStatusSnapshot | null;
   candidates: RuntimeEventSourceCandidate[];
   nodeLabelById?: Map<string, string>;
   onClose: () => void;
@@ -28,6 +31,12 @@ export interface TestPanelProps {
   onFire: (envelope: { sourceId: string; eventType: string; payload: Record<string, unknown> }) => void;
   onClearRecorded: () => void;
   onCreateListenerForSource?: () => void;
+  onResetSession: () => void;
+  onFillRequired: () => void;
+  onRunStep: () => void;
+  onSubmit: () => void;
+  onSimulateHostSuccess: () => void;
+  onSimulateHostError: () => void;
 }
 
 const dockClasses: Record<TestPanelDockSide, string> = {
@@ -44,6 +53,7 @@ export function TestPanel(props: TestPanelProps): ReactElement | null {
     selection,
     lastReport,
     recordedReports,
+    statusSnapshot,
     candidates,
     nodeLabelById,
     onClose,
@@ -56,6 +66,12 @@ export function TestPanel(props: TestPanelProps): ReactElement | null {
     onFire,
     onClearRecorded,
     onCreateListenerForSource,
+    onResetSession,
+    onFillRequired,
+    onRunStep,
+    onSubmit,
+    onSimulateHostSuccess,
+    onSimulateHostError,
   } = props;
 
   const recordHead = recordedReports.length ? recordedReports[recordedReports.length - 1] : null;
@@ -68,6 +84,7 @@ export function TestPanel(props: TestPanelProps): ReactElement | null {
       className={`${dockClasses[dockSide]} z-20 flex flex-col overflow-hidden rounded-lg border border-slate-300 bg-white`}
     >
       <TestPanelHeader mode={mode} dockSide={dockSide} onSetMode={onSetMode} onSetDock={onSetDock} onClose={onClose} />
+      <TestPanelStatusStrip snapshot={statusSnapshot} />
       <div className="flex-1 overflow-auto">
         {mode === "synth" ? (
           <TestPanelInputs
@@ -79,7 +96,7 @@ export function TestPanel(props: TestPanelProps): ReactElement | null {
             onResetPayload={onResetPayload}
             onFire={onFire}
           />
-        ) : (
+        ) : mode === "record" ? (
           <section className="p-3 text-xs text-slate-600">
             <div className="flex items-center justify-between gap-2">
               <span>
@@ -94,11 +111,22 @@ export function TestPanel(props: TestPanelProps): ReactElement | null {
               ) : null}
             </div>
           </section>
+        ) : (
+          <TestPanelSession
+            statusSnapshot={statusSnapshot}
+            onResetSession={onResetSession}
+            onFillRequired={onFillRequired}
+            onRunStep={onRunStep}
+            onSubmit={onSubmit}
+            onSimulateHostSuccess={onSimulateHostSuccess}
+            onSimulateHostError={onSimulateHostError}
+          />
         )}
         <TestPanelTrace
           report={traceReport}
           nodeLabelById={nodeLabelById}
           onCreateListenerForSource={onCreateListenerForSource}
+          recordedReports={recordedReports}
         />
       </div>
     </aside>

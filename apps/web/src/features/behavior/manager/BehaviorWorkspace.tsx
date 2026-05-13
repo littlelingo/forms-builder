@@ -12,15 +12,8 @@ import type {
 import type { RuntimeTraceEntry } from "@form-builder/runtime";
 import type { AuthoringSelection } from "../../../lib/authoring-utils";
 import {
-  buildRuntimeTraceContextSummary,
-  buildStructuredRuntimeTraceEvidence,
   describeRuntimeAction,
   documentBehaviorClusterFocusLabel,
-  estimateJsonBytes,
-  formatBytes,
-  getRuntimeTraceEntryKey,
-  isAuthoredRuntimeEvidenceEntry,
-  isRuntimeTraceChainRelevantEntry,
   legacyFieldConditionals,
   normalizeDocumentBehaviorClusterKind,
   runtimeNodeTypeLabel,
@@ -48,9 +41,6 @@ import type {
   LogicMapStepEntry,
   RuntimeEditorScope,
   RuntimeEventSourceCandidate,
-  RuntimeTraceChainStep,
-  RuntimeTraceChainSummary,
-  StructuredRuntimeTraceEvidence,
 } from "../utils/runtime-helpers";
 import type { InspectorTab } from "../../inspector";
 import { BehaviorEdgeLabel, BehaviorGraphNode } from "../cards/BehaviorGraphNode";
@@ -214,8 +204,6 @@ export interface BehaviorWorkspaceProps {
   documentBehaviorGraphZoom: number;
   documentBehaviorGraphOffset: { x: number; y: number };
   selectedBehaviorNode: BehaviorGraphSelection | null;
-  selectedRuntimeEvidenceKey: string | null;
-  simulatorSectionRef: React.RefObject<HTMLDivElement>;
   runtimeSessionInputRef: React.RefObject<HTMLInputElement>;
   builderFieldOptions: Array<{ id: string; label: string }>;
   buildLegacyConditionalRuleGroups: (conditions: LegacyConditionalRule[]) => LegacyConditionalRuleGroup[];
@@ -239,13 +227,7 @@ export interface BehaviorWorkspaceProps {
   onOpenTestPanelForListener?: (listenerId: string) => void;
   /** Phase 10 — fallback for "test from current selection" (e.g. legacy rule rows). */
   onOpenTestPanelFromSelection?: () => void;
-  onHandleResetRuntimeSession: () => void;
-  onHandlePopulateRequiredRuntimeValues: () => void;
-  onHandleRunCurrentRuntimeStep: () => void;
-  onHandleRunRuntimeSubmit: () => void;
   onHandleExportRuntimeSession: () => void;
-  onHandleMockSubmitSuccess: () => void;
-  onHandleMockSubmitError: () => void;
   onHandleBehaviorGraphPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
   onHandleBehaviorGraphPointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
   onHandleBehaviorGraphPointerEnd: (event: React.PointerEvent<HTMLDivElement>) => void;
@@ -276,7 +258,6 @@ export interface BehaviorWorkspaceProps {
   onSetSelectedBehaviorNode: (node: BehaviorGraphSelection | null) => void;
   onSetEditingRuleIndex: (index: number | null) => void;
   onSetInspectorTab: (tab: InspectorTab) => void;
-  onSetSelectedRuntimeEvidenceKey: (key: string | null) => void;
 }
 
 export function BehaviorWorkspace({
@@ -311,8 +292,6 @@ export function BehaviorWorkspace({
   documentBehaviorGraphZoom,
   documentBehaviorGraphOffset,
   selectedBehaviorNode,
-  selectedRuntimeEvidenceKey,
-  simulatorSectionRef,
   runtimeSessionInputRef,
   builderFieldOptions,
   buildLegacyConditionalRuleGroups,
@@ -328,13 +307,7 @@ export function BehaviorWorkspace({
   onCloseBehaviorStudio: closeBehaviorStudio,
   onOpenTestPanelForListener,
   onOpenTestPanelFromSelection,
-  onHandleResetRuntimeSession: handleResetRuntimeSession,
-  onHandlePopulateRequiredRuntimeValues: handlePopulateRequiredRuntimeValues,
-  onHandleRunCurrentRuntimeStep: handleRunCurrentRuntimeStep,
-  onHandleRunRuntimeSubmit: handleRunRuntimeSubmit,
   onHandleExportRuntimeSession: handleExportRuntimeSession,
-  onHandleMockSubmitSuccess: handleMockSubmitSuccess,
-  onHandleMockSubmitError: handleMockSubmitError,
   onHandleBehaviorGraphPointerDown: handleBehaviorGraphPointerDown,
   onHandleBehaviorGraphPointerMove: handleBehaviorGraphPointerMove,
   onHandleBehaviorGraphPointerEnd: handleBehaviorGraphPointerEnd,
@@ -365,7 +338,6 @@ export function BehaviorWorkspace({
   onSetSelectedBehaviorNode: setSelectedBehaviorNode,
   onSetEditingRuleIndex: setEditingRuleIndex,
   onSetInspectorTab: setInspectorTab,
-  onSetSelectedRuntimeEvidenceKey: setSelectedRuntimeEvidenceKey,
 }: BehaviorWorkspaceProps) {
   const selectedRuleIndex =
     selectedBehaviorNode?.kind === "rule" && selectedAuthoring?.kind === "field" && activeBuilderField
@@ -459,116 +431,6 @@ export function BehaviorWorkspace({
           : selectedAuthoring.kind === "section"
             ? `Section · ${activeSection?.title ?? "Current section"}`
             : `Step · ${activeStep?.title ?? "Current step"}`;
-  const latestTraceEntry = runtimeTraceEntries[0] ?? null;
-  const authoredRuntimeTraceEntries = runtimeTraceEntries.filter(isAuthoredRuntimeEvidenceEntry);
-  const selectedAuthoredTraceEvidence =
-    authoredRuntimeTraceEntries.find((entry) => getRuntimeTraceEntryKey(entry) === selectedRuntimeEvidenceKey) ??
-    authoredRuntimeTraceEntries[0] ??
-    null;
-  const selectedAuthoredTraceEvidenceKey = selectedAuthoredTraceEvidence
-    ? getRuntimeTraceEntryKey(selectedAuthoredTraceEvidence)
-    : null;
-  const isShowingLatestAuthoredEvidence =
-    selectedAuthoredTraceEvidence !== null &&
-    authoredRuntimeTraceEntries[0] !== undefined &&
-    getRuntimeTraceEntryKey(selectedAuthoredTraceEvidence) === getRuntimeTraceEntryKey(authoredRuntimeTraceEntries[0]);
-  const resolveRuntimeEvidenceNodeLabel = (nodeId: unknown, fallbackType?: string | null) => {
-    if (typeof nodeId === "string" && nodeId) {
-      return runtimeNodeLabelById.get(nodeId) ?? nodeId;
-    }
-    if (fallbackType === "form") {
-      return activeDocument ? `Form · ${activeDocument.title}` : "Form";
-    }
-    return "Unknown node";
-  };
-  const selectedStructuredTraceEvidence = selectedAuthoredTraceEvidence
-    ? buildStructuredRuntimeTraceEvidence(selectedAuthoredTraceEvidence, resolveRuntimeEvidenceNodeLabel)
-    : null;
-  const selectedTraceIndex = selectedAuthoredTraceEvidence
-    ? runtimeTraceEntries.findIndex(
-        (entry) => getRuntimeTraceEntryKey(entry) === getRuntimeTraceEntryKey(selectedAuthoredTraceEvidence),
-      )
-    : -1;
-  const selectedTraceChain =
-    selectedTraceIndex >= 0
-      ? (() => {
-          const olderRelevantIndices: number[] = [];
-          for (
-            let index = selectedTraceIndex + 1;
-            index < runtimeTraceEntries.length && olderRelevantIndices.length < 2;
-            index += 1
-          ) {
-            if (isRuntimeTraceChainRelevantEntry(runtimeTraceEntries[index])) {
-              olderRelevantIndices.push(index);
-            }
-          }
-          const newerRelevantIndices: number[] = [];
-          for (let index = selectedTraceIndex - 1; index >= 0 && newerRelevantIndices.length < 1; index -= 1) {
-            if (isRuntimeTraceChainRelevantEntry(runtimeTraceEntries[index])) {
-              newerRelevantIndices.push(index);
-            }
-          }
-          const chronologicalOlderIndices = [...olderRelevantIndices].reverse();
-          const relevantIndices = [...chronologicalOlderIndices, selectedTraceIndex, ...newerRelevantIndices];
-          return relevantIndices.map<RuntimeTraceChainStep>((index) => {
-            const entry = runtimeTraceEntries[index];
-            const summary = buildRuntimeTraceContextSummary(entry, resolveRuntimeEvidenceNodeLabel);
-            return {
-              ...summary,
-              role:
-                index === selectedTraceIndex
-                  ? "selected"
-                  : index > selectedTraceIndex
-                    ? chronologicalOlderIndices.length > 0 && index === chronologicalOlderIndices[0]
-                      ? "trigger"
-                      : "before"
-                    : "after",
-            };
-          });
-        })()
-      : [];
-  const authoredTraceChainSummaries = authoredRuntimeTraceEntries.reduce<RuntimeTraceChainSummary[]>(
-    (groups, entry) => {
-      const correlationId = entry.event.correlationId;
-      if (groups.some((group) => group.correlationId === correlationId)) {
-        return groups;
-      }
-      const correlationEntries = runtimeTraceEntries.filter(
-        (candidate) => candidate.event.correlationId === correlationId && isRuntimeTraceChainRelevantEntry(candidate),
-      );
-      const authoredEntries = correlationEntries.filter(isAuthoredRuntimeEvidenceEntry);
-      if (!authoredEntries.length) {
-        return groups;
-      }
-      const chronologicalEntries = [...correlationEntries].reverse();
-      const triggerEntry = chronologicalEntries.find((candidate) => !isAuthoredRuntimeEvidenceEntry(candidate)) ?? null;
-      const primaryEntry = authoredEntries[0];
-      const sourceLabel = triggerEntry
-        ? resolveRuntimeEvidenceNodeLabel(triggerEntry.event.source.nodeId, triggerEntry.event.source.nodeType)
-        : resolveRuntimeEvidenceNodeLabel(primaryEntry.event.source.nodeId, primaryEntry.event.source.nodeType);
-      const stepLabels = chronologicalEntries.map((candidate) => candidate.event.type);
-      groups.push({
-        correlationId,
-        entryKey: getRuntimeTraceEntryKey(primaryEntry),
-        title: stepLabels.join(" -> "),
-        summary: `Started from ${sourceLabel} with ${authoredEntries.length} authored ${
-          authoredEntries.length === 1 ? "step" : "steps"
-        } captured in this chain.`,
-        stepLabels,
-        authoredCount: authoredEntries.length,
-        latestTimestamp: primaryEntry.event.timestamp,
-        active: selectedAuthoredTraceEvidenceKey
-          ? authoredEntries.some((candidate) => getRuntimeTraceEntryKey(candidate) === selectedAuthoredTraceEvidenceKey)
-          : false,
-      });
-      return groups;
-    },
-    [],
-  );
-  const canRunSubmit = Boolean(activeDocument);
-  const canResolveHostLoop = runtimeSessionState?.submit.status === "submitting";
-  const runtimeSubmitPayloadBytes = formatBytes(estimateJsonBytes(runtimeSubmitPreview));
-  const runtimeSessionSnapshotBytes = formatBytes(estimateJsonBytes(runtimeSessionState));
   const activeLogicMapStep =
     selectedAuthoring?.kind === "step"
       ? (logicMapData?.steps.find((step) => step.id === selectedAuthoring.stepId) ?? null)
@@ -3763,473 +3625,15 @@ export function BehaviorWorkspace({
         </div>
       ) : null}
 
-      {/*
-       * TODO(Phase-12-or-later): consolidate into TestPanel.
-       *
-       * The unified TestPanel (Phase 10) covers event dispatch + trace inspection,
-       * but the controls below are still load-bearing and NOT yet replicated there:
-       *   - Reset / Fill required / Run current step / Run submit
-       *     drive the live session lifecycle (page nav + validate + submit).
-       *   - Simulate success / Simulate error are the host-bridge response stubs
-       *     that resolve `submit.status === "submitting"`.
-       *   - The Authored runtime evidence + Advanced session debug panels
-       *     visualize trace state across the workspace.
-       *
-       * When TestPanel grows session lifecycle + host-response affordances,
-       * collapse this section into a "open Test Panel" entry point.
-       */}
-      <div ref={simulatorSectionRef} className="rounded-[1.15rem] border border-soft bg-white p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Simulator</p>
-            <h4 className="mt-2 text-lg font-semibold text-slate-950">Exercise the authored behavior in context</h4>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              Run the live runtime loop against the selected behavior. Keep basic controls upfront and use advanced
-              session debug only when needed.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {/* Phase 10 — legacy "Test behavior" + "Run behavior test" buttons replaced
-                by the unified TestPanel (opens with Cmd/Ctrl+K or from the Behavior
-                Manager / inspector rows). */}
-            {selectedListener && onOpenTestPanelForListener ? (
-              <button
-                type="button"
-                onClick={() => onOpenTestPanelForListener(selectedListener.id)}
-                className={actionButtonClass("primary")}
-              >
-                Test selected behavior
-              </button>
-            ) : onOpenTestPanelFromSelection ? (
-              <button
-                type="button"
-                onClick={() => onOpenTestPanelFromSelection()}
-                className={actionButtonClass("secondary")}
-              >
-                Test selected behavior
-              </button>
-            ) : null}
-            <button type="button" onClick={handleResetRuntimeSession} className={actionButtonClass()}>
-              Reset session
-            </button>
-            <button type="button" onClick={handlePopulateRequiredRuntimeValues} className={actionButtonClass()}>
-              Fill required
-            </button>
-            <button
-              type="button"
-              onClick={handleRunCurrentRuntimeStep}
-              disabled={!activeStep}
-              className={actionButtonClass()}
-            >
-              Run current step
-            </button>
-            <button
-              type="button"
-              onClick={handleRunRuntimeSubmit}
-              disabled={!canRunSubmit}
-              className={actionButtonClass("primary")}
-            >
-              Run submit
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-          <div className="space-y-4">
-            <div className="rounded-[1rem] border border-soft bg-slate-50 p-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="app-pill">{selectedBehaviorSummary}</span>
-                {runtimeSessionState?.submit.status ? (
-                  <span className="app-pill">Submit {runtimeSessionState.submit.status}</span>
-                ) : null}
-                <span className="app-pill">
-                  {runtimeSessionState?.validation.valid === false ? "Validation blocked" : "Validation ready"}
-                </span>
-              </div>
-              <div className="mt-4 grid gap-3 md:grid-cols-3">
-                <div className="rounded-[0.95rem] border border-soft bg-white p-3">
-                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Current runtime step</p>
-                  <p className="mt-2 font-semibold text-slate-950">
-                    {runtimeActiveStep?.title ?? activeStep?.title ?? "No active step"}
-                  </p>
-                </div>
-                <div className="rounded-[0.95rem] border border-soft bg-white p-3">
-                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Latest runtime status</p>
-                  <p className="mt-2 font-semibold text-slate-950">
-                    {runtimeSessionState?.submit.status === "submitting"
-                      ? "Awaiting host response"
-                      : runtimeSessionState?.submit.status === "success"
-                        ? "Submit succeeded"
-                        : runtimeSessionState?.submit.status === "error"
-                          ? "Submit failed"
-                          : runtimeSessionState?.validation.valid === false
-                            ? "Validation blocked"
-                            : "Idle"}
-                  </p>
-                </div>
-                <div className="rounded-[0.95rem] border border-soft bg-white p-3">
-                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Latest trace event</p>
-                  <p className="mt-2 font-semibold text-slate-950">
-                    {latestTraceEntry?.event.type ?? "No runtime events yet"}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-[1rem] border border-soft bg-slate-50 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Host response loop</p>
-                  <p className="mt-2 text-sm leading-6 text-slate-700">
-                    Once submit enters the `submitting` state, drive the host loop from here to confirm the behavior
-                    graph resolves the way the authored flow expects.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={handleMockSubmitSuccess}
-                    disabled={!canResolveHostLoop}
-                    className={actionButtonClass()}
-                  >
-                    Simulate success
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleMockSubmitError}
-                    disabled={!canResolveHostLoop}
-                    className={actionButtonClass("danger")}
-                  >
-                    Simulate error
-                  </button>
-                </div>
-              </div>
-              <div className="mt-4 rounded-[0.95rem] border border-soft bg-white p-3 text-sm leading-6 text-slate-700">
-                {canResolveHostLoop
-                  ? `Submit correlation ${runtimeSessionState?.submit.lastCorrelationId ?? "unknown"} is waiting for a host decision.`
-                  : "Run submit first. The host loop controls become active once the runtime is waiting on a response."}
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div className="rounded-[1rem] border border-soft bg-slate-50 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Authored runtime evidence</p>
-                  <p className="mt-2 font-semibold text-slate-950">
-                    {selectedStructuredTraceEvidence?.heading ?? "No authored runtime evidence yet"}
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                    {selectedStructuredTraceEvidence?.summary ??
-                      "Trigger a custom dispatch or host action from the preview or simulator to inspect its resolved payload here."}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {selectedStructuredTraceEvidence ? (
-                    <span className="app-pill">{selectedStructuredTraceEvidence.title}</span>
-                  ) : null}
-                  {selectedStructuredTraceEvidence && !isShowingLatestAuthoredEvidence ? (
-                    <button
-                      type="button"
-                      onClick={() => setSelectedRuntimeEvidenceKey(null)}
-                      className={actionButtonClass("secondary")}
-                    >
-                      Back to latest
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-              {selectedStructuredTraceEvidence ? (
-                <div className="mt-4 space-y-4">
-                  <div className="flex flex-wrap gap-2">
-                    {selectedStructuredTraceEvidence.pills.map((pill) => (
-                      <span key={`${pill.label}-${pill.value}`} className="app-pill">
-                        {pill.label}: {pill.value}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="rounded-[0.95rem] border border-soft bg-white p-4">
-                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Resolved payload</p>
-                    {selectedStructuredTraceEvidence.payloadEntries.length ? (
-                      <div className="mt-3 space-y-2">
-                        {selectedStructuredTraceEvidence.payloadEntries.map((entry) => (
-                          <div
-                            key={entry.key}
-                            className="flex items-start justify-between gap-3 rounded-[0.85rem] border border-soft bg-slate-50 px-3 py-2"
-                          >
-                            <p className="text-sm font-medium text-slate-700">{entry.key}</p>
-                            <p className="max-w-[70%] text-right text-sm text-slate-600">{entry.value}</p>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="mt-3 rounded-[0.85rem] border border-dashed border-soft bg-slate-50 px-3 py-4 text-sm text-slate-500">
-                        This action fired without a structured payload.
-                      </div>
-                    )}
-                  </div>
-                  <div className="rounded-[0.95rem] border border-soft bg-white p-4">
-                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Authored trace chain</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      This compresses the nearby trigger and follow-up runtime events into one small chain before
-                      dropping back to the longer raw trace list.
-                    </p>
-                    <div className="mt-3 grid gap-3">
-                      {selectedTraceChain.length ? (
-                        selectedTraceChain.map((step) => (
-                          <div key={step.entryKey} className="rounded-[0.85rem] border border-soft bg-slate-50 p-3">
-                            <div className="flex flex-wrap items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                                  {step.role === "trigger"
-                                    ? "Trigger"
-                                    : step.role === "selected"
-                                      ? "Selected evidence"
-                                      : step.role === "after"
-                                        ? "Follow-up"
-                                        : "Context"}
-                                </p>
-                                <p className="mt-2 font-semibold text-slate-950">{step.title}</p>
-                                <p className="mt-1 text-sm leading-6 text-slate-600">{step.detail}</p>
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                <span className="app-pill">{step.direction}</span>
-                                {step.role === "selected" ? (
-                                  <span className="app-pill">Active</span>
-                                ) : step.inspectable && step.entryKey !== selectedRuntimeEvidenceKey ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => setSelectedRuntimeEvidenceKey(step.entryKey)}
-                                    className={actionButtonClass("secondary")}
-                                  >
-                                    Inspect
-                                  </button>
-                                ) : null}
-                              </div>
-                            </div>
-                            <p className="mt-2 text-xs text-slate-500">{step.timestamp}</p>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="rounded-[0.85rem] border border-dashed border-soft bg-slate-50 px-3 py-4 text-sm text-slate-500">
-                          No nearby runtime chain is available for this evidence item yet.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <p className="text-xs text-slate-500">{selectedStructuredTraceEvidence.footer}</p>
-                </div>
-              ) : null}
-            </div>
-
-            <details className="rounded-[1rem] border border-soft bg-slate-50 p-4">
-              <summary className="cursor-pointer list-none">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Advanced session debug</p>
-                    <p className="mt-2 font-semibold text-slate-950">
-                      Payloads, traces, and session JSON are tucked away by default
-                    </p>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      Open this only when the authored runtime evidence above is not enough.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <span className="app-pill">{runtimeTraceEntries.length} trace events</span>
-                    <span className="app-pill">{runtimeSubmitPayloadBytes} payload</span>
-                    <span className="app-pill">{runtimeSessionSnapshotBytes} snapshot</span>
-                  </div>
-                </div>
-              </summary>
-              <div className="mt-4 space-y-4">
-                <div className="grid gap-4 xl:grid-cols-2">
-                  <div className="rounded-[0.95rem] border border-soft bg-white p-4">
-                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Session tools</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      Export captures the runtime execution state exactly as the preview sees it. Import restores that
-                      state into the mounted runtime to validate roundtrip behavior.
-                    </p>
-                    <div className="mt-4 flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={handleExportRuntimeSession}
-                        className={actionButtonClass("primary")}
-                      >
-                        Export session JSON
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => runtimeSessionInputRef.current?.click()}
-                        className={actionButtonClass()}
-                      >
-                        Import session JSON
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="rounded-[0.95rem] border border-soft bg-white p-4">
-                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Runtime summary</p>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-[0.85rem] border border-soft bg-slate-50 p-3">
-                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Latest event</p>
-                        <p className="mt-2 font-semibold text-slate-950">
-                          {latestTraceEntry?.event.type ?? "No events yet"}
-                        </p>
-                      </div>
-                      <div className="rounded-[0.85rem] border border-soft bg-slate-50 p-3">
-                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Submit state</p>
-                        <p className="mt-2 font-semibold text-slate-950">
-                          {runtimeSessionState?.submit.status ?? "idle"}
-                        </p>
-                      </div>
-                      <div className="rounded-[0.85rem] border border-soft bg-slate-50 p-3">
-                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Submit payload size</p>
-                        <p className="mt-2 font-semibold text-slate-950">{runtimeSubmitPayloadBytes}</p>
-                      </div>
-                      <div className="rounded-[0.85rem] border border-soft bg-slate-50 p-3">
-                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Session snapshot size</p>
-                        <p className="mt-2 font-semibold text-slate-950">{runtimeSessionSnapshotBytes}</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid gap-4 xl:grid-cols-2">
-                  <div className="rounded-[0.95rem] border border-soft bg-white p-4">
-                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Current submit payload</p>
-                    <pre className="mt-3 max-h-[12rem] overflow-auto rounded-[0.85rem] bg-slate-950 p-3 text-[11px] leading-5 text-slate-100">
-                      {JSON.stringify(runtimeSubmitPreview, null, 2)}
-                    </pre>
-                  </div>
-
-                  <div className="rounded-[0.95rem] border border-soft bg-white p-4">
-                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Current session snapshot</p>
-                    <pre className="mt-3 max-h-[12rem] overflow-auto rounded-[0.85rem] bg-slate-950 p-3 text-[11px] leading-5 text-slate-100">
-                      {JSON.stringify(runtimeSessionState, null, 2)}
-                    </pre>
-                  </div>
-                </div>
-
-                <div className="rounded-[0.95rem] border border-soft bg-white p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Recent runtime events</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">
-                        Scan grouped authored chains first, then click into a recent dispatched event or host action to
-                        load its evidence into the simulator card above.
-                      </p>
-                    </div>
-                    {authoredRuntimeTraceEntries.length ? (
-                      <span className="app-pill">{authoredRuntimeTraceEntries.length} authored</span>
-                    ) : null}
-                  </div>
-                  {authoredTraceChainSummaries.length ? (
-                    <div className="mt-4">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Authored chain summaries</p>
-                          <p className="mt-2 text-sm leading-6 text-slate-600">
-                            Review multiple trigger-to-action sequences side by side before drilling into one evidence
-                            item.
-                          </p>
-                        </div>
-                        <span className="app-pill">{authoredTraceChainSummaries.length} chains</span>
-                      </div>
-                      <div className="mt-3 grid gap-3 xl:grid-cols-2">
-                        {authoredTraceChainSummaries.map((chain) => (
-                          <div
-                            key={chain.correlationId}
-                            className={`rounded-[0.9rem] border p-3 ${
-                              chain.active
-                                ? "border-slate-900 bg-white shadow-[0_0_0_1px_rgba(15,23,42,0.06)]"
-                                : "border-soft bg-slate-50"
-                            }`}
-                          >
-                            <div className="flex flex-wrap items-start justify-between gap-2">
-                              <div>
-                                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Authored chain</p>
-                                <p className="mt-2 font-semibold text-slate-950">{chain.title}</p>
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                <span className="app-pill">{chain.authoredCount} authored</span>
-                                {chain.active ? <span className="app-pill">Viewing chain</span> : null}
-                              </div>
-                            </div>
-                            <p className="mt-2 text-sm leading-6 text-slate-600">{chain.summary}</p>
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              {chain.stepLabels.map((label, index) => (
-                                <span key={`${chain.correlationId}-${label}-${index}`} className="app-pill">
-                                  {label}
-                                </span>
-                              ))}
-                            </div>
-                            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                              <p className="text-xs text-slate-500">{chain.latestTimestamp}</p>
-                              {!chain.active ? (
-                                <button
-                                  type="button"
-                                  onClick={() => setSelectedRuntimeEvidenceKey(chain.entryKey)}
-                                  className={actionButtonClass("secondary")}
-                                >
-                                  Inspect chain
-                                </button>
-                              ) : null}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                  <div className="mt-3 max-h-[14rem] space-y-3 overflow-auto">
-                    {runtimeTraceEntries.length ? (
-                      runtimeTraceEntries.map((entry, index) => (
-                        <div
-                          key={`${entry.event.correlationId}-${entry.event.timestamp}-${index}`}
-                          className={`rounded-[0.85rem] border p-3 ${
-                            getRuntimeTraceEntryKey(entry) === selectedRuntimeEvidenceKey
-                              ? "border-slate-900 bg-white shadow-[0_0_0_1px_rgba(15,23,42,0.06)]"
-                              : "border-soft bg-slate-50"
-                          }`}
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <p className="font-semibold text-slate-950">{entry.event.type}</p>
-                            <div className="flex flex-wrap gap-2">
-                              <span className="app-pill">{entry.direction}</span>
-                              {isAuthoredRuntimeEvidenceEntry(entry) ? (
-                                <button
-                                  type="button"
-                                  onClick={() => setSelectedRuntimeEvidenceKey(getRuntimeTraceEntryKey(entry))}
-                                  className={actionButtonClass(
-                                    getRuntimeTraceEntryKey(entry) === selectedRuntimeEvidenceKey
-                                      ? "primary"
-                                      : "secondary",
-                                  )}
-                                >
-                                  {getRuntimeTraceEntryKey(entry) === selectedRuntimeEvidenceKey
-                                    ? "Viewing evidence"
-                                    : "Inspect evidence"}
-                                </button>
-                              ) : null}
-                            </div>
-                          </div>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {entry.event.timestamp} · source {entry.event.source.nodeType ?? "unknown"}{" "}
-                            {entry.event.source.nodeId ?? ""}
-                          </p>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="app-muted-card p-4 text-sm text-slate-500">
-                        No runtime events captured yet. Interact with the preview or run submit to build a trace.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </details>
-          </div>
-        </div>
+      <div className="rounded-[1.15rem] border border-soft bg-white p-4">
+        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Session debug</p>
+        <h4 className="mt-2 text-lg font-semibold text-slate-950">Moved to Test panel</h4>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          Session-lifecycle controls (Reset, Fill required, Run step, Submit) and host-loop simulation now live in the
+          unified Test panel — open with <kbd className="rounded bg-slate-200 px-1.5 py-0.5 text-xs">⌘K</kbd> /
+          <kbd className="rounded bg-slate-200 px-1.5 py-0.5 text-xs">Ctrl+K</kbd>, then switch to the
+          <strong> Session</strong> tab.
+        </p>
       </div>
     </div>
   );
