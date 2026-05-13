@@ -1,15 +1,26 @@
 import type { ReactElement } from "react";
 
 import type { RuntimeDispatchReport } from "@form-builder/runtime";
+import type { RuntimeEventEnvelope } from "@form-builder/schema";
 
 import type { RuntimeEventSourceCandidate } from "../behavior/utils/runtime-helpers";
 
+import type { MockHostResponseKind } from "./host-presets";
 import { TestPanelHeader } from "./TestPanelHeader";
+import { TestPanelHost } from "./TestPanelHost";
 import { TestPanelInputs } from "./TestPanelInputs";
 import { TestPanelSession } from "./TestPanelSession";
 import { TestPanelStatusStrip } from "./TestPanelStatusStrip";
 import { TestPanelTrace } from "./TestPanelTrace";
-import type { TestPanelDockSide, TestPanelMode, TestPanelSelection, TestPanelStatusSnapshot } from "./types";
+import type {
+  BridgePendingEntry,
+  CollisionEntry,
+  MockHostConfig,
+  TestPanelDockSide,
+  TestPanelMode,
+  TestPanelSelection,
+  TestPanelStatusSnapshot,
+} from "./types";
 
 export interface TestPanelProps {
   open: boolean;
@@ -21,6 +32,10 @@ export interface TestPanelProps {
   statusSnapshot: TestPanelStatusSnapshot | null;
   candidates: RuntimeEventSourceCandidate[];
   nodeLabelById?: Map<string, string>;
+  hostConfig: MockHostConfig;
+  pendingContinuations: BridgePendingEntry[];
+  collisionEvents: CollisionEntry[];
+  submitEnvelope: RuntimeEventEnvelope | null;
   onClose: () => void;
   onSetMode: (mode: TestPanelMode) => void;
   onSetDock: (side: TestPanelDockSide) => void;
@@ -35,8 +50,8 @@ export interface TestPanelProps {
   onFillRequired: () => void;
   onRunStep: () => void;
   onSubmit: () => void;
-  onSimulateHostSuccess: () => void;
-  onSimulateHostError: () => void;
+  onMockHostConfigChange: (config: MockHostConfig) => void;
+  onResolveContinuation: (correlationId: string, kind: MockHostResponseKind, payload: Record<string, unknown>) => void;
 }
 
 const dockClasses: Record<TestPanelDockSide, string> = {
@@ -56,6 +71,10 @@ export function TestPanel(props: TestPanelProps): ReactElement | null {
     statusSnapshot,
     candidates,
     nodeLabelById,
+    hostConfig,
+    pendingContinuations,
+    collisionEvents,
+    submitEnvelope,
     onClose,
     onSetMode,
     onSetDock,
@@ -70,8 +89,8 @@ export function TestPanel(props: TestPanelProps): ReactElement | null {
     onFillRequired,
     onRunStep,
     onSubmit,
-    onSimulateHostSuccess,
-    onSimulateHostError,
+    onMockHostConfigChange,
+    onResolveContinuation,
   } = props;
 
   const recordHead = recordedReports.length ? recordedReports[recordedReports.length - 1] : null;
@@ -111,15 +130,24 @@ export function TestPanel(props: TestPanelProps): ReactElement | null {
               ) : null}
             </div>
           </section>
-        ) : (
+        ) : mode === "session" ? (
           <TestPanelSession
             statusSnapshot={statusSnapshot}
             onResetSession={onResetSession}
             onFillRequired={onFillRequired}
             onRunStep={onRunStep}
             onSubmit={onSubmit}
-            onSimulateHostSuccess={onSimulateHostSuccess}
-            onSimulateHostError={onSimulateHostError}
+            pendingCount={pendingContinuations.length}
+            onOpenHostTab={() => onSetMode("host")}
+          />
+        ) : (
+          <TestPanelHost
+            config={hostConfig}
+            pending={pendingContinuations}
+            collisions={collisionEvents}
+            submitEnvelope={submitEnvelope}
+            onConfigChange={onMockHostConfigChange}
+            onResolve={onResolveContinuation}
           />
         )}
         <TestPanelTrace

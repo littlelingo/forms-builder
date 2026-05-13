@@ -11320,8 +11320,15 @@ export default function App() {
         onFillRequired={handlePopulateRequiredRuntimeValues}
         onRunStep={handleRunCurrentRuntimeStep}
         onSubmit={handleRunRuntimeSubmit}
-        onSimulateHostSuccess={handleMockSubmitSuccess}
-        onSimulateHostError={handleMockSubmitError}
+        // Phase 8 will replace these placeholders by wiring the shared mock-host bridge.
+        hostConfig={testPanel.state.mockHostConfig}
+        pendingContinuations={testPanel.state.pendingContinuations}
+        collisionEvents={testPanel.state.collisionEvents}
+        submitEnvelope={null}
+        onMockHostConfigChange={testPanel.setMockHostConfig}
+        onResolveContinuation={() => {
+          /* Phase 8: wired to shared bridge */
+        }}
       />
     </main>
   );

@@ -215,8 +215,10 @@ function HistoryView({
     <ul className="space-y-1">
       {reversed.map((entry, idx) => {
         const isOpen = expandedId === entry.id;
+        const isCollision = entry.report.event.type === "runtime.continuation_collision";
+        const rowClass = `rounded border ${isCollision ? "border-rose-300 bg-rose-50" : "border-slate-200"}`;
         return (
-          <li key={entry.id} className="rounded border border-slate-200">
+          <li key={entry.id} className={rowClass}>
             <button
               type="button"
               onClick={() => setExpandedId(isOpen ? null : entry.id)}
