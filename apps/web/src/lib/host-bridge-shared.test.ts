@@ -5,11 +5,7 @@ import type { PendingContinuationSnapshot, RuntimeEngine } from "@form-builder/r
 import type { RuntimeEventEnvelope } from "@form-builder/schema";
 
 import { createMockHostBridge } from "./host-bridge-shared";
-import type {
-  BridgePendingEntry,
-  CollisionEntry,
-  MockHostConfig,
-} from "../features/test-panel/types";
+import type { BridgePendingEntry, CollisionEntry, MockHostConfig } from "../features/test-panel/types";
 
 interface FakeEngineHandle {
   engine: RuntimeEngine;

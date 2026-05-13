@@ -31,11 +31,7 @@ function makeAction(
   };
 }
 
-function makeListener(
-  id: string,
-  actions: RuntimeActionDefinition[],
-  label?: string,
-): RuntimeListenerDefinition {
+function makeListener(id: string, actions: RuntimeActionDefinition[], label?: string): RuntimeListenerDefinition {
   return {
     id,
     label: label ?? null,
@@ -46,10 +42,7 @@ function makeListener(
   };
 }
 
-function makeField(
-  id: string,
-  listeners: RuntimeListenerDefinition[] = [],
-): AuthoringField {
+function makeField(id: string, listeners: RuntimeListenerDefinition[] = []): AuthoringField {
   return {
     id,
     stableKey: id,
@@ -69,11 +62,7 @@ function makeField(
   };
 }
 
-function makeGroup(
-  id: string,
-  fields: AuthoringField[],
-  listeners: RuntimeListenerDefinition[] = [],
-): AuthoringGroup {
+function makeGroup(id: string, fields: AuthoringField[], listeners: RuntimeListenerDefinition[] = []): AuthoringGroup {
   return {
     id,
     label: id,
@@ -123,10 +112,7 @@ function makeStep(
   };
 }
 
-function makeDoc(
-  steps: AuthoringStep[],
-  formListeners: RuntimeListenerDefinition[] = [],
-): AuthoringDocument {
+function makeDoc(steps: AuthoringStep[], formListeners: RuntimeListenerDefinition[] = []): AuthoringDocument {
   return {
     id: "doc-1",
     title: "Doc",
@@ -225,11 +211,19 @@ test("collectKeys walks listeners attached at every authoring level", () => {
         [
           makeSection(
             "section-1",
-            [makeField("section-field", [makeListener("L-sf", [makeAction("a-sf", "host_action", { handlerKey: "sf" })])])],
+            [
+              makeField("section-field", [
+                makeListener("L-sf", [makeAction("a-sf", "host_action", { handlerKey: "sf" })]),
+              ]),
+            ],
             [
               makeGroup(
                 "group-1",
-                [makeField("group-field", [makeListener("L-gf", [makeAction("a-gf", "host_action", { handlerKey: "gf" })])])],
+                [
+                  makeField("group-field", [
+                    makeListener("L-gf", [makeAction("a-gf", "host_action", { handlerKey: "gf" })]),
+                  ]),
+                ],
                 [makeListener("L-grp", [makeAction("a-grp", "host_action", { handlerKey: "grp" })])],
               ),
             ],

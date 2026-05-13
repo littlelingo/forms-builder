@@ -14,41 +14,41 @@
 
 ### New files
 
-| File | Responsibility |
-|---|---|
-| `apps/web/src/features/test-panel/host-presets.ts` | Static preset library: `submit-success`, `submit-error`, `prefill-success`, `prefill-error`, `host-call-timeout`, `host-call-network-error`. |
-| `apps/web/src/features/test-panel/host-presets.test.ts` | TDD tests for preset shape + lookup. |
-| `apps/web/src/lib/host-bridge-shared.ts` | Shared mock-bridge factory. Subscribes to engine events; auto-responds per config; supports manual resolve; tags entries with engine source; exposes pending + collision state via callbacks. |
-| `apps/web/src/lib/host-bridge-shared.test.ts` | TDD tests for the bridge. |
-| `apps/web/src/features/test-panel/TestPanelHost.tsx` | Host tab body. Composes config editor, pending queue, submit envelope preview, collision banner. |
-| `apps/web/src/features/test-panel/HostConfigEditor.tsx` | Mock-host config sub-component: preset dropdown + JSON textarea + delay slider + failure-mode toggle. Reused for default + per-entry override. |
-| `apps/web/src/features/test-panel/PendingContinuationRow.tsx` | One pending-entry row: handlerKey, correlationId, age, source tag, payload preview, response editor, action buttons. |
-| `apps/web/src/features/test-panel/SubmitEnvelopePreview.tsx` | Live JSON viewer for the form.submit envelope (when submit pending). |
-| `apps/web/src/features/behavior/composer/handler-key-autocomplete.ts` | Pure helper: `collectKeys(doc)` walks doc and returns deduped, frequency-sorted handlerKeys. |
-| `apps/web/src/features/behavior/composer/handler-key-autocomplete.test.ts` | TDD tests. |
+| File                                                                       | Responsibility                                                                                                                                                                                |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web/src/features/test-panel/host-presets.ts`                         | Static preset library: `submit-success`, `submit-error`, `prefill-success`, `prefill-error`, `host-call-timeout`, `host-call-network-error`.                                                  |
+| `apps/web/src/features/test-panel/host-presets.test.ts`                    | TDD tests for preset shape + lookup.                                                                                                                                                          |
+| `apps/web/src/lib/host-bridge-shared.ts`                                   | Shared mock-bridge factory. Subscribes to engine events; auto-responds per config; supports manual resolve; tags entries with engine source; exposes pending + collision state via callbacks. |
+| `apps/web/src/lib/host-bridge-shared.test.ts`                              | TDD tests for the bridge.                                                                                                                                                                     |
+| `apps/web/src/features/test-panel/TestPanelHost.tsx`                       | Host tab body. Composes config editor, pending queue, submit envelope preview, collision banner.                                                                                              |
+| `apps/web/src/features/test-panel/HostConfigEditor.tsx`                    | Mock-host config sub-component: preset dropdown + JSON textarea + delay slider + failure-mode toggle. Reused for default + per-entry override.                                                |
+| `apps/web/src/features/test-panel/PendingContinuationRow.tsx`              | One pending-entry row: handlerKey, correlationId, age, source tag, payload preview, response editor, action buttons.                                                                          |
+| `apps/web/src/features/test-panel/SubmitEnvelopePreview.tsx`               | Live JSON viewer for the form.submit envelope (when submit pending).                                                                                                                          |
+| `apps/web/src/features/behavior/composer/handler-key-autocomplete.ts`      | Pure helper: `collectKeys(doc)` walks doc and returns deduped, frequency-sorted handlerKeys.                                                                                                  |
+| `apps/web/src/features/behavior/composer/handler-key-autocomplete.test.ts` | TDD tests.                                                                                                                                                                                    |
 
 ### Modified files
 
-| File | Change |
-|---|---|
-| `packages/runtime/src/types.ts` | Add `handlerKey: string \| null` to `PendingContinuation`. Add `PendingContinuationSnapshot` interface (subset without function refs + `timeoutHandle`). Add `getPendingContinuations` to `RuntimeEngine`. |
-| `packages/runtime/src/engine.ts` | Set `handlerKey` when constructing the continuation (line ~1165). Implement `getPendingContinuations` returning sanitized snapshot. |
-| `packages/runtime/src/engine.test.ts` | Tests for `getPendingContinuations` + handlerKey. |
-| `packages/runtime/src/authoring-lints.ts` | New rule `host-call-await-handlerkey-collision`. Walks each listener's actions (recursing into branch arms, scoped per arm). |
-| `packages/runtime/src/authoring-lints.test.ts` | Tests for the new rule (4 cases). |
-| `apps/web/src/features/test-panel/types.ts` | `TestPanelMode` adds `"host"`. Add `MockHostConfig`, `MockHostResponsePreset`, `MockHostFailureMode`, `PendingContinuationSnapshot` (re-exported from runtime), `BridgePendingEntry`, `CollisionEntry` types. Extend `TestPanelState` with `mockHostConfig`, `pendingContinuations`, `collisionEvents`. |
-| `apps/web/src/features/test-panel/state.ts` | Add actions: `set-mock-host-config`, `set-pending-continuations`, `append-collision`. Reducer cases. Initial state includes default config. |
-| `apps/web/src/features/test-panel/state.test.ts` | New tests for each action + cap-20 enforcement on collisions + `set-mode` accepts `"host"`. |
-| `apps/web/src/features/test-panel/useTestPanelState.ts` | Add new callbacks. Persist `mockHostConfig` to `sessionStorage` (`mock-host-config-v1`). |
-| `apps/web/src/features/test-panel/TestPanelHeader.tsx` | Add 4th mode button `Host` with `aria-pressed`. |
-| `apps/web/src/features/test-panel/TestPanel.tsx` | Branch on `mode === "host"` to render `<TestPanelHost>`. Pipe new props. |
-| `apps/web/src/features/test-panel/TestPanelSession.tsx` | Replace inline Success/Error buttons with "{n} pending — Open Host tab" link. |
-| `apps/web/src/features/test-panel/TestPanelTrace.tsx` | Style `runtime.continuation_collision` history rows red. |
-| `apps/web/src/features/walkthrough/WalkthroughRoute.tsx` | Replace local mock bridge with `host-bridge-shared`. Pass walkthrough engine + `source: "walkthrough"`. |
-| `apps/web/src/features/walkthrough/host-bridge-mock.ts` | **Delete file** — superseded. |
-| `apps/web/src/features/behavior/composer/ActionEditor.tsx` | handlerKey field becomes `<input list>` backed by `<datalist>` from `handler-key-autocomplete.collectKeys(doc)`. |
-| `apps/web/src/App.tsx` | Instantiate the shared bridge for builder engine; replace `handleMockSubmitSuccess` / `handleMockSubmitError` to route through bridge.resolve; pipe pending snapshot + collisions into TestPanel state; show toast on collision via existing `setMessage`. |
-| `apps/web/e2e/test-panel.run.mjs` | Extend with Host-tab flow (preset → resolve → collision). |
+| File                                                       | Change                                                                                                                                                                                                                                                                                                  |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/runtime/src/types.ts`                            | Add `handlerKey: string \| null` to `PendingContinuation`. Add `PendingContinuationSnapshot` interface (subset without function refs + `timeoutHandle`). Add `getPendingContinuations` to `RuntimeEngine`.                                                                                              |
+| `packages/runtime/src/engine.ts`                           | Set `handlerKey` when constructing the continuation (line ~1165). Implement `getPendingContinuations` returning sanitized snapshot.                                                                                                                                                                     |
+| `packages/runtime/src/engine.test.ts`                      | Tests for `getPendingContinuations` + handlerKey.                                                                                                                                                                                                                                                       |
+| `packages/runtime/src/authoring-lints.ts`                  | New rule `host-call-await-handlerkey-collision`. Walks each listener's actions (recursing into branch arms, scoped per arm).                                                                                                                                                                            |
+| `packages/runtime/src/authoring-lints.test.ts`             | Tests for the new rule (4 cases).                                                                                                                                                                                                                                                                       |
+| `apps/web/src/features/test-panel/types.ts`                | `TestPanelMode` adds `"host"`. Add `MockHostConfig`, `MockHostResponsePreset`, `MockHostFailureMode`, `PendingContinuationSnapshot` (re-exported from runtime), `BridgePendingEntry`, `CollisionEntry` types. Extend `TestPanelState` with `mockHostConfig`, `pendingContinuations`, `collisionEvents`. |
+| `apps/web/src/features/test-panel/state.ts`                | Add actions: `set-mock-host-config`, `set-pending-continuations`, `append-collision`. Reducer cases. Initial state includes default config.                                                                                                                                                             |
+| `apps/web/src/features/test-panel/state.test.ts`           | New tests for each action + cap-20 enforcement on collisions + `set-mode` accepts `"host"`.                                                                                                                                                                                                             |
+| `apps/web/src/features/test-panel/useTestPanelState.ts`    | Add new callbacks. Persist `mockHostConfig` to `sessionStorage` (`mock-host-config-v1`).                                                                                                                                                                                                                |
+| `apps/web/src/features/test-panel/TestPanelHeader.tsx`     | Add 4th mode button `Host` with `aria-pressed`.                                                                                                                                                                                                                                                         |
+| `apps/web/src/features/test-panel/TestPanel.tsx`           | Branch on `mode === "host"` to render `<TestPanelHost>`. Pipe new props.                                                                                                                                                                                                                                |
+| `apps/web/src/features/test-panel/TestPanelSession.tsx`    | Replace inline Success/Error buttons with "{n} pending — Open Host tab" link.                                                                                                                                                                                                                           |
+| `apps/web/src/features/test-panel/TestPanelTrace.tsx`      | Style `runtime.continuation_collision` history rows red.                                                                                                                                                                                                                                                |
+| `apps/web/src/features/walkthrough/WalkthroughRoute.tsx`   | Replace local mock bridge with `host-bridge-shared`. Pass walkthrough engine + `source: "walkthrough"`.                                                                                                                                                                                                 |
+| `apps/web/src/features/walkthrough/host-bridge-mock.ts`    | **Delete file** — superseded.                                                                                                                                                                                                                                                                           |
+| `apps/web/src/features/behavior/composer/ActionEditor.tsx` | handlerKey field becomes `<input list>` backed by `<datalist>` from `handler-key-autocomplete.collectKeys(doc)`.                                                                                                                                                                                        |
+| `apps/web/src/App.tsx`                                     | Instantiate the shared bridge for builder engine; replace `handleMockSubmitSuccess` / `handleMockSubmitError` to route through bridge.resolve; pipe pending snapshot + collisions into TestPanel state; show toast on collision via existing `setMessage`.                                              |
+| `apps/web/e2e/test-panel.run.mjs`                          | Extend with Host-tab flow (preset → resolve → collision).                                                                                                                                                                                                                                               |
 
 ---
 
@@ -57,6 +57,7 @@
 ### Task 1.1: Add `handlerKey` to PendingContinuation + getPendingContinuations type
 
 **Files:**
+
 - Modify: `packages/runtime/src/types.ts`
 
 - [ ] **Step 1: Update `PendingContinuation` and add snapshot type**
@@ -114,6 +115,7 @@ git commit -m "feat(runtime): add handlerKey + createdAt to PendingContinuation 
 ### Task 1.2: Engine populates handlerKey + createdAt + implements getPendingContinuations
 
 **Files:**
+
 - Modify: `packages/runtime/src/engine.ts`
 - Modify: `packages/runtime/src/engine.test.ts`
 
@@ -204,6 +206,7 @@ git commit -m "feat(runtime): populate handlerKey/createdAt + implement getPendi
 ### Task 2.1: New lint rule
 
 **Files:**
+
 - Modify: `packages/runtime/src/authoring-lints.ts`
 - Modify: `packages/runtime/src/authoring-lints.test.ts`
 
@@ -306,6 +309,7 @@ git commit -m "feat(runtime): authoring-lint rule for host_call_await handlerKey
 ### Task 3.1: Preset library + tests
 
 **Files:**
+
 - Create: `apps/web/src/features/test-panel/host-presets.ts`
 - Create: `apps/web/src/features/test-panel/host-presets.test.ts`
 
@@ -441,6 +445,7 @@ git commit -m "feat(test-panel): mock-host response preset library"
 ### Task 4.1: Pure helper + tests
 
 **Files:**
+
 - Create: `apps/web/src/features/behavior/composer/handler-key-autocomplete.ts`
 - Create: `apps/web/src/features/behavior/composer/handler-key-autocomplete.test.ts`
 
@@ -498,7 +503,12 @@ Expected: FAIL (module missing).
 - [ ] **Step 3: Implement**
 
 ```ts
-import type { AuthoringDocument, AuthoringField, RuntimeActionDefinition, RuntimeListenerDefinition } from "@form-builder/schema";
+import type {
+  AuthoringDocument,
+  AuthoringField,
+  RuntimeActionDefinition,
+  RuntimeListenerDefinition,
+} from "@form-builder/schema";
 
 export interface HandlerKeyHit {
   key: string;
@@ -583,6 +593,7 @@ git commit -m "feat(behavior): handlerKey autocomplete helper for ActionEditor"
 ### Task 5.1: Bridge types + skeleton
 
 **Files:**
+
 - Modify: `apps/web/src/features/test-panel/types.ts`
 - Create: `apps/web/src/lib/host-bridge-shared.ts`
 
@@ -650,7 +661,11 @@ export interface TestPanelState {
 
 ```ts
 import type { RuntimeEngine, RuntimeEventEnvelope, RuntimeTraceEntry } from "@form-builder/runtime";
-import { findPresetById, type MockHostResponseKind, type MockHostResponsePreset } from "../features/test-panel/host-presets";
+import {
+  findPresetById,
+  type MockHostResponseKind,
+  type MockHostResponsePreset,
+} from "../features/test-panel/host-presets";
 import type { BridgePendingEntry, BridgeSource, CollisionEntry, MockHostConfig } from "../features/test-panel/types";
 
 export interface BridgeCallbacks {
@@ -812,6 +827,7 @@ git commit -m "feat(host-bridge): shared mock-host bridge module + types"
 ### Task 5.2: Bridge tests
 
 **Files:**
+
 - Create: `apps/web/src/lib/host-bridge-shared.test.ts`
 
 - [ ] **Step 1: Write tests covering the contract**
@@ -1031,6 +1047,7 @@ git commit -m "test(host-bridge): bridge contract tests (auto-respond, failure m
 ### Task 6.1: Reducer actions + tests
 
 **Files:**
+
 - Modify: `apps/web/src/features/test-panel/state.ts`
 - Modify: `apps/web/src/features/test-panel/state.test.ts`
 
@@ -1050,7 +1067,9 @@ test("set-mock-host-config writes config", () => {
 test("set-pending-continuations replaces list", () => {
   const next = testPanelReducer(initialTestPanelState, {
     type: "set-pending-continuations",
-    entries: [{ correlationId: "c", listenerId: "L", actionId: "A", handlerKey: "submit", createdAt: 1, source: "builder" }],
+    entries: [
+      { correlationId: "c", listenerId: "L", actionId: "A", handlerKey: "submit", createdAt: 1, source: "builder" },
+    ],
   });
   assert.equal(next.pendingContinuations.length, 1);
 });
@@ -1136,6 +1155,7 @@ git commit -m "feat(test-panel): reducer actions for mock-host config + pending 
 ### Task 6.2: Hook callbacks + sessionStorage
 
 **Files:**
+
 - Modify: `apps/web/src/features/test-panel/useTestPanelState.ts`
 
 - [ ] **Step 1: Add callbacks**
@@ -1151,10 +1171,7 @@ const setPendingContinuations = useCallback(
   (entries: BridgePendingEntry[]) => dispatch({ type: "set-pending-continuations", entries }),
   [],
 );
-const appendCollision = useCallback(
-  (entry: CollisionEntry) => dispatch({ type: "append-collision", entry }),
-  [],
-);
+const appendCollision = useCallback((entry: CollisionEntry) => dispatch({ type: "append-collision", entry }), []);
 ```
 
 Add to `UseTestPanelStateResult` and the returned object.
@@ -1182,6 +1199,7 @@ git commit -m "feat(test-panel): hook exposes mock-host callbacks + persists con
 ### Task 7.1: HostConfigEditor component
 
 **Files:**
+
 - Create: `apps/web/src/features/test-panel/HostConfigEditor.tsx`
 
 - [ ] **Step 1: Implement**
@@ -1309,6 +1327,7 @@ git commit -m "feat(test-panel): HostConfigEditor (preset + JSON + delay + failu
 ### Task 7.2: PendingContinuationRow component
 
 **Files:**
+
 - Create: `apps/web/src/features/test-panel/PendingContinuationRow.tsx`
 
 - [ ] **Step 1: Implement**
@@ -1407,6 +1426,7 @@ git commit -m "feat(test-panel): PendingContinuationRow (per-entry editor + reso
 ### Task 7.3: SubmitEnvelopePreview component
 
 **Files:**
+
 - Create: `apps/web/src/features/test-panel/SubmitEnvelopePreview.tsx`
 
 - [ ] **Step 1: Implement**
@@ -1460,6 +1480,7 @@ git commit -m "feat(test-panel): SubmitEnvelopePreview (live JSON viewer + copy)
 ### Task 7.4: TestPanelHost composes the tab
 
 **Files:**
+
 - Create: `apps/web/src/features/test-panel/TestPanelHost.tsx`
 
 - [ ] **Step 1: Implement**
@@ -1493,10 +1514,7 @@ export function TestPanelHost({
     <section className="space-y-4 p-3">
       <div>
         <h4 className="mb-2 text-xs uppercase tracking-wide text-slate-500">Default response</h4>
-        <HostConfigEditor
-          config={config.defaults}
-          onChange={(defaults) => onConfigChange({ ...config, defaults })}
-        />
+        <HostConfigEditor config={config.defaults} onChange={(defaults) => onConfigChange({ ...config, defaults })} />
       </div>
 
       {collisions.length > 0 ? (
@@ -1547,6 +1565,7 @@ git commit -m "feat(test-panel): TestPanelHost composes config + queue + envelop
 ### Task 7.5: Header gets 4th tab + container branches + Session tab slim
 
 **Files:**
+
 - Modify: `apps/web/src/features/test-panel/TestPanelHeader.tsx`
 - Modify: `apps/web/src/features/test-panel/TestPanel.tsx`
 - Modify: `apps/web/src/features/test-panel/TestPanelSession.tsx`
@@ -1590,11 +1609,7 @@ Replace the existing host-loop section with a slim "Open Host tab" callout:
   <span className="text-xs uppercase tracking-wide text-slate-500">Host loop</span>
   <p className="mt-1 rounded bg-slate-50 px-2 py-2 text-xs text-slate-600">
     {pendingCount > 0 ? `${pendingCount} pending host call${pendingCount === 1 ? "" : "s"}.` : "No pending host calls."}
-    <button
-      type="button"
-      onClick={onOpenHostTab}
-      className="ml-2 text-blue-700 underline"
-    >
+    <button type="button" onClick={onOpenHostTab} className="ml-2 text-blue-700 underline">
       Open Host tab
     </button>
   </p>
@@ -1633,6 +1648,7 @@ git commit -m "feat(test-panel): wire Host tab into Header/container/Session/Tra
 ### Task 8.1: Instantiate shared bridge in App
 
 **Files:**
+
 - Modify: `apps/web/src/App.tsx`
 
 - [ ] **Step 1: Create the bridge after engine is mounted**
@@ -1717,6 +1733,7 @@ git commit -m "feat(web): instantiate shared mock-host bridge for builder engine
 ### Task 8.2: WalkthroughRoute swaps to shared bridge
 
 **Files:**
+
 - Modify: `apps/web/src/features/walkthrough/WalkthroughRoute.tsx`
 - Delete: `apps/web/src/features/walkthrough/host-bridge-mock.ts`
 
@@ -1779,6 +1796,7 @@ git commit -m "refactor(walkthrough): swap to shared host-bridge module + delete
 ### Task 8.3: ActionEditor handlerKey autocomplete
 
 **Files:**
+
 - Modify: `apps/web/src/features/behavior/composer/ActionEditor.tsx`
 
 - [ ] **Step 1: Find the handlerKey input**
@@ -1798,10 +1816,7 @@ import { collectKeys } from "./handler-key-autocomplete";
 import { useMemo } from "react";
 
 // inside component:
-const handlerKeyOptions = useMemo(
-  () => (activeDocument ? collectKeys(activeDocument) : []),
-  [activeDocument],
-);
+const handlerKeyOptions = useMemo(() => (activeDocument ? collectKeys(activeDocument) : []), [activeDocument]);
 const datalistId = `handler-key-options-${actionId}`;
 ```
 
@@ -1844,6 +1859,7 @@ git commit -m "feat(behavior): handlerKey datalist autocomplete in ActionEditor"
 ### Task 9.1: Extend test-panel E2E with Host flow
 
 **Files:**
+
 - Modify: `apps/web/e2e/test-panel.run.mjs`
 
 - [ ] **Step 1: Add the Host-tab flow**
@@ -1853,19 +1869,19 @@ Append after the existing assertions:
 ```js
 // === Host tab ===
 await page.getByRole("button", { name: /^Host$/i }).click();
-await page.locator('text=/Default response/i').waitFor({ timeout: 5000 });
+await page.locator("text=/Default response/i").waitFor({ timeout: 5000 });
 
 // Pick a preset → JSON populates
-await page.locator('select#host-preset').selectOption("submit-success");
-const payloadValue = await page.locator('textarea#host-payload').inputValue();
+await page.locator("select#host-preset").selectOption("submit-success");
+const payloadValue = await page.locator("textarea#host-payload").inputValue();
 if (!payloadValue.includes("ok")) throw new Error("preset did not populate payload");
 
 // Trigger a host_call_await: assume the fixture has a path that produces one,
 // otherwise simply assert the empty-state copy is visible.
-const emptyCount = await page.locator('text=/No pending host calls/i').count();
+const emptyCount = await page.locator("text=/No pending host calls/i").count();
 if (emptyCount === 0) {
   // Pending queue has at least one entry — try resolving the first.
-  await page.locator('button[aria-expanded]').first().click();
+  await page.locator("button[aria-expanded]").first().click();
   await page.getByRole("button", { name: /^Success$/i }).click();
 }
 ```
@@ -1900,6 +1916,7 @@ npm run format:check
 ```
 
 Expected:
+
 - Runtime tests: 105 + 6 new = 111+ pass
 - API: 99/99
 - E2E: 3/3
@@ -1916,6 +1933,7 @@ git diff --cached --quiet || git commit -m "chore: format after Host tab impleme
 ### Task 9.3: RESUME refresh
 
 **Files:**
+
 - Modify: `RESUME.md`
 - Modify: `docs/project-plan.md`
 
@@ -1955,6 +1973,7 @@ git commit -m "docs: RESUME + project-plan refresh for Host tab + bridge ship"
 ## Self-Review
 
 **Spec coverage:**
+
 - Custom mock response payloads (Gap H1) → Phase 3 (presets) + Phase 7.1 (HostConfigEditor) + Phase 7.4 (TestPanelHost)
 - Timeout / network-error simulation (Gap H2) → Phase 5 (bridge) + Phase 7.1 (failure-mode toggle) + Phase 7.2 (per-entry buttons)
 - Correlation-id collision visibility (Gap H3) → Phase 5 (bridge captures) + Phase 7.4 (banner) + Phase 7.5 step 4 (red trace row) + App effect for toast (Phase 8.1) + Phase 2 (lint)

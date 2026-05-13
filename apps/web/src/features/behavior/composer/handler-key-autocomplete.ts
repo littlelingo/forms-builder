@@ -1,8 +1,4 @@
-import type {
-  AuthoringDocument,
-  RuntimeActionDefinition,
-  RuntimeListenerDefinition,
-} from "@form-builder/schema";
+import type { AuthoringDocument, RuntimeActionDefinition, RuntimeListenerDefinition } from "@form-builder/schema";
 
 /**
  * Phase 4 (mock-host-bridge plan, Task 4.1): autocomplete data source for the

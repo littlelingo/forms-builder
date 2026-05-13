@@ -29,10 +29,7 @@ export function TestPanelHost({
     <section className="space-y-4 p-3">
       <div>
         <h4 className="mb-2 text-xs uppercase tracking-wide text-slate-500">Default response</h4>
-        <HostConfigEditor
-          config={config.defaults}
-          onChange={(defaults) => onConfigChange({ ...config, defaults })}
-        />
+        <HostConfigEditor config={config.defaults} onChange={(defaults) => onConfigChange({ ...config, defaults })} />
       </div>
 
       {collisions.length > 0 ? (

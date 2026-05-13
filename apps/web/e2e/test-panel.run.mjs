@@ -216,7 +216,10 @@ async function main() {
     // Pick the submit-success preset via the preset <select>. Use accessible
     // name (label "Preset") since useId generates non-stable ids.
     console.log("[e2e] picking submit-success preset");
-    await panel.getByLabel(/^Preset$/i).first().selectOption("submit-success");
+    await panel
+      .getByLabel(/^Preset$/i)
+      .first()
+      .selectOption("submit-success");
 
     // Verify the JSON payload populated. The submit-success preset payload
     // includes "ok: true" — assert the textarea content reflects it.

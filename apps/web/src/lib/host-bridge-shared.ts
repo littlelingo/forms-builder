@@ -3,12 +3,7 @@ import type { RuntimeEventEnvelope } from "@form-builder/schema";
 
 import { findPresetById } from "../features/test-panel/host-presets";
 import type { MockHostResponseKind } from "../features/test-panel/host-presets";
-import type {
-  BridgePendingEntry,
-  BridgeSource,
-  CollisionEntry,
-  MockHostConfig,
-} from "../features/test-panel/types";
+import type { BridgePendingEntry, BridgeSource, CollisionEntry, MockHostConfig } from "../features/test-panel/types";
 
 export interface BridgeCallbacks {
   onPendingChange: (entries: BridgePendingEntry[]) => void;

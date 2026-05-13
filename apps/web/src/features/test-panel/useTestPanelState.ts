@@ -227,10 +227,7 @@ export function useTestPanelState(engine: RuntimeEngine | null): UseTestPanelSta
     [],
   );
 
-  const appendCollision = useCallback(
-    (entry: CollisionEntry) => dispatch({ type: "append-collision", entry }),
-    [],
-  );
+  const appendCollision = useCallback((entry: CollisionEntry) => dispatch({ type: "append-collision", entry }), []);
 
   const clearRecorded = useCallback(() => {
     dispatch({ type: "clear-recorded" });
