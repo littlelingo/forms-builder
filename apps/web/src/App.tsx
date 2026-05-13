@@ -4880,25 +4880,6 @@ export default function App() {
     handleResetRuntimeSession();
   }, [testPanel.state.statusSnapshot, handleResetRuntimeSession]);
 
-  // Phase 8 Task 8.1: route Simulate-success / Simulate-error through the
-  // shared mock-host bridge instead of synthesizing the response envelope here.
-  // The bridge owns timer cancellation + envelope shape, so the handler just
-  // hands it the correlation id from the in-flight submit.
-  const handleMockSubmitSuccess = useCallback(() => {
-    const correlationId = runtimeSessionState?.submit.lastCorrelationId;
-    if (!correlationId || !mockHostBridgeRef.current) return;
-    mockHostBridgeRef.current.resolve(correlationId, "success", { ok: true });
-  }, [runtimeSessionState]);
-
-  const handleMockSubmitError = useCallback(() => {
-    const correlationId = runtimeSessionState?.submit.lastCorrelationId;
-    if (!correlationId || !mockHostBridgeRef.current) return;
-    mockHostBridgeRef.current.resolve(correlationId, "error", {
-      ok: false,
-      error: { code: "SUBMIT_FAILED", message: "Simulated submit failure." },
-    });
-  }, [runtimeSessionState]);
-
   const handlePopulateRequiredRuntimeValues = useCallback(() => {
     if (!activeDocument || !runtimeSessionState) {
       return;
