@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
+import { useId, useMemo } from "react";
 import type {
+  AuthoringDocument,
   AuthoringField,
   RuntimeActionDefinition,
   RuntimeActionKind,
@@ -28,6 +30,7 @@ import type {
   RuntimePayloadFieldType,
   RuntimePayloadTemplate,
 } from "../utils/runtime-helpers";
+import { collectKeys } from "./handler-key-autocomplete";
 import { SuggestionChips } from "./SuggestionChips";
 import { actionButtonClass } from "../../../lib/ui-utils";
 import { BranchActionCard } from "../cards/BranchActionCard";
@@ -381,6 +384,12 @@ export interface ActionEditorProps {
   action: RuntimeActionDefinition;
   actionIndex: number;
   options?: { highlighted?: boolean; actionCount?: number };
+  /**
+   * Active authoring document — used to power the handlerKey datalist
+   * autocomplete (Phase 8 Task 8.3). When `null`, the datalist renders
+   * empty and the input degrades to a plain text field.
+   */
+  activeDocument: AuthoringDocument | null;
   runtimeEventSourceCandidates: RuntimeEventSourceCandidate[];
   builderStepOptions: Array<{ id: string; optionLabel: string }>;
   builderFieldOptions: Array<{ id: string; optionLabel: string }>;
@@ -417,6 +426,7 @@ export function ActionEditor({
   action,
   actionIndex,
   options,
+  activeDocument,
   runtimeEventSourceCandidates,
   builderStepOptions,
   builderFieldOptions,
@@ -440,6 +450,12 @@ export function ActionEditor({
   defaultRuntimeActionConfigForScope,
   firstListenerPayloadReference,
 }: ActionEditorProps) {
+  // Phase 8 Task 8.3: handlerKey datalist autocomplete data. Sourced once
+  // per render from the active authoring document; collectKeys walks every
+  // listener (including branch arms) and returns each unique handlerKey
+  // with its frequency and the listener labels using it.
+  const handlerKeyOptions = useMemo(() => (activeDocument ? collectKeys(activeDocument) : []), [activeDocument]);
+  const handlerKeyDatalistId = useId();
   const safetyClassName = (() => {
     switch (runtimeActionSafetyClass(action.kind)) {
       case "destructive":
@@ -741,6 +757,7 @@ export function ActionEditor({
             <div>
               <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Host handler key</label>
               <input
+                list={handlerKeyDatalistId}
                 value={String(action.config.handlerKey ?? "")}
                 onChange={(event) =>
                   onUpdateRuntimeAction(listener.id, action.id, (current) => {
@@ -750,6 +767,13 @@ export function ActionEditor({
                 placeholder="host.action"
                 className="mt-2 w-full rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
               />
+              <datalist id={handlerKeyDatalistId}>
+                {handlerKeyOptions.map((opt) => (
+                  <option key={opt.key} value={opt.key}>
+                    {opt.frequency > 1 ? `${opt.key} (${opt.frequency} uses)` : opt.key}
+                  </option>
+                ))}
+              </datalist>
               <SuggestionChips
                 label="Suggested"
                 suggestions={hostHandlerSuggestions}
@@ -900,6 +924,7 @@ export function ActionEditor({
               Handler key
               <input
                 type="text"
+                list={handlerKeyDatalistId}
                 value={String(action.config.handlerKey ?? "")}
                 onChange={(event) =>
                   onUpdateRuntimeAction(listener.id, action.id, (current) => {
@@ -908,6 +933,13 @@ export function ActionEditor({
                 }
                 className="mt-1 w-full rounded-2xl border border-soft px-3 py-2 text-sm text-slate-800"
               />
+              <datalist id={handlerKeyDatalistId}>
+                {handlerKeyOptions.map((opt) => (
+                  <option key={opt.key} value={opt.key}>
+                    {opt.frequency > 1 ? `${opt.key} (${opt.frequency} uses)` : opt.key}
+                  </option>
+                ))}
+              </datalist>
             </label>
             <div className="grid grid-cols-2 gap-2">
               <label className="text-xs uppercase tracking-[0.18em] text-slate-500">

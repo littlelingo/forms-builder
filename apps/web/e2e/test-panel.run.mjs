@@ -177,20 +177,16 @@ async function main() {
     // Status strip lives inside the panel — scope to avoid colliding with any
     // other "Submit:" text the page might surface. The strip shows
     // "Submit: <status>". After Reset+Submit the engine emits form.submit
-    // and parks at 'submitting' (no auto host_success listener in fixture).
+    // and parks at 'submitting' (no auto host_success listener in fixture and
+    // the shared mock-host bridge auto-responds only to host.action_requested,
+    // not to form.submit).
     console.log("[e2e] waiting for submit pill to flip");
     const submitPill = panel.locator("text=/Submit:\\s*(submitting|success)/i").first();
     await submitPill.waitFor({ timeout: 5_000 });
 
-    // If we landed in 'submitting', drive the host loop to success and
-    // verify the pill flips. Conditional handles the unlikely case where a
-    // future fixture wires form.submit_success directly.
-    const submittingNow = await panel.locator("text=/Submit:\\s*submitting/i").count();
-    if (submittingNow > 0) {
-      console.log("[e2e] in submitting — clicking Simulate success");
-      await panel.getByRole("button", { name: /Simulate success/i }).click();
-      await panel.locator("text=/Submit:\\s*success/i").waitFor({ timeout: 5_000 });
-    }
+    // Note: previously this script clicked "Simulate success" / "Simulate error"
+    // buttons rendered inline in the Session tab. Phase 7 of the mock-host-bridge
+    // plan removed those buttons in favor of the dedicated Host tab below.
 
     // Switch trace toggle to History. The view renders either a timestamp
     // row (HH:MM:SS) for each recorded entry, or the "No recorded events
@@ -203,6 +199,45 @@ async function main() {
     await panel.getByRole("button", { name: /^History$/i }).click();
     const timestampOrEmpty = panel.locator("text=/\\d{2}:\\d{2}:\\d{2}|No recorded events yet/i").first();
     await timestampOrEmpty.waitFor({ timeout: 3_000 });
+
+    // === Host tab ===
+    // Exercises the mock-host-bridge surface added in Phase 7+8: preset
+    // dropdown populates the JSON payload textarea, and the pending-queue
+    // empty-state copy renders (this fixture has no host_call_await listener,
+    // so no entry is queued from the listener path; the form.submit envelope
+    // is captured but doesn't add to the host_call queue).
+
+    console.log("[e2e] switching to Host tab");
+    await panel.getByRole("button", { name: /^Host$/i }).click();
+
+    // Wait for the Default response section heading.
+    await panel.getByText(/Default response/i).waitFor({ timeout: 5_000 });
+
+    // Pick the submit-success preset via the preset <select>. Use accessible
+    // name (label "Preset") since useId generates non-stable ids.
+    console.log("[e2e] picking submit-success preset");
+    await panel
+      .getByLabel(/^Preset$/i)
+      .first()
+      .selectOption("submit-success");
+
+    // Verify the JSON payload populated. The submit-success preset payload
+    // includes "ok: true" — assert the textarea content reflects it.
+    const payloadTextarea = panel.getByLabel(/Payload \(JSON\)/i).first();
+    await payloadTextarea.waitFor({ timeout: 3_000 });
+    const payloadValue = await payloadTextarea.inputValue();
+    if (!payloadValue.includes('"ok"')) {
+      throw new Error(`preset did not populate payload textarea (got: ${payloadValue.slice(0, 120)}…)`);
+    }
+
+    // Pending queue: assert either the empty-state copy or queue rows render.
+    // This fixture has no host_call_await listener, so we expect empty-state.
+    console.log("[e2e] asserting pending queue renders (empty or rows)");
+    const emptyCount = await panel.locator("text=/No pending host calls/i").count();
+    const queueRowCount = await panel.locator("button[aria-expanded]").count();
+    if (emptyCount === 0 && queueRowCount === 0) {
+      throw new Error("Host tab pending section did not render either empty state or queue rows");
+    }
 
     console.log("\nTestPanel E2E PASSED.");
   } catch (error) {

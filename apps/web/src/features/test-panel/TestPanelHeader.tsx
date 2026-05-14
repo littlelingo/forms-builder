@@ -37,9 +37,17 @@ export function TestPanelHeader({ mode, dockSide, onSetMode, onSetDock, onClose 
             type="button"
             onClick={() => onSetMode("session")}
             aria-pressed={mode === "session"}
-            className={`rounded-r px-2 py-0.5 ${mode === "session" ? "bg-blue-600 text-white" : "bg-slate-200"}`}
+            className={`px-2 py-0.5 ${mode === "session" ? "bg-blue-600 text-white" : "bg-slate-200"}`}
           >
             Session
+          </button>
+          <button
+            type="button"
+            onClick={() => onSetMode("host")}
+            aria-pressed={mode === "host"}
+            className={`rounded-r px-2 py-0.5 ${mode === "host" ? "bg-blue-600 text-white" : "bg-slate-200"}`}
+          >
+            Host
           </button>
         </div>
       </div>

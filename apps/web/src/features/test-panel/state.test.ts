@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import type { RuntimeDispatchReport } from "@form-builder/runtime";
 
 import { initialTestPanelState, RECORD_BUFFER_CAP, testPanelReducer } from "./state";
-import type { TestPanelSelection, TestPanelState } from "./types";
+import type { MockHostConfig, TestPanelSelection, TestPanelState } from "./types";
 
 function makeSelection(overrides: Partial<TestPanelSelection> = {}): TestPanelSelection {
   return {
@@ -217,4 +217,44 @@ test("append-report: enforces RECORD_BUFFER_CAP via FIFO eviction", () => {
   assert.equal(state.recordedReports[0].id, "r-5");
   // Last entry is the newest
   assert.equal(state.recordedReports[state.recordedReports.length - 1].id, `r-${RECORD_BUFFER_CAP + 4}`);
+});
+
+test("set-mock-host-config writes config", () => {
+  const config: MockHostConfig = {
+    defaults: { presetId: "submit-success", payload: null, delayMs: 0, failureMode: "none" },
+  };
+  const next = testPanelReducer(initialTestPanelState, { type: "set-mock-host-config", config });
+  assert.deepEqual(next.mockHostConfig, config);
+});
+
+test("set-pending-continuations replaces list", () => {
+  const next = testPanelReducer(initialTestPanelState, {
+    type: "set-pending-continuations",
+    entries: [
+      { correlationId: "c", listenerId: "L", actionId: "A", handlerKey: "submit", createdAt: 1, source: "builder" },
+    ],
+  });
+  assert.equal(next.pendingContinuations.length, 1);
+});
+
+test("append-collision enforces FIFO cap of 20", () => {
+  let state = initialTestPanelState;
+  for (let i = 0; i < 25; i++) {
+    state = testPanelReducer(state, {
+      type: "append-collision",
+      entry: {
+        correlationId: `c-${i}`,
+        handlerKey: "x",
+        timestamp: "2026-05-13T00:00:00Z",
+        trace: { direction: "internal", event: { type: "x" } } as never,
+      },
+    });
+  }
+  assert.equal(state.collisionEvents.length, 20);
+  assert.equal(state.collisionEvents[0]!.correlationId, "c-5");
+});
+
+test("set-mode accepts host", () => {
+  const next = testPanelReducer(initialTestPanelState, { type: "set-mode", mode: "host" });
+  assert.equal(next.mode, "host");
 });

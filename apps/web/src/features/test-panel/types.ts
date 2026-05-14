@@ -1,9 +1,37 @@
-import type { RuntimeDispatchReport } from "@form-builder/runtime";
+import type { PendingContinuationSnapshot, RuntimeDispatchReport, RuntimeTraceEntry } from "@form-builder/runtime";
 
 import type { RuntimeEventSourceCandidate } from "../behavior/utils/runtime-helpers";
 
-export type TestPanelMode = "synth" | "record" | "session";
+export type TestPanelMode = "synth" | "record" | "session" | "host";
 export type TestPanelDockSide = "left" | "right" | "float";
+
+export type MockHostFailureMode = "none" | "timeout" | "network-error";
+
+export interface MockHostConfig {
+  defaults: {
+    /** Preset id to use; null = custom JSON from `payload`. */
+    presetId: string | null;
+    /** JSON payload (override). */
+    payload: Record<string, unknown> | null;
+    /** Delay before auto-respond, ms (0–30000). */
+    delayMs: number;
+    /** Override behavior. */
+    failureMode: MockHostFailureMode;
+  };
+}
+
+export type BridgeSource = "builder" | "walkthrough";
+
+export interface BridgePendingEntry extends PendingContinuationSnapshot {
+  source: BridgeSource;
+}
+
+export interface CollisionEntry {
+  correlationId: string;
+  handlerKey: string | null;
+  timestamp: string;
+  trace: RuntimeTraceEntry;
+}
 
 export interface TestPanelSelection {
   sourceId: string | null;
@@ -36,6 +64,9 @@ export interface TestPanelState {
   lastReport: RuntimeDispatchReport | null;
   recordedReports: { id: string; timestamp: string; report: RuntimeDispatchReport }[];
   statusSnapshot: TestPanelStatusSnapshot | null;
+  mockHostConfig: MockHostConfig;
+  pendingContinuations: BridgePendingEntry[];
+  collisionEvents: CollisionEntry[];
 }
 
 export interface SourcePickerNode {

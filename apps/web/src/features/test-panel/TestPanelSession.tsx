@@ -8,8 +8,8 @@ export interface TestPanelSessionProps {
   onFillRequired: () => void;
   onRunStep: () => void;
   onSubmit: () => void;
-  onSimulateHostSuccess: () => void;
-  onSimulateHostError: () => void;
+  pendingCount: number;
+  onOpenHostTab: () => void;
 }
 
 export function TestPanelSession({
@@ -18,11 +18,10 @@ export function TestPanelSession({
   onFillRequired,
   onRunStep,
   onSubmit,
-  onSimulateHostSuccess,
-  onSimulateHostError,
+  pendingCount,
+  onOpenHostTab,
 }: TestPanelSessionProps): ReactElement {
   const documentReady = statusSnapshot !== null;
-  const submitting = statusSnapshot?.submitStatus === "submitting";
 
   return (
     <section className="space-y-4 p-3">
@@ -50,28 +49,14 @@ export function TestPanelSession({
       </div>
 
       <div>
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-xs uppercase tracking-wide text-slate-500">Host loop</span>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <SessionButton
-            label="Simulate success"
-            hint="Resolve pending host await"
-            onClick={onSimulateHostSuccess}
-            disabled={!submitting}
-          />
-          <SessionButton
-            label="Simulate error"
-            hint="Reject pending host await"
-            onClick={onSimulateHostError}
-            disabled={!submitting}
-            variant="danger"
-          />
-        </div>
-        <p className="mt-2 rounded bg-slate-50 px-2 py-1.5 text-xs text-slate-600">
-          {submitting
-            ? `Submit correlation ${statusSnapshot?.pendingCorrelationId ?? "unknown"} is waiting.`
-            : "Run Submit. Active when waiting on host."}
+        <span className="text-xs uppercase tracking-wide text-slate-500">Host loop</span>
+        <p className="mt-1 rounded bg-slate-50 px-2 py-2 text-xs text-slate-600">
+          {pendingCount > 0
+            ? `${pendingCount} pending host call${pendingCount === 1 ? "" : "s"}.`
+            : "No pending host calls."}
+          <button type="button" onClick={onOpenHostTab} className="ml-2 text-blue-700 underline">
+            Open Host tab
+          </button>
         </p>
       </div>
     </section>

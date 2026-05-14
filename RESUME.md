@@ -3,7 +3,7 @@
 ## Workspace
 
 - Repo: `/Users/clint/Workspace/forms-builder`
-- Current focus: `TestPanel Session-tab fold shipped on feat/test-panel-session-fold. BehaviorWorkspace Simulator absorbed (~630 lines deleted) as the unified TestPanel's third Session tab — always-visible status strip, Reset/Fill/Run/Submit lifecycle, Simulate success/error host loop, History view with chain context. Runtime 105/105, pytest 99/99, web typecheck clean, three E2E suites green (phase3 / test-panel-extended / walkthrough). Branch ready for merge review.`
+- Current focus: `Mock-host bridge shipped on feat/mock-host-bridge. New TestPanel "Host" tab (preset/JSON editor, delay slider, failure-mode toggle, pending queue with per-entry resolve, submit envelope preview, collision banner) backed by shared host-bridge-shared.ts module reused by Walkthrough. Engine adds additive handlerKey + createdAt + getPendingContinuations(). New authoring lint for handlerKey collisions; ActionEditor gets datalist autocomplete. Runtime 110/110, pytest 99/99, web typecheck clean, three E2E suites green. Branch ready for merge review.`
 - Baseline target: `VA.gov-style web form flow`, not PDF round-trip
 
 ## Current State
@@ -24,6 +24,24 @@
   - `Open JSON` is now a first-class intake path alongside `Import PDF`
 
 ## What Was Just Completed
+
+- **Mock-host bridge — Host tab + authoring discoverability** (this run, branch `feat/mock-host-bridge`):
+  - 4th TestPanel tab "Host": preset+JSON response editor, delay slider,
+    failure-mode toggle, pending continuations queue with per-entry resolve,
+    live submit envelope preview, collision banner.
+  - Shared `apps/web/src/lib/host-bridge-shared.ts` module replaces Walkthrough's local mock.
+    Both engines surface in the queue tagged with source ("builder" | "walkthrough").
+  - Engine: additive `handlerKey` + `createdAt` on `PendingContinuation`,
+    new `getPendingContinuations(): PendingContinuationSnapshot[]` method.
+  - New authoring lint: warns when a listener has >=2 host_call_await actions
+    sharing handlerKey within one branch arm (mutually-exclusive arms allowed).
+  - ActionEditor handlerKey field gets `<datalist>` autocomplete from a pure
+    helper that walks the doc.
+  - Session tab's host loop slimmed to "{n} pending - Open Host tab".
+  - TestPanelTrace History styles `runtime.continuation_collision` rows red.
+  - Removed orphaned `handleMockSubmit{Success,Error}` handlers from App.tsx.
+  - Spec [docs/superpowers/specs/2026-05-13-mock-host-bridge-design.md](/Users/clint/Workspace/forms-builder/docs/superpowers/specs/2026-05-13-mock-host-bridge-design.md), plan [docs/superpowers/plans/2026-05-13-mock-host-bridge.md](/Users/clint/Workspace/forms-builder/docs/superpowers/plans/2026-05-13-mock-host-bridge.md).
+  - Gates: typecheck:web clean, build:schema/runtime/web clean, runtime tests **110/110**, pytest **99/99**, E2E **3/3** (phase3 + test-panel + walkthrough), reducer state.test.ts **15/15**, format:check clean.
 
 - **TestPanel Session tab — Simulator fold** (this run, branch `feat/test-panel-session-fold`):
   - Folded the BehaviorWorkspace Simulator section (~630 lines deleted across `BehaviorWorkspace.tsx` + `App.tsx`) into the unified TestPanel as a third **Session** tab. Spec [docs/superpowers/specs/2026-05-12-test-panel-session-fold-design.md](/Users/clint/Workspace/forms-builder/docs/superpowers/specs/2026-05-12-test-panel-session-fold-design.md), plan [docs/superpowers/plans/2026-05-12-test-panel-session-fold.md](/Users/clint/Workspace/forms-builder/docs/superpowers/plans/2026-05-12-test-panel-session-fold.md).

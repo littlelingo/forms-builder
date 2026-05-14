@@ -18,6 +18,7 @@ export type {
   RuntimeTraceEntry,
   NodeDescriptor,
   NodeTombstoneMap,
+  PendingContinuationSnapshot,
   TelemetrySink,
   TokenResolution,
 } from "./types";
