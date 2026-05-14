@@ -170,7 +170,7 @@ export function LibraryPicker({
 
           {/* Filter chips — two rows: categories then scopes. Each row wraps independently. */}
           <div className="mt-2.5 space-y-1.5">
-            <div className="flex flex-wrap gap-1">
+            <div className="flex w-full flex-wrap gap-1">
               {CATEGORIES.map((cat) => (
                 <button
                   key={cat.value}
@@ -182,7 +182,7 @@ export function LibraryPicker({
                 </button>
               ))}
             </div>
-            <div className="flex flex-wrap items-center gap-1">
+            <div className="flex w-full flex-wrap items-center gap-1">
               <span className="mr-1 text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-slate-400">
                 Scope
               </span>
