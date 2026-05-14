@@ -17,8 +17,8 @@ export function listPayloadFieldsForEventType(
 
   if (!doc) return [];
 
-  const projectEvents = (doc.runtime?.projectEvents ?? []) as RuntimeEventTypeDefinition[];
-  for (const def of projectEvents) {
+  const docEvents = (doc.runtime?.formEvents ?? []) as RuntimeEventTypeDefinition[];
+  for (const def of docEvents) {
     if (def.type === eventType) return def.payloadShape?.fields ?? [];
   }
 

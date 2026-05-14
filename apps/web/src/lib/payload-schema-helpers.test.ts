@@ -21,14 +21,14 @@ test("listPayloadFieldsForEventType returns empty array for unknown type", () =>
   assert.deepEqual(fields, []);
 });
 
-test("listPayloadFieldsForEventType resolves project event payload from doc", () => {
-  const docWithProjectEvent = {
+test("listPayloadFieldsForEventType resolves doc-level event payload from formEvents", () => {
+  const docWithEvent = {
     id: "d",
     title: "T",
     version: "1.0",
     steps: [],
     runtime: {
-      projectEvents: [
+      formEvents: [
         {
           id: "pe-1",
           type: "custom.thing",
@@ -41,7 +41,7 @@ test("listPayloadFieldsForEventType resolves project event payload from doc", ()
       ],
     },
   } as unknown as AuthoringDocument;
-  const fields = listPayloadFieldsForEventType("custom.thing", docWithProjectEvent);
+  const fields = listPayloadFieldsForEventType("custom.thing", docWithEvent);
   assert.equal(fields.length, 1);
   assert.equal(fields[0]!.name, "ticketId");
 });
