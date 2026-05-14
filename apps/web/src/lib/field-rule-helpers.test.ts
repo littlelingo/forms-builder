@@ -243,3 +243,47 @@ test("findRulesTriggeredByField returns rules where this field is the trigger", 
   assert.equal(rules.length, 1);
   assert.equal(rules[0]!.affectedFieldId, "f-target");
 });
+
+import { detectFieldRuleConflicts } from "./field-rule-helpers";
+
+const baseRuleA = {
+  listenerId: "L-show",
+  triggerFieldId: "f-trigger",
+  operator: "equals" as const,
+  expectedValue: "yes",
+  effect: "show" as const,
+  affectedFieldId: "f-target",
+};
+const baseRuleB = {
+  listenerId: "L-hide",
+  triggerFieldId: "f-trigger",
+  operator: "equals" as const,
+  expectedValue: "yes",
+  effect: "hide" as const,
+  affectedFieldId: "f-target",
+};
+
+test("detectFieldRuleConflicts flags show/hide pair on same condition", () => {
+  const conflicts = detectFieldRuleConflicts([baseRuleA, baseRuleB]);
+  assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0]!.fieldId, "f-target");
+  assert.deepEqual(conflicts[0]!.effectPair.sort(), ["hide", "show"]);
+});
+
+test("detectFieldRuleConflicts does NOT flag rules with different expectedValue", () => {
+  const ruleB = { ...baseRuleB, expectedValue: "no" };
+  assert.deepEqual(detectFieldRuleConflicts([baseRuleA, ruleB]), []);
+});
+
+test("detectFieldRuleConflicts does NOT flag rules with different trigger fields", () => {
+  const ruleB = { ...baseRuleB, triggerFieldId: "f-other" };
+  assert.deepEqual(detectFieldRuleConflicts([baseRuleA, ruleB]), []);
+});
+
+test("detectFieldRuleConflicts flags require/optional pair on same condition", () => {
+  const ruleA = { ...baseRuleA, effect: "require" as const };
+  const ruleB = { ...baseRuleB, effect: "optional" as const };
+  const conflicts = detectFieldRuleConflicts([ruleA, ruleB]);
+  assert.equal(conflicts.length, 1);
+  assert.deepEqual(conflicts[0]!.effectPair.sort(), ["optional", "require"]);
+});

@@ -149,3 +149,37 @@ export function findRulesTriggeredByField(doc: AuthoringDocument, fieldId: strin
   }
   return rules;
 }
+
+export interface FieldRuleConflict {
+  fieldId: string;
+  effectPair: [FieldRuleEffect, FieldRuleEffect];
+  rules: [FieldRule, FieldRule];
+}
+
+const OPPOSING: Record<FieldRuleEffect, FieldRuleEffect | null> = {
+  show: "hide",
+  hide: "show",
+  require: "optional",
+  optional: "require",
+};
+
+export function detectFieldRuleConflicts(rules: FieldRule[]): FieldRuleConflict[] {
+  const conflicts: FieldRuleConflict[] = [];
+  for (let i = 0; i < rules.length; i++) {
+    for (let j = i + 1; j < rules.length; j++) {
+      const a = rules[i]!;
+      const b = rules[j]!;
+      if (a.affectedFieldId !== b.affectedFieldId) continue;
+      if (a.triggerFieldId !== b.triggerFieldId) continue;
+      if (a.operator !== b.operator) continue;
+      if (a.expectedValue !== b.expectedValue) continue;
+      if (OPPOSING[a.effect] !== b.effect) continue;
+      conflicts.push({
+        fieldId: a.affectedFieldId,
+        effectPair: [a.effect, b.effect],
+        rules: [a, b],
+      });
+    }
+  }
+  return conflicts;
+}
