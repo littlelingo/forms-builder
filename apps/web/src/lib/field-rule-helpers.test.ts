@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decodeFieldRule, isFieldRuleListener } from "./field-rule-helpers";
+import { decodeFieldRule, encodeFieldRule, isFieldRuleListener } from "./field-rule-helpers";
 import type { RuntimeListenerDefinition } from "@form-builder/schema";
 
 function buildRuleListener(opts: {
@@ -108,4 +108,37 @@ test("decodeFieldRule returns null when listener uses a non-rule action kind", (
     affectedFieldId: "f-b",
   });
   assert.equal(decodeFieldRule(listener), null);
+});
+
+test("encodeFieldRule produces a listener whose decode round-trips to the source rule", () => {
+  const source = {
+    triggerFieldId: "f-trigger",
+    operator: "not_equals" as const,
+    expectedValue: "veteran",
+    effect: "hide" as const,
+    affectedFieldId: "f-target",
+  };
+  const listener = encodeFieldRule(source);
+  const decoded = decodeFieldRule(listener);
+  assert.ok(decoded);
+  assert.equal(decoded!.triggerFieldId, source.triggerFieldId);
+  assert.equal(decoded!.operator, source.operator);
+  assert.equal(decoded!.expectedValue, source.expectedValue);
+  assert.equal(decoded!.effect, source.effect);
+  assert.equal(decoded!.affectedFieldId, source.affectedFieldId);
+  assert.equal(decoded!.listenerId.length > 0, true);
+});
+
+test("encodeFieldRule reuses provided listener id when supplied", () => {
+  const listener = encodeFieldRule(
+    {
+      triggerFieldId: "f-a",
+      operator: "equals",
+      expectedValue: "yes",
+      effect: "show",
+      affectedFieldId: "f-b",
+    },
+    "L-existing",
+  );
+  assert.equal(listener.id, "L-existing");
 });
