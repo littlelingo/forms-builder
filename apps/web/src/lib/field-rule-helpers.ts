@@ -88,6 +88,7 @@ export function encodeFieldRule(rule: Omit<FieldRule, "listenerId">, listenerId?
     id: randomId("A"),
     kind: EFFECT_TO_ACTION_KIND[rule.effect],
     config: { nodeId: rule.affectedFieldId },
+    continueOnError: false,
   } as unknown as RuntimeActionDefinition;
   return {
     id,

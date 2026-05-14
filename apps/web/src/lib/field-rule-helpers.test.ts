@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decodeFieldRule, encodeFieldRule, isFieldRuleListener } from "./field-rule-helpers";
+import { decodeFieldRule, encodeFieldRule, isFieldRuleListener, type FieldRule } from "./field-rule-helpers";
 import type { RuntimeListenerDefinition } from "@form-builder/schema";
 
 function buildRuleListener(opts: {
@@ -141,4 +141,21 @@ test("encodeFieldRule reuses provided listener id when supplied", () => {
     "L-existing",
   );
   assert.equal(listener.id, "L-existing");
+});
+
+test("encodeFieldRule round-trips for all four effects", () => {
+  const effects: FieldRule["effect"][] = ["show", "require", "optional"];
+  for (const effect of effects) {
+    const source = {
+      triggerFieldId: "f-trigger",
+      operator: "equals" as const,
+      expectedValue: "yes",
+      effect,
+      affectedFieldId: "f-target",
+    };
+    const listener = encodeFieldRule(source);
+    const decoded = decodeFieldRule(listener);
+    assert.ok(decoded, `expected decode to succeed for effect=${effect}`);
+    assert.equal(decoded!.effect, effect, `effect should round-trip (${effect})`);
+  }
 });
