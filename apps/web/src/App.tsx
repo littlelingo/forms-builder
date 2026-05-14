@@ -8332,6 +8332,42 @@ export default function App() {
     }
   }
 
+  function findSelectionForNodeId(doc: AuthoringDocument, nodeId: string): AuthoringSelection | null {
+    for (const step of doc.steps ?? []) {
+      if (step.id === nodeId) return { kind: "step", stepId: step.id };
+      for (const section of step.sections ?? []) {
+        if (section.id === nodeId) return { kind: "section", stepId: step.id, sectionId: section.id };
+        for (const field of section.fields ?? []) {
+          if (field.id === nodeId)
+            return { kind: "field", stepId: step.id, sectionId: section.id, fieldId: field.id };
+        }
+        for (const group of section.groups ?? []) {
+          if (group.id === nodeId)
+            return { kind: "group", stepId: step.id, sectionId: section.id, groupId: group.id };
+          for (const field of group.fields ?? []) {
+            if (field.id === nodeId)
+              return {
+                kind: "field",
+                stepId: step.id,
+                sectionId: section.id,
+                fieldId: field.id,
+                groupId: group.id,
+              };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  function handleOpenReverseIndex(nodeId: string) {
+    if (!activeDocument) return;
+    const selection = findSelectionForNodeId(activeDocument, nodeId);
+    if (!selection) return;
+    setSelectedAuthoring(selection);
+    setInspectorTab("behavior");
+  }
+
   function openGraphInspectorSurface() {
     setBehaviorStudioOpen(false);
     setBehaviorStudioCreating(false);
@@ -9310,6 +9346,8 @@ export default function App() {
           onSetBehaviorStudioView={setBehaviorStudioView}
           onSetBehaviorStudioOpen={setBehaviorStudioOpen}
           onSetSelectedAuthoring={setSelectedAuthoring}
+          onOpenReverseIndex={handleOpenReverseIndex}
+          onNavigateToNode={handleOpenReverseIndex}
         />
       ) : (
         <>
