@@ -9316,6 +9316,16 @@ export default function App() {
 
   const behaviorsContent = activeDocument ? (
     <div className="space-y-4">
+      {selectedAuthoring?.kind === "field" ? (
+        <FieldRulesList
+          doc={activeDocument}
+          fieldId={selectedAuthoring.fieldId}
+          fieldOptionLabel={fieldRuleLabelOf}
+          onAdd={() => openFieldRuleWizardForAffected(selectedAuthoring.fieldId)}
+          onEdit={(rule) => openFieldRuleWizardForEdit(rule)}
+          onDelete={(rule) => handleFieldRuleDelete(rule)}
+        />
+      ) : null}
       <BehaviorInspectorPanel
         document={activeDocument}
         scopeListeners={scopeListeners}
