@@ -31,6 +31,7 @@ import type {
   RuntimePayloadTemplate,
 } from "../utils/runtime-helpers";
 import { collectKeys } from "./handler-key-autocomplete";
+import { PayloadFieldAutocomplete } from "./PayloadFieldAutocomplete";
 import { SuggestionChips } from "./SuggestionChips";
 import { actionButtonClass } from "../../../lib/ui-utils";
 import { BranchActionCard } from "../cards/BranchActionCard";
@@ -634,13 +635,15 @@ export function ActionEditor({
                 </div>
               ) : (
                 <div className="mt-2 space-y-2">
-                  <input
+                  <PayloadFieldAutocomplete
                     value={String(action.config.value ?? "")}
-                    onChange={(event) =>
+                    onChange={(next) =>
                       onUpdateRuntimeAction(listener.id, action.id, (current) => {
-                        current.config.value = event.target.value;
+                        current.config.value = next;
                       })
                     }
+                    eventType={listener.eventName}
+                    doc={activeDocument}
                     className="w-full rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
                   />
                   {firstListenerPayloadReference(listener, [
