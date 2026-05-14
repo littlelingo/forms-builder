@@ -5,6 +5,13 @@
 @tailwind components;
 @tailwind utilities;
 
+/* USWDS resets [type="search"] to float: left; that collapses the input's
+   parent height to 0 and lets siblings render under the input. Clear it
+   globally so every search input behaves like a normal block input. */
+input[type="search"] {
+  float: none;
+}
+
 :root {
   color-scheme: light;
   --surface-app: #f7f8fb;
