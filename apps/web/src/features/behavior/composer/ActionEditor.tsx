@@ -116,6 +116,10 @@ interface PayloadEditorProps {
   editorState: RuntimePayloadEditorState;
   listenerId: string;
   actionId: string;
+  /** Event type whose payload schema powers {{event.payload.X}} autocomplete in string entries. */
+  payloadEventType: string;
+  /** Active doc, used to resolve project event payload shapes for autocomplete. */
+  activeDocument: AuthoringDocument | null;
   onSetEditorMode: (mode: RuntimePayloadMode) => void;
   onApplyRuntimePayloadTemplate: (template: RuntimePayloadTemplate) => void;
   onApplyRuntimePayloadEntries: (listenerId: string, actionId: string, entries: RuntimePayloadEntry[]) => void;
@@ -144,6 +148,8 @@ function PayloadEditor({
   editorState,
   listenerId,
   actionId,
+  payloadEventType,
+  activeDocument,
   onSetEditorMode,
   onApplyRuntimePayloadTemplate,
   onApplyRuntimePayloadEntries,
@@ -282,6 +288,20 @@ function PayloadEditor({
                 <div className="flex items-center rounded-2xl border border-soft bg-slate-100 px-4 py-3 text-sm text-slate-500">
                   This field will send `null`.
                 </div>
+              ) : entry.type === "string" ? (
+                <PayloadFieldAutocomplete
+                  value={entry.value}
+                  onChange={(next) => {
+                    const nextEntries = payloadEntries.map((candidate, candidateIndex) =>
+                      candidateIndex === payloadIndex ? { ...candidate, value: next } : candidate,
+                    );
+                    onApplyRuntimePayloadEntries(listenerId, actionId, nextEntries);
+                  }}
+                  eventType={payloadEventType}
+                  doc={activeDocument}
+                  placeholder="plain text"
+                  className="rounded-2xl border border-soft px-4 py-3 text-sm text-slate-800"
+                />
               ) : (
                 <input
                   type={entry.type === "number" ? "number" : "text"}
@@ -734,6 +754,8 @@ export function ActionEditor({
               editorState={getRuntimePayloadEditorState(action)}
               listenerId={listener.id}
               actionId={action.id}
+              payloadEventType={listener.eventName}
+              activeDocument={activeDocument}
               onSetEditorMode={(mode) => onSetRuntimePayloadEditorMode(action, mode)}
               onApplyRuntimePayloadTemplate={(template) =>
                 onApplyRuntimePayloadTemplate(listener.id, action.id, template)
@@ -795,6 +817,8 @@ export function ActionEditor({
               editorState={getRuntimePayloadEditorState(action)}
               listenerId={listener.id}
               actionId={action.id}
+              payloadEventType={listener.eventName}
+              activeDocument={activeDocument}
               onSetEditorMode={(mode) => onSetRuntimePayloadEditorMode(action, mode)}
               onApplyRuntimePayloadTemplate={(template) =>
                 onApplyRuntimePayloadTemplate(listener.id, action.id, template)

@@ -44,6 +44,11 @@ import type {
 } from "../utils/runtime-helpers";
 import type { InspectorTab } from "../../inspector";
 import { BehaviorEdgeLabel, BehaviorGraphNode } from "../cards/BehaviorGraphNode";
+import { CrossStepRefBadge } from "../cards/CrossStepRefBadge";
+import { EventPayloadBadge } from "../cards/EventPayloadBadge";
+import { ReverseIndexBadge } from "../cards/ReverseIndexBadge";
+import { collectCrossStepRefsForListener } from "../../../lib/payload-schema-helpers";
+import { countListenersReferencingNode } from "../stack/runtime-stack-helpers";
 import { actionButtonClass, formatLabel } from "../../../lib/ui-utils";
 
 function runtimeNodeTypeForAuthoringField(field: AuthoringField | null | undefined): RuntimeNodeType {
@@ -392,6 +397,40 @@ export function BehaviorWorkspace({
     (visibleStateBehavior.length + visibleInteractionFlows.length > 1 ||
       visibleStateBehavior.length > 1 ||
       visibleInteractionFlows.length > 1);
+
+  function findSelectionForNodeId(nodeId: string): AuthoringSelection | null {
+    if (!activeDocument) return null;
+    for (const step of activeDocument.steps ?? []) {
+      if (step.id === nodeId) return { kind: "step", stepId: step.id };
+      for (const section of step.sections ?? []) {
+        if (section.id === nodeId) return { kind: "section", stepId: step.id, sectionId: section.id };
+        for (const field of section.fields ?? []) {
+          if (field.id === nodeId) return { kind: "field", stepId: step.id, sectionId: section.id, fieldId: field.id };
+        }
+        for (const group of section.groups ?? []) {
+          if (group.id === nodeId) return { kind: "group", stepId: step.id, sectionId: section.id, groupId: group.id };
+          for (const field of group.fields ?? []) {
+            if (field.id === nodeId)
+              return {
+                kind: "field",
+                stepId: step.id,
+                sectionId: section.id,
+                fieldId: field.id,
+                groupId: group.id,
+              };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  function handleOpenReverseIndexForNode(nodeId: string) {
+    const selection = findSelectionForNodeId(nodeId);
+    if (!selection) return;
+    setSelectedAuthoring(selection);
+    setInspectorTab("behavior");
+  }
   const graphZoomPercent = Math.round(behaviorGraphZoom * 100);
   const graphCompact = behaviorGraphDensity === "dense";
   const graphFitZoom =
@@ -3257,6 +3296,17 @@ export function BehaviorWorkspace({
                                       ) &&
                                       selectedBehaviorNode.phase === "trigger"
                                     }
+                                    badges={
+                                      representativeRule && activeDocument ? (
+                                        <ReverseIndexBadge
+                                          count={countListenersReferencingNode(
+                                            activeDocument,
+                                            representativeRule.whenFieldId,
+                                          )}
+                                          onClick={() => handleOpenReverseIndexForNode(representativeRule.whenFieldId)}
+                                        />
+                                      ) : null
+                                    }
                                     onClick={() => {
                                       if (!representativeRule) {
                                         return;
@@ -3304,6 +3354,17 @@ export function BehaviorWorkspace({
                                           selectedBehaviorNode?.kind === "rule" &&
                                           selectedBehaviorNode.ruleId === member.rule.ruleId &&
                                           selectedBehaviorNode.phase === "effect"
+                                        }
+                                        badges={
+                                          activeBuilderField && activeDocument ? (
+                                            <ReverseIndexBadge
+                                              count={countListenersReferencingNode(
+                                                activeDocument,
+                                                activeBuilderField.id,
+                                              )}
+                                              onClick={() => handleOpenReverseIndexForNode(activeBuilderField.id)}
+                                            />
+                                          ) : null
                                         }
                                         onClick={() =>
                                           openBehaviorNodeInStudio(
@@ -3381,6 +3442,34 @@ export function BehaviorWorkspace({
                                       selectedBehaviorNode.listenerId === listener.id &&
                                       selectedBehaviorNode.phase === "trigger"
                                     }
+                                    badges={(() => {
+                                      const hostNodeId =
+                                        selectedAuthoring?.kind === "field"
+                                          ? selectedAuthoring.fieldId
+                                          : selectedAuthoring?.kind === "group"
+                                            ? selectedAuthoring.groupId
+                                            : selectedAuthoring?.kind === "section"
+                                              ? selectedAuthoring.sectionId
+                                              : selectedAuthoring?.kind === "step"
+                                                ? selectedAuthoring.stepId
+                                                : null;
+                                      const crossStepRefs =
+                                        activeDocument && hostNodeId
+                                          ? collectCrossStepRefsForListener(activeDocument, listener, hostNodeId)
+                                          : [];
+                                      return (
+                                        <>
+                                          <EventPayloadBadge eventType={listener.eventName} doc={activeDocument} />
+                                          {crossStepRefs.map((ref) => (
+                                            <CrossStepRefBadge
+                                              key={ref.sourceNodeId}
+                                              crossStepRef={ref}
+                                              onNavigate={handleOpenReverseIndexForNode}
+                                            />
+                                          ))}
+                                        </>
+                                      );
+                                    })()}
                                     onClick={() =>
                                       openBehaviorNodeInStudio({
                                         kind: "listener",

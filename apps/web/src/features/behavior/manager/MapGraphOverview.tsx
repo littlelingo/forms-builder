@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { AuthoringDocument, RuntimeListenerDefinition } from "@form-builder/schema";
 import type { AuthoringSelection } from "../../../lib/authoring-utils";
 import type {
@@ -15,9 +15,9 @@ import type {
 import type { InspectorTab } from "../../inspector";
 import { BehaviorEdgeLabel, BehaviorGraphNode } from "../cards/BehaviorGraphNode";
 import { CrossStepRefBadge } from "../cards/CrossStepRefBadge";
-import { PayloadFieldsPopover } from "../cards/PayloadFieldsPopover";
+import { EventPayloadBadge } from "../cards/EventPayloadBadge";
 import { ReverseIndexBadge } from "../cards/ReverseIndexBadge";
-import { collectCrossStepRefsForListener, listPayloadFieldsForEventType } from "../../../lib/payload-schema-helpers";
+import { collectCrossStepRefsForListener } from "../../../lib/payload-schema-helpers";
 import { actionButtonClass, formatLabel } from "../../../lib/ui-utils";
 
 interface LogicMapData {
@@ -51,33 +51,6 @@ export interface MapGraphOverviewProps {
   onSetSelectedAuthoring: (selection: AuthoringSelection | null) => void;
   onOpenReverseIndex?: (nodeId: string) => void;
   onNavigateToNode?: (nodeId: string) => void;
-}
-
-function EventPayloadBadge({ eventType, doc }: { eventType: string; doc: AuthoringDocument | null }) {
-  const [open, setOpen] = useState(false);
-  const fields = useMemo(() => listPayloadFieldsForEventType(eventType, doc), [eventType, doc]);
-  if (fields.length === 0) return null;
-  return (
-    <span className="relative" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
-      <button
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
-        title={`${fields.length} payload field${fields.length === 1 ? "" : "s"}`}
-        aria-expanded={open}
-      >
-        <span aria-hidden="true">{"{·}"}</span>
-        <span>
-          {fields.length} field{fields.length === 1 ? "" : "s"}
-        </span>
-      </button>
-      {open ? (
-        <span className="absolute right-0 top-full z-20 mt-1 block">
-          <PayloadFieldsPopover eventType={eventType} fields={fields} />
-        </span>
-      ) : null}
-    </span>
-  );
 }
 
 function countListenerReferencesForField(logicMapData: LogicMapData, fieldId: string): number {
