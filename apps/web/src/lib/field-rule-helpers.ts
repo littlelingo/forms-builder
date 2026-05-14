@@ -1,4 +1,5 @@
 import type {
+  AuthoringDocument,
   RuntimeActionDefinition,
   RuntimeConditionDefinition,
   RuntimeConditionOperator,
@@ -105,4 +106,46 @@ export function encodeFieldRule(rule: Omit<FieldRule, "listenerId">, listenerId?
     conditions: [cond],
     actions: [action],
   } as unknown as RuntimeListenerDefinition;
+}
+
+function collectAllListeners(doc: AuthoringDocument): RuntimeListenerDefinition[] {
+  const out: RuntimeListenerDefinition[] = [];
+  for (const l of doc.runtime?.formListeners ?? []) out.push(l);
+  function walk(node: unknown) {
+    if (!node || typeof node !== "object") return;
+    const candidate = node as {
+      runtime?: { listeners?: RuntimeListenerDefinition[] };
+      sections?: unknown[];
+      groups?: unknown[];
+      fields?: unknown[];
+    };
+    for (const l of candidate.runtime?.listeners ?? []) out.push(l);
+    for (const child of [
+      ...(candidate.sections ?? []),
+      ...(candidate.groups ?? []),
+      ...(candidate.fields ?? []),
+    ]) {
+      walk(child);
+    }
+  }
+  for (const step of doc.steps ?? []) walk(step);
+  return out;
+}
+
+export function findRulesAffectingField(doc: AuthoringDocument, fieldId: string): FieldRule[] {
+  const rules: FieldRule[] = [];
+  for (const listener of collectAllListeners(doc)) {
+    const rule = decodeFieldRule(listener);
+    if (rule && rule.affectedFieldId === fieldId) rules.push(rule);
+  }
+  return rules;
+}
+
+export function findRulesTriggeredByField(doc: AuthoringDocument, fieldId: string): FieldRule[] {
+  const rules: FieldRule[] = [];
+  for (const listener of collectAllListeners(doc)) {
+    const rule = decodeFieldRule(listener);
+    if (rule && rule.triggerFieldId === fieldId) rules.push(rule);
+  }
+  return rules;
 }

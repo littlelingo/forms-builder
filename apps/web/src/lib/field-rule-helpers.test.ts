@@ -159,3 +159,87 @@ test("encodeFieldRule round-trips for all four effects", () => {
     assert.equal(decoded!.effect, effect, `effect should round-trip (${effect})`);
   }
 });
+
+import { findRulesAffectingField, findRulesTriggeredByField } from "./field-rule-helpers";
+import type { AuthoringDocument } from "@form-builder/schema";
+
+function buildDocWithListeners(opts: {
+  formListeners?: RuntimeListenerDefinition[];
+  fieldListenersById?: Record<string, RuntimeListenerDefinition[]>;
+}): AuthoringDocument {
+  const fields = Object.entries(opts.fieldListenersById ?? {}).map(([id, listeners]) => ({
+    id,
+    label: id,
+    runtime: { listeners },
+  }));
+  return {
+    id: "d",
+    title: "T",
+    version: "1.0",
+    steps: [
+      {
+        id: "s1",
+        title: "Step 1",
+        sections: [{ id: "sec1", fields, groups: [] }],
+      },
+    ],
+    runtime: {
+      version: "1.0",
+      formEvents: [],
+      formListeners: opts.formListeners ?? [],
+    },
+  } as unknown as AuthoringDocument;
+}
+
+test("findRulesAffectingField returns rules from both form-level and node-level listeners", () => {
+  const formRule = encodeFieldRule({
+    triggerFieldId: "f-trigger",
+    operator: "equals",
+    expectedValue: "yes",
+    effect: "show",
+    affectedFieldId: "f-target",
+  });
+  const nodeRule = encodeFieldRule({
+    triggerFieldId: "f-trigger-2",
+    operator: "equals",
+    expectedValue: "no",
+    effect: "hide",
+    affectedFieldId: "f-target",
+  });
+  const doc = buildDocWithListeners({
+    formListeners: [formRule],
+    fieldListenersById: { "f-trigger-2": [nodeRule] },
+  });
+  const rules = findRulesAffectingField(doc, "f-target");
+  assert.equal(rules.length, 2);
+  assert.deepEqual(
+    rules.map((r) => r.effect).sort(),
+    ["hide", "show"],
+  );
+});
+
+test("findRulesAffectingField excludes listeners whose target differs", () => {
+  const rule = encodeFieldRule({
+    triggerFieldId: "f-trigger",
+    operator: "equals",
+    expectedValue: "yes",
+    effect: "show",
+    affectedFieldId: "f-other",
+  });
+  const doc = buildDocWithListeners({ formListeners: [rule] });
+  assert.deepEqual(findRulesAffectingField(doc, "f-target"), []);
+});
+
+test("findRulesTriggeredByField returns rules where this field is the trigger", () => {
+  const rule = encodeFieldRule({
+    triggerFieldId: "f-source",
+    operator: "equals",
+    expectedValue: "yes",
+    effect: "show",
+    affectedFieldId: "f-target",
+  });
+  const doc = buildDocWithListeners({ formListeners: [rule] });
+  const rules = findRulesTriggeredByField(doc, "f-source");
+  assert.equal(rules.length, 1);
+  assert.equal(rules[0]!.affectedFieldId, "f-target");
+});
