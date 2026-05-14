@@ -3,7 +3,7 @@
 ## Workspace
 
 - Repo: `/Users/clint/Workspace/forms-builder`
-- Current focus: `Mock-host bridge shipped on feat/mock-host-bridge. New TestPanel "Host" tab (preset/JSON editor, delay slider, failure-mode toggle, pending queue with per-entry resolve, submit envelope preview, collision banner) backed by shared host-bridge-shared.ts module reused by Walkthrough. Engine adds additive handlerKey + createdAt + getPendingContinuations(). New authoring lint for handlerKey collisions; ActionEditor gets datalist autocomplete. Runtime 110/110, pytest 99/99, web typecheck clean, three E2E suites green. Branch ready for merge review.`
+- Current focus: `Behavior graph discovery shipped on main. Three discovery features layered onto the BehaviorWorkspace card-graph: payload-fields hover popover on listener trigger nodes, cross-step ref badges + distinct edge tone on listener cards, reverse-index badges on rule trigger/effect (field) nodes. ActionEditor set_field_value static input swapped to PayloadFieldAutocomplete (datalist of {{event.payload.X}} options). Orphan builder*Options props dropped from ActionEditor. Pure helpers in payload-schema-helpers.ts own derivation (10 unit tests). Runtime 110/110, pytest 99/99, web typecheck/build clean, E2E 3/3, format clean.`
 - Baseline target: `VA.gov-style web form flow`, not PDF round-trip
 
 ## Current State
@@ -25,7 +25,36 @@
 
 ## What Was Just Completed
 
-- **Mock-host bridge — Host tab + authoring discoverability** (this run, branch `feat/mock-host-bridge`):
+- **Behavior graph discovery** (this run, on `main`):
+  - Layered three discovery features onto the existing BehaviorWorkspace
+    graph view: payload-fields popover on event nodes (hover chip in card top-right),
+    cross-step ref badges + distinct edge tone (amber `graph-edge-cross-step`
+    class on the connector pill), reverse-index badges on rule trigger/effect
+    field nodes (count of listeners + clicked to open inspector).
+  - Composer-side `{{event.payload.X}}` autocomplete: `set_field_value`
+    static-value input swapped to `PayloadFieldAutocomplete` (datalist driven
+    by listener's event payload schema).
+  - Cleanup: dropped orphaned `builder*Options` props from `ActionEditor`
+    (still used by `RuntimeReactionProperties` via `BehaviorComposer` — kept
+    those).
+  - New pure helpers in `apps/web/src/lib/payload-schema-helpers.ts`
+    own derivation (`listPayloadFieldsForEventType`, `isCrossStepReference`,
+    `collectCrossStepRefsForListener`); 7 unit tests. Plus
+    `payload-field-autocomplete-logic.ts` with 3 tests.
+  - `BehaviorGraphNode` extended with optional `badges` slot (top-right).
+    `BehaviorEdgeLabel` extended with `tone="crossStep"`.
+  - `App.tsx` gains `findSelectionForNodeId` + `handleOpenReverseIndex` to
+    wire badge clicks into the existing reverse-index inspector path.
+  - Plan adapted from spec assumption: graph is card-based, not SVG. Edges
+    are pills; cross-step styling adjusts pill tone + adds class for E2E
+    selectors. Documented in [docs/superpowers/plans/2026-05-14-behavior-graph-discovery.md](/Users/clint/Workspace/forms-builder/docs/superpowers/plans/2026-05-14-behavior-graph-discovery.md).
+  - No engine changes; no schema changes.
+  - Gates: typecheck:web clean, build:schema/runtime/web clean, runtime tests
+    **110/110**, pytest **99/99**, E2E **3/3** (phase3 + test-panel + walkthrough),
+    payload-schema-helpers **7/7**, payload-field-autocomplete-logic **3/3**,
+    format:check clean.
+
+- **Mock-host bridge — Host tab + authoring discoverability** (prior run, merged from `feat/mock-host-bridge`):
   - 4th TestPanel tab "Host": preset+JSON response editor, delay slider,
     failure-mode toggle, pending continuations queue with per-entry resolve,
     live submit envelope preview, collision banner.
