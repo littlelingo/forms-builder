@@ -9301,6 +9301,7 @@ export default function App() {
         <MapGraphOverview
           logicMapData={logicMapData}
           mapViewMode={mapViewMode}
+          activeDocument={activeDocument}
           onFocusBehaviorGraphNode={focusBehaviorGraphNode}
           onSetBehaviorGraphEntryContext={setBehaviorGraphEntryContext}
           onResetBehaviorGraphViewport={resetBehaviorGraphViewport}

@@ -1,3 +1,5 @@
+import { useMemo, useState } from "react";
+import type { AuthoringDocument, RuntimeListenerDefinition } from "@form-builder/schema";
 import type { AuthoringSelection } from "../../../lib/authoring-utils";
 import type {
   BehaviorGraphEntryContext,
@@ -12,6 +14,13 @@ import type {
 } from "../utils/runtime-helpers";
 import type { InspectorTab } from "../../inspector";
 import { BehaviorEdgeLabel, BehaviorGraphNode } from "../cards/BehaviorGraphNode";
+import { CrossStepRefBadge } from "../cards/CrossStepRefBadge";
+import { PayloadFieldsPopover } from "../cards/PayloadFieldsPopover";
+import { ReverseIndexBadge } from "../cards/ReverseIndexBadge";
+import {
+  collectCrossStepRefsForListener,
+  listPayloadFieldsForEventType,
+} from "../../../lib/payload-schema-helpers";
 import { actionButtonClass, formatLabel } from "../../../lib/ui-utils";
 
 interface LogicMapData {
@@ -34,6 +43,7 @@ interface FocusBehaviorGraphNodeOptions {
 export interface MapGraphOverviewProps {
   logicMapData: LogicMapData | null;
   mapViewMode: string;
+  activeDocument: AuthoringDocument | null;
   onFocusBehaviorGraphNode: (options: FocusBehaviorGraphNodeOptions) => void;
   onSetBehaviorGraphEntryContext: (context: BehaviorGraphEntryContext | null) => void;
   onResetBehaviorGraphViewport: () => void;
@@ -42,17 +52,78 @@ export interface MapGraphOverviewProps {
   onSetBehaviorStudioView: (view: BehaviorStudioView) => void;
   onSetBehaviorStudioOpen: (open: boolean) => void;
   onSetSelectedAuthoring: (selection: AuthoringSelection | null) => void;
+  onOpenReverseIndex?: (nodeId: string) => void;
+  onNavigateToNode?: (nodeId: string) => void;
+}
+
+function EventPayloadBadge({ eventType, doc }: { eventType: string; doc: AuthoringDocument | null }) {
+  const [open, setOpen] = useState(false);
+  const fields = useMemo(() => listPayloadFieldsForEventType(eventType, doc), [eventType, doc]);
+  if (fields.length === 0) return null;
+  return (
+    <span
+      className="relative"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+        title={`${fields.length} payload field${fields.length === 1 ? "" : "s"}`}
+        aria-expanded={open}
+      >
+        <span aria-hidden="true">{"{·}"}</span>
+        <span>
+          {fields.length} field{fields.length === 1 ? "" : "s"}
+        </span>
+      </button>
+      {open ? (
+        <span className="absolute right-0 top-full z-20 mt-1 block">
+          <PayloadFieldsPopover eventType={eventType} fields={fields} />
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function countListenerReferencesForField(logicMapData: LogicMapData, fieldId: string): number {
+  let count = 0;
+  const visit = (listener: LogicMapListenerEntry) => {
+    if (listener.sourceNodeId === fieldId) count++;
+    else if (listener.targetNodeIds.includes(fieldId)) count++;
+  };
+  for (const listener of logicMapData.formListeners) visit(listener);
+  for (const step of logicMapData.steps) {
+    for (const listener of step.runtimeListeners) visit(listener);
+    for (const rule of step.conditionalBehavior) {
+      if (rule.sourceFieldId === fieldId || rule.targetFieldId === fieldId) count++;
+    }
+  }
+  return count;
 }
 
 function MapRuleFlowCard({
   rule,
   mapViewMode,
+  logicMapData,
   onFocusBehaviorGraphNode,
+  onOpenReverseIndex,
 }: {
   rule: LogicMapConditionalEntry;
   mapViewMode: string;
+  logicMapData: LogicMapData;
   onFocusBehaviorGraphNode: (options: FocusBehaviorGraphNodeOptions) => void;
+  onOpenReverseIndex?: (nodeId: string) => void;
 }) {
+  const sourceCount = useMemo(
+    () => countListenerReferencesForField(logicMapData, rule.sourceFieldId),
+    [logicMapData, rule.sourceFieldId],
+  );
+  const targetCount = useMemo(
+    () => countListenerReferencesForField(logicMapData, rule.targetFieldId),
+    [logicMapData, rule.targetFieldId],
+  );
   return (
     <div key={rule.id} className="rounded-[1rem] border border-soft bg-white p-4">
       <div className="flex items-start justify-between gap-3">
@@ -89,6 +160,9 @@ function MapRuleFlowCard({
           title={`Watch ${rule.sourceFieldLabel}`}
           detail={`Observe ${rule.sourceFieldLabel} as the source input.`}
           tone="blue"
+          badges={
+            <ReverseIndexBadge count={sourceCount} onClick={() => onOpenReverseIndex?.(rule.sourceFieldId)} />
+          }
         />
         <BehaviorEdgeLabel label="When" />
         <BehaviorGraphNode eyebrow="Condition" title="Evaluate condition" detail={rule.detail} tone="amber" />
@@ -98,6 +172,9 @@ function MapRuleFlowCard({
           title={`${formatLabel(rule.effectLabel)} ${rule.targetFieldLabel}`}
           detail={`Apply the ${rule.effectLabel} effect to ${rule.targetFieldLabel}.`}
           tone="emerald"
+          badges={
+            <ReverseIndexBadge count={targetCount} onClick={() => onOpenReverseIndex?.(rule.targetFieldId)} />
+          }
         />
       </div>
     </div>
@@ -107,12 +184,29 @@ function MapRuleFlowCard({
 function MapListenerFlowCard({
   listener,
   mapViewMode,
+  activeDocument,
+  hostNodeId,
   onFocusBehaviorGraphNode,
+  onNavigateToNode,
 }: {
   listener: LogicMapListenerEntry;
   mapViewMode: string;
+  activeDocument: AuthoringDocument | null;
+  hostNodeId: string | null;
   onFocusBehaviorGraphNode: (options: FocusBehaviorGraphNodeOptions) => void;
+  onNavigateToNode?: (nodeId: string) => void;
 }) {
+  const crossStepRefs = useMemo(() => {
+    if (!activeDocument || !hostNodeId) return [];
+    const probe: Pick<RuntimeListenerDefinition, "eventSourceNodeId" | "dispatcherId"> = {
+      eventSourceNodeId: listener.sourceNodeId ?? null,
+      dispatcherId: listener.sourceNodeId ?? null,
+    };
+    return collectCrossStepRefsForListener(activeDocument, probe, hostNodeId);
+  }, [activeDocument, hostNodeId, listener.sourceNodeId]);
+
+  const isCrossStep = crossStepRefs.length > 0;
+
   return (
     <div key={listener.id} className="rounded-[1rem] border border-soft bg-white p-4">
       <div className="flex items-start justify-between gap-3">
@@ -148,8 +242,20 @@ function MapListenerFlowCard({
           title={`When ${formatLabel(listener.eventName)}`}
           detail={`${listener.scopeLabel} listens for this event.`}
           tone="blue"
+          badges={
+            <>
+              <EventPayloadBadge eventType={listener.eventName} doc={activeDocument} />
+              {crossStepRefs.map((ref) => (
+                <CrossStepRefBadge
+                  key={ref.sourceNodeId}
+                  crossStepRef={ref}
+                  onNavigate={onNavigateToNode}
+                />
+              ))}
+            </>
+          }
         />
-        <BehaviorEdgeLabel label="Then" />
+        <BehaviorEdgeLabel label="Then" tone={isCrossStep ? "crossStep" : "default"} />
         <BehaviorGraphNode
           eyebrow="Action"
           title={`${listener.actionCount} action${listener.actionCount === 1 ? "" : "s"}`}
@@ -164,6 +270,7 @@ function MapListenerFlowCard({
 export function MapGraphOverview({
   logicMapData,
   mapViewMode,
+  activeDocument,
   onFocusBehaviorGraphNode,
   onSetBehaviorGraphEntryContext,
   onResetBehaviorGraphViewport,
@@ -172,6 +279,8 @@ export function MapGraphOverview({
   onSetBehaviorStudioView,
   onSetBehaviorStudioOpen,
   onSetSelectedAuthoring,
+  onOpenReverseIndex,
+  onNavigateToNode,
 }: MapGraphOverviewProps) {
   if (!logicMapData) {
     return (
@@ -256,7 +365,10 @@ export function MapGraphOverview({
                 key={listener.id}
                 listener={listener}
                 mapViewMode={mapViewMode}
+                activeDocument={activeDocument}
+                hostNodeId={null}
                 onFocusBehaviorGraphNode={onFocusBehaviorGraphNode}
+                onNavigateToNode={onNavigateToNode}
               />
             ))
           ) : (
@@ -304,7 +416,9 @@ export function MapGraphOverview({
                         key={rule.id}
                         rule={rule}
                         mapViewMode={mapViewMode}
+                        logicMapData={logicMapData}
                         onFocusBehaviorGraphNode={onFocusBehaviorGraphNode}
+                        onOpenReverseIndex={onOpenReverseIndex}
                       />
                     ))
                   ) : (
@@ -327,7 +441,10 @@ export function MapGraphOverview({
                         key={listener.id}
                         listener={listener}
                         mapViewMode={mapViewMode}
+                        activeDocument={activeDocument}
+                        hostNodeId={step.id}
                         onFocusBehaviorGraphNode={onFocusBehaviorGraphNode}
+                        onNavigateToNode={onNavigateToNode}
                       />
                     ))
                   ) : (
