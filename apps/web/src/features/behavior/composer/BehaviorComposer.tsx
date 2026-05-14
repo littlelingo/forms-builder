@@ -793,9 +793,6 @@ export function BehaviorComposer({
                     }}
                     activeDocument={activeDocument}
                     runtimeEventSourceCandidates={runtimeEventSourceCandidates}
-                    builderStepOptions={builderStepOptions}
-                    builderFieldOptions={builderFieldOptions}
-                    builderNodeOptions={builderNodeOptions}
                     payloadTemplates={runtimePayloadTemplatesForAction(action, listener)}
                     emittedEventSuggestions={runtimeEventNameSuggestions(
                       activeRuntimeScope,

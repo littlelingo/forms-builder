@@ -391,9 +391,6 @@ export interface ActionEditorProps {
    */
   activeDocument: AuthoringDocument | null;
   runtimeEventSourceCandidates: RuntimeEventSourceCandidate[];
-  builderStepOptions: Array<{ id: string; optionLabel: string }>;
-  builderFieldOptions: Array<{ id: string; optionLabel: string }>;
-  builderNodeOptions: Array<{ id: string; optionLabel: string }>;
   payloadTemplates: RuntimePayloadTemplate[];
   emittedEventSuggestions: string[];
   hostHandlerSuggestions: string[];
@@ -428,9 +425,6 @@ export function ActionEditor({
   options,
   activeDocument,
   runtimeEventSourceCandidates,
-  builderStepOptions,
-  builderFieldOptions,
-  builderNodeOptions,
   payloadTemplates,
   emittedEventSuggestions,
   hostHandlerSuggestions,
