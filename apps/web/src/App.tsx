@@ -187,6 +187,10 @@ import {
   upsertRuntimeEventSource,
   validateRuntimeIdentifier,
 } from "./features/behavior";
+import { FieldRuleWizard, type FieldRuleFieldOption } from "./features/behavior/field-rules/FieldRuleWizard";
+import { FieldRulesList } from "./features/behavior/field-rules/FieldRulesList";
+import { FieldRulesTriggers } from "./features/behavior/field-rules/FieldRulesTriggers";
+import { decodeFieldRule, encodeFieldRule, type FieldRule } from "./lib/field-rule-helpers";
 import type {
   BehaviorGraphDensity,
   BehaviorGraphEntryContext,
@@ -1947,6 +1951,10 @@ export default function App() {
   }, [projectLibrary]);
   const [libraryPickerOpen, setLibraryPickerOpen] = useState(false);
   const [libraryPageOpen, setLibraryPageOpen] = useState(false);
+  const [fieldRuleWizardOpen, setFieldRuleWizardOpen] = useState(false);
+  const [fieldRuleWizardInitialAffected, setFieldRuleWizardInitialAffected] = useState<string | null>(null);
+  const [fieldRuleWizardInitialTrigger, setFieldRuleWizardInitialTrigger] = useState<string | null>(null);
+  const [fieldRuleWizardExisting, setFieldRuleWizardExisting] = useState<FieldRule | null>(null);
   const [pendingLibraryEntry, setPendingLibraryEntry] = useState<BehaviorLibraryEntry | null>(null);
   const [savingFromExistingListenerId, setSavingFromExistingListenerId] = useState<string | null>(null);
   const [saveToLibraryName, setSaveToLibraryName] = useState("");
@@ -2309,6 +2317,25 @@ export default function App() {
       ]),
     );
   }, [activeDocument]);
+  const fieldRuleFieldOptions = useMemo<FieldRuleFieldOption[]>(() => {
+    if (!activeDocument) return [];
+    const lookup = new Map<string, AuthoringField>();
+    for (const step of activeDocument.steps) {
+      for (const section of step.sections) {
+        for (const field of section.fields) lookup.set(field.id, field);
+        for (const group of section.groups) for (const field of group.fields) lookup.set(field.id, field);
+      }
+    }
+    return builderFieldOptions.map((opt) => ({
+      id: opt.id,
+      optionLabel: opt.optionLabel,
+      field: lookup.get(opt.id) ?? null,
+    }));
+  }, [activeDocument, builderFieldOptions]);
+  const fieldRuleLabelOf = useCallback(
+    (id: string) => fieldRuleFieldOptions.find((opt) => opt.id === id)?.optionLabel ?? id,
+    [fieldRuleFieldOptions],
+  );
   const builderStepOptions = useMemo(
     () =>
       activeDocument?.steps.map((step) => ({
@@ -5487,6 +5514,51 @@ export default function App() {
         setMessage("Behavior deleted.");
       },
     });
+  }
+
+  function openFieldRuleWizardForAffected(fieldId: string) {
+    setFieldRuleWizardInitialAffected(fieldId);
+    setFieldRuleWizardInitialTrigger(null);
+    setFieldRuleWizardExisting(null);
+    setFieldRuleWizardOpen(true);
+  }
+
+  function openFieldRuleWizardForTrigger(fieldId: string) {
+    setFieldRuleWizardInitialAffected(null);
+    setFieldRuleWizardInitialTrigger(fieldId);
+    setFieldRuleWizardExisting(null);
+    setFieldRuleWizardOpen(true);
+  }
+
+  function openFieldRuleWizardForEdit(rule: FieldRule) {
+    setFieldRuleWizardInitialAffected(rule.affectedFieldId);
+    setFieldRuleWizardInitialTrigger(rule.triggerFieldId);
+    setFieldRuleWizardExisting(rule);
+    setFieldRuleWizardOpen(true);
+  }
+
+  function handleFieldRuleSave(rule: Omit<FieldRule, "listenerId">, listenerId?: string) {
+    if (listenerId) {
+      updateRuntimeListener(listenerId, (listener) => {
+        Object.assign(listener, encodeFieldRule(rule, listenerId));
+      });
+      return;
+    }
+    if (!activeDocument) return;
+    const triggerSelection = findSelectionForNodeId(activeDocument, rule.triggerFieldId);
+    if (!triggerSelection) return;
+    setSelectedAuthoring(triggerSelection);
+    // schedule the add on the next tick so the scope mutation takes effect
+    Promise.resolve().then(() => {
+      addRuntimeListener(encodeFieldRule(rule));
+    });
+  }
+
+  function handleFieldRuleDelete(rule: FieldRule) {
+    if (!activeDocument) return;
+    const triggerSelection = findSelectionForNodeId(activeDocument, rule.triggerFieldId);
+    if (!triggerSelection) return;
+    removeRuntimeListenerForSelection(triggerSelection, rule.listenerId);
   }
 
   function addRuntimeActionToListener(listenerId: string, kind: RuntimeActionKind = "dispatch_event") {
@@ -11052,6 +11124,18 @@ export default function App() {
           </div>
         ) : null}
       </div>
+
+      {/* Field rule wizard */}
+      <FieldRuleWizard
+        isOpen={fieldRuleWizardOpen}
+        onClose={() => setFieldRuleWizardOpen(false)}
+        doc={activeDocument}
+        fieldOptions={fieldRuleFieldOptions}
+        initialAffectedFieldId={fieldRuleWizardInitialAffected}
+        initialTriggerFieldId={fieldRuleWizardInitialTrigger}
+        existingRule={fieldRuleWizardExisting}
+        onSave={handleFieldRuleSave}
+      />
 
       {/* Library picker */}
       <LibraryPicker
