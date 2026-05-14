@@ -17,10 +17,7 @@ import { BehaviorEdgeLabel, BehaviorGraphNode } from "../cards/BehaviorGraphNode
 import { CrossStepRefBadge } from "../cards/CrossStepRefBadge";
 import { PayloadFieldsPopover } from "../cards/PayloadFieldsPopover";
 import { ReverseIndexBadge } from "../cards/ReverseIndexBadge";
-import {
-  collectCrossStepRefsForListener,
-  listPayloadFieldsForEventType,
-} from "../../../lib/payload-schema-helpers";
+import { collectCrossStepRefsForListener, listPayloadFieldsForEventType } from "../../../lib/payload-schema-helpers";
 import { actionButtonClass, formatLabel } from "../../../lib/ui-utils";
 
 interface LogicMapData {
@@ -61,11 +58,7 @@ function EventPayloadBadge({ eventType, doc }: { eventType: string; doc: Authori
   const fields = useMemo(() => listPayloadFieldsForEventType(eventType, doc), [eventType, doc]);
   if (fields.length === 0) return null;
   return (
-    <span
-      className="relative"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-    >
+    <span className="relative" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
@@ -160,9 +153,7 @@ function MapRuleFlowCard({
           title={`Watch ${rule.sourceFieldLabel}`}
           detail={`Observe ${rule.sourceFieldLabel} as the source input.`}
           tone="blue"
-          badges={
-            <ReverseIndexBadge count={sourceCount} onClick={() => onOpenReverseIndex?.(rule.sourceFieldId)} />
-          }
+          badges={<ReverseIndexBadge count={sourceCount} onClick={() => onOpenReverseIndex?.(rule.sourceFieldId)} />}
         />
         <BehaviorEdgeLabel label="When" />
         <BehaviorGraphNode eyebrow="Condition" title="Evaluate condition" detail={rule.detail} tone="amber" />
@@ -172,9 +163,7 @@ function MapRuleFlowCard({
           title={`${formatLabel(rule.effectLabel)} ${rule.targetFieldLabel}`}
           detail={`Apply the ${rule.effectLabel} effect to ${rule.targetFieldLabel}.`}
           tone="emerald"
-          badges={
-            <ReverseIndexBadge count={targetCount} onClick={() => onOpenReverseIndex?.(rule.targetFieldId)} />
-          }
+          badges={<ReverseIndexBadge count={targetCount} onClick={() => onOpenReverseIndex?.(rule.targetFieldId)} />}
         />
       </div>
     </div>
@@ -246,11 +235,7 @@ function MapListenerFlowCard({
             <>
               <EventPayloadBadge eventType={listener.eventName} doc={activeDocument} />
               {crossStepRefs.map((ref) => (
-                <CrossStepRefBadge
-                  key={ref.sourceNodeId}
-                  crossStepRef={ref}
-                  onNavigate={onNavigateToNode}
-                />
+                <CrossStepRefBadge key={ref.sourceNodeId} crossStepRef={ref} onNavigate={onNavigateToNode} />
               ))}
             </>
           }

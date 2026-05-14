@@ -33,9 +33,7 @@ test("listPayloadFieldsForEventType resolves doc-level event payload from formEv
           id: "pe-1",
           type: "custom.thing",
           payloadShape: {
-            fields: [
-              { name: "ticketId", valueType: "string", description: "Ticket id", required: true },
-            ],
+            fields: [{ name: "ticketId", valueType: "string", description: "Ticket id", required: true }],
           },
         },
       ],

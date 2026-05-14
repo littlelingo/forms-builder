@@ -6,10 +6,7 @@ import {
 } from "@form-builder/schema";
 import { mergeRuntimePayloadFieldsWithStandardFields } from "../features/behavior/utils/runtime-helpers";
 
-export function listPayloadFieldsForEventType(
-  eventType: string,
-  doc: AuthoringDocument | null,
-): RuntimePayloadField[] {
+export function listPayloadFieldsForEventType(eventType: string, doc: AuthoringDocument | null): RuntimePayloadField[] {
   const core = runtimeCoreEventType(eventType);
   if (core) {
     return mergeRuntimePayloadFieldsWithStandardFields(core.payloadShape?.fields ?? []);
@@ -119,11 +116,7 @@ function findEventSourceInNode(node: unknown, eventType: string): RuntimePayload
   for (const def of candidate.runtime?.eventSources ?? []) {
     if (def.type === eventType) return def.payloadShape?.fields ?? [];
   }
-  for (const child of [
-    ...(candidate.sections ?? []),
-    ...(candidate.groups ?? []),
-    ...(candidate.fields ?? []),
-  ]) {
+  for (const child of [...(candidate.sections ?? []), ...(candidate.groups ?? []), ...(candidate.fields ?? [])]) {
     const found = findEventSourceInNode(child, eventType);
     if (found) return found;
   }

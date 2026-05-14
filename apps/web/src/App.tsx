@@ -8338,12 +8338,10 @@ export default function App() {
       for (const section of step.sections ?? []) {
         if (section.id === nodeId) return { kind: "section", stepId: step.id, sectionId: section.id };
         for (const field of section.fields ?? []) {
-          if (field.id === nodeId)
-            return { kind: "field", stepId: step.id, sectionId: section.id, fieldId: field.id };
+          if (field.id === nodeId) return { kind: "field", stepId: step.id, sectionId: section.id, fieldId: field.id };
         }
         for (const group of section.groups ?? []) {
-          if (group.id === nodeId)
-            return { kind: "group", stepId: step.id, sectionId: section.id, groupId: group.id };
+          if (group.id === nodeId) return { kind: "group", stepId: step.id, sectionId: section.id, groupId: group.id };
           for (const field of group.fields ?? []) {
             if (field.id === nodeId)
               return {

@@ -26,24 +26,24 @@ This makes the cleanup smaller than the spec implied — single file change to `
 
 ### New files
 
-| File | Responsibility |
-|---|---|
-| `apps/web/src/lib/payload-schema-helpers.ts` | Pure helpers: `listPayloadFieldsForEventType`, `isCrossStepReference`, `collectCrossStepRefsForListener`. |
-| `apps/web/src/lib/payload-schema-helpers.test.ts` | TDD tests (≥6 tests). |
-| `apps/web/src/features/behavior/cards/PayloadFieldsPopover.tsx` | Popover content listing payload fields. |
-| `apps/web/src/features/behavior/cards/CrossStepRefBadge.tsx` | Pill: arrow + source step title; click navigates. |
-| `apps/web/src/features/behavior/cards/ReverseIndexBadge.tsx` | Pill: "N listeners react"; click expands inline. |
-| `apps/web/src/features/behavior/composer/PayloadFieldAutocomplete.tsx` | Input wrapper that surfaces `<datalist>` of payload fields when input value contains `{{event.payload.` prefix. |
-| `apps/web/src/features/behavior/composer/payload-field-autocomplete-logic.ts` | Pure logic for the prefix detection + field list derivation (testable). |
-| `apps/web/src/features/behavior/composer/payload-field-autocomplete-logic.test.ts` | TDD tests (~3 tests). |
+| File                                                                               | Responsibility                                                                                                  |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `apps/web/src/lib/payload-schema-helpers.ts`                                       | Pure helpers: `listPayloadFieldsForEventType`, `isCrossStepReference`, `collectCrossStepRefsForListener`.       |
+| `apps/web/src/lib/payload-schema-helpers.test.ts`                                  | TDD tests (≥6 tests).                                                                                           |
+| `apps/web/src/features/behavior/cards/PayloadFieldsPopover.tsx`                    | Popover content listing payload fields.                                                                         |
+| `apps/web/src/features/behavior/cards/CrossStepRefBadge.tsx`                       | Pill: arrow + source step title; click navigates.                                                               |
+| `apps/web/src/features/behavior/cards/ReverseIndexBadge.tsx`                       | Pill: "N listeners react"; click expands inline.                                                                |
+| `apps/web/src/features/behavior/composer/PayloadFieldAutocomplete.tsx`             | Input wrapper that surfaces `<datalist>` of payload fields when input value contains `{{event.payload.` prefix. |
+| `apps/web/src/features/behavior/composer/payload-field-autocomplete-logic.ts`      | Pure logic for the prefix detection + field list derivation (testable).                                         |
+| `apps/web/src/features/behavior/composer/payload-field-autocomplete-logic.test.ts` | TDD tests (~3 tests).                                                                                           |
 
 ### Modified files
 
-| File | Change |
-|---|---|
-| `apps/web/src/features/behavior/cards/BehaviorGraphNode.tsx` | Add badge slots; wire hover/click to popovers. |
-| `apps/web/src/features/behavior/manager/MapGraphOverview.tsx` | Edge renderer applies distinct CSS class when source step ≠ target step. Pass `activeDocument` down so node renderer can resolve cross-step refs. |
-| `apps/web/src/features/behavior/composer/ActionEditor.tsx` | Drop orphaned `builderStepOptions`/`builderFieldOptions`/`builderNodeOptions` props. Use `PayloadFieldAutocomplete` for any text input that accepts payload references. |
+| File                                                           | Change                                                                                                                                                                                                                           |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web/src/features/behavior/cards/BehaviorGraphNode.tsx`   | Add badge slots; wire hover/click to popovers.                                                                                                                                                                                   |
+| `apps/web/src/features/behavior/manager/MapGraphOverview.tsx`  | Edge renderer applies distinct CSS class when source step ≠ target step. Pass `activeDocument` down so node renderer can resolve cross-step refs.                                                                                |
+| `apps/web/src/features/behavior/composer/ActionEditor.tsx`     | Drop orphaned `builderStepOptions`/`builderFieldOptions`/`builderNodeOptions` props. Use `PayloadFieldAutocomplete` for any text input that accepts payload references.                                                          |
 | `apps/web/src/features/behavior/composer/BehaviorComposer.tsx` | Remove the three props from the pass-through to `<ActionEditor>` (lines 796-798). DO NOT remove them from BehaviorComposer's own interface — they're still used by `RuntimeReactionProperties` and BehaviorComposer body itself. |
 
 ---
@@ -53,6 +53,7 @@ This makes the cleanup smaller than the spec implied — single file change to `
 ### Task 1.1: Create types + listPayloadFieldsForEventType
 
 **Files:**
+
 - Create: `apps/web/src/lib/payload-schema-helpers.ts`
 - Create: `apps/web/src/lib/payload-schema-helpers.test.ts`
 
@@ -91,9 +92,7 @@ test("listPayloadFieldsForEventType resolves project event payload from doc", ()
           id: "pe-1",
           type: "custom.thing",
           payloadShape: {
-            fields: [
-              { name: "ticketId", valueType: "string", description: "Ticket id", required: true },
-            ],
+            fields: [{ name: "ticketId", valueType: "string", description: "Ticket id", required: true }],
           },
         },
       ],
@@ -116,11 +115,7 @@ Expected: FAIL — module missing.
 - [ ] **Step 3: Implement**
 
 ```ts
-import type {
-  AuthoringDocument,
-  RuntimeEventTypeDefinition,
-  RuntimePayloadField,
-} from "@form-builder/schema";
+import type { AuthoringDocument, RuntimeEventTypeDefinition, RuntimePayloadField } from "@form-builder/schema";
 import { runtimePayloadFieldsForEventType } from "../features/behavior/utils/runtime-helpers";
 
 /**
@@ -131,10 +126,7 @@ import { runtimePayloadFieldsForEventType } from "../features/behavior/utils/run
  *
  * Returns [] when the event type is unknown.
  */
-export function listPayloadFieldsForEventType(
-  eventType: string,
-  doc: AuthoringDocument | null,
-): RuntimePayloadField[] {
+export function listPayloadFieldsForEventType(eventType: string, doc: AuthoringDocument | null): RuntimePayloadField[] {
   // 1. Core built-in events.
   const core = runtimePayloadFieldsForEventType(eventType);
   if (core.length > 0) return core;
@@ -167,11 +159,7 @@ function findEventSourceInNode(node: unknown, eventType: string): RuntimePayload
   for (const def of candidate.runtime?.eventSources ?? []) {
     if (def.type === eventType) return def.payloadShape?.fields ?? [];
   }
-  for (const child of [
-    ...(candidate.sections ?? []),
-    ...(candidate.groups ?? []),
-    ...(candidate.fields ?? []),
-  ]) {
+  for (const child of [...(candidate.sections ?? []), ...(candidate.groups ?? []), ...(candidate.fields ?? [])]) {
     const found = findEventSourceInNode(child, eventType);
     if (found) return found;
   }
@@ -197,6 +185,7 @@ git commit -m "feat(lib): listPayloadFieldsForEventType helper"
 ### Task 1.2: Add isCrossStepReference + collectCrossStepRefsForListener
 
 **Files:**
+
 - Modify: `apps/web/src/lib/payload-schema-helpers.ts`
 - Modify: `apps/web/src/lib/payload-schema-helpers.test.ts`
 
@@ -510,7 +499,9 @@ export function ReverseIndexBadge({ count, onClick }: ReverseIndexBadgeProps) {
       title={`${count} listener${count === 1 ? "" : "s"} react${count === 1 ? "s" : ""} to this node`}
     >
       <span aria-hidden="true">⇐</span>
-      <span>{display} listener{count === 1 ? "" : "s"}</span>
+      <span>
+        {display} listener{count === 1 ? "" : "s"}
+      </span>
     </button>
   );
 }
@@ -542,6 +533,7 @@ grep -n "BehaviorGraphNode\|edge\|stroke\|<line\|<path" apps/web/src/features/be
 ```
 
 Identify:
+
 - Where node body renders (so badges can attach to top-right corner).
 - Where edges render (look for SVG `<line>` / `<path>` or a render-edge callback).
 
@@ -574,24 +566,24 @@ Place all three badges in a fixed slot at the top-right of the node (`absolute t
 Sketch (adapt to actual node markup):
 
 ```tsx
-{node.kind === "event" && activeDocument ? (
-  <EventNodeBadge eventType={node.eventType} doc={activeDocument} />
-) : null}
-{node.kind === "listener" && activeDocument && node.hostNodeId ? (
-  <ListenerCrossStepBadges
-    listener={node.listener}
-    hostNodeId={node.hostNodeId}
-    doc={activeDocument}
-    onNavigate={onNavigateToNode}
-  />
-) : null}
-{node.kind === "field" && activeDocument ? (
-  <FieldReverseBadge
-    nodeId={node.fieldId}
-    doc={activeDocument}
-    onClick={() => onOpenReverseIndex?.(node.fieldId)}
-  />
-) : null}
+{
+  node.kind === "event" && activeDocument ? <EventNodeBadge eventType={node.eventType} doc={activeDocument} /> : null;
+}
+{
+  node.kind === "listener" && activeDocument && node.hostNodeId ? (
+    <ListenerCrossStepBadges
+      listener={node.listener}
+      hostNodeId={node.hostNodeId}
+      doc={activeDocument}
+      onNavigate={onNavigateToNode}
+    />
+  ) : null;
+}
+{
+  node.kind === "field" && activeDocument ? (
+    <FieldReverseBadge nodeId={node.fieldId} doc={activeDocument} onClick={() => onOpenReverseIndex?.(node.fieldId)} />
+  ) : null;
+}
 ```
 
 (Define small wrapper components at file scope: `EventNodeBadge`, `ListenerCrossStepBadges`, `FieldReverseBadge` — they encapsulate the helper calls + popover state.)
@@ -627,9 +619,10 @@ When constructing each edge (where source/target are resolved), compute and atta
 import { isCrossStepReference } from "../../../lib/payload-schema-helpers";
 
 // inside edge construction
-const crossStep = activeDocument && sourceNodeId && targetNodeId
-  ? isCrossStepReference(activeDocument, sourceNodeId, targetNodeId)
-  : null;
+const crossStep =
+  activeDocument && sourceNodeId && targetNodeId
+    ? isCrossStepReference(activeDocument, sourceNodeId, targetNodeId)
+    : null;
 const isCrossStep = crossStep !== null;
 ```
 
@@ -701,6 +694,7 @@ git commit -m "feat(behavior): badge click wires to existing reverse-index inspe
 ### Task 4.1: Pure logic for prefix detection
 
 **Files:**
+
 - Create: `apps/web/src/features/behavior/composer/payload-field-autocomplete-logic.ts`
 - Create: `apps/web/src/features/behavior/composer/payload-field-autocomplete-logic.test.ts`
 
@@ -860,6 +854,7 @@ git commit -m "feat(behavior): PayloadFieldAutocomplete input wrapper"
 ### Task 5.1: Drop orphan props from ActionEditor
 
 **Files:**
+
 - Modify: `apps/web/src/features/behavior/composer/ActionEditor.tsx`
 - Modify: `apps/web/src/features/behavior/composer/BehaviorComposer.tsx`
 
@@ -874,6 +869,7 @@ Expected: 6 (3 in interface, 3 in destructure). Confirm by scanning the body —
 - [ ] **Step 2: Remove from ActionEditor**
 
 In `apps/web/src/features/behavior/composer/ActionEditor.tsx`:
+
 - Delete the three lines from the `ActionEditorProps` interface (around lines 394-396).
 - Delete the three lines from the destructure (around lines 431-433).
 
@@ -882,9 +878,9 @@ In `apps/web/src/features/behavior/composer/ActionEditor.tsx`:
 In `apps/web/src/features/behavior/composer/BehaviorComposer.tsx`, find the `<ActionEditor>` mount (around lines 796-798). Delete the three prop lines:
 
 ```tsx
-builderStepOptions={builderStepOptions}
-builderFieldOptions={builderFieldOptions}
-builderNodeOptions={builderNodeOptions}
+builderStepOptions = { builderStepOptions };
+builderFieldOptions = { builderFieldOptions };
+builderNodeOptions = { builderNodeOptions };
 ```
 
 DO NOT remove the same props from `BehaviorComposer`'s own interface or destructure — they're still used by `RuntimeReactionProperties` (line 665 in the same file) and the BehaviorComposer body itself (lines 275, 517, 554).
@@ -911,6 +907,7 @@ git commit -m "refactor(behavior): drop orphan builder*Options props from Action
 - [ ] **Step 1: Identify payload-ref inputs**
 
 Search for inputs that accept user-typed values that may include `{{event.payload.X}}` references. Likely candidates:
+
 - `set_field_value` action's "value" input (when the field is a literal/expression)
 - `dispatch_event` action's payload field values
 - `host_call_await` / `host_action` action payload values
@@ -939,7 +936,7 @@ import { PayloadFieldAutocomplete } from "./PayloadFieldAutocomplete";
   eventType={currentEventType ?? ""}
   doc={activeDocument}
   className={existingClassName}
-/>
+/>;
 ```
 
 - [ ] **Step 3: Pipe `currentEventType` from BehaviorComposer**
@@ -984,6 +981,7 @@ npm run format:check
 ```
 
 Expected:
+
 - Runtime tests: 110/110 (no engine change)
 - API tests: 99/99
 - E2E: 3/3
@@ -1002,6 +1000,7 @@ git diff --cached --quiet || git commit -m "chore: format after behavior graph d
 ### Task 6.2: RESUME refresh
 
 **Files:**
+
 - Modify: `RESUME.md`
 - Modify: `docs/project-plan.md`
 

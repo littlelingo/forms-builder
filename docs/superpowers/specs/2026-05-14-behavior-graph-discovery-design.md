@@ -8,12 +8,12 @@ Owner: Clint
 
 Authoring complex behaviors requires understanding three things that the current UI hides:
 
-| Sev | Gap |
-|---|---|
-| H | Event payload schema not discoverable — authors don't see what fields exist for `field.change` etc., so they guess at `{{event.payload.X}}` references in conditions/actions. |
-| H | Cross-step listener references invisible — when a listener on Step A reacts to an event from Step B, nothing in the graph signals the cross-step relationship. |
-| M | Reverse-index panel exists but isn't promoted from the graph — users don't discover "what listens to this field". |
-| L | Orphaned `builderStepOptions` / `builderFieldOptions` / `builderNodeOptions` props on `ActionEditor` (post-SourcePicker swap) — cleanup. |
+| Sev | Gap                                                                                                                                                                           |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| H   | Event payload schema not discoverable — authors don't see what fields exist for `field.change` etc., so they guess at `{{event.payload.X}}` references in conditions/actions. |
+| H   | Cross-step listener references invisible — when a listener on Step A reacts to an event from Step B, nothing in the graph signals the cross-step relationship.                |
+| M   | Reverse-index panel exists but isn't promoted from the graph — users don't discover "what listens to this field".                                                             |
+| L   | Orphaned `builderStepOptions` / `builderFieldOptions` / `builderNodeOptions` props on `ActionEditor` (post-SourcePicker swap) — cleanup.                                      |
 
 Deferred (need specific user signal first): ApplyParametersDialog UX, BranchActionCard multi-arm authoring, listener condition editor UX.
 
@@ -21,16 +21,16 @@ This spec extends the existing BehaviorWorkspace **graph view** with three disco
 
 ## Decisions (locked during brainstorm)
 
-| Topic | Decision |
-|---|---|
-| Scope shape | Discovery-first feature: payload schema + cross-step refs + reverse-index promotion in one coherent surface (Q1: D). |
-| Discovery surface | Extend existing graph view with layered features. No new tab/panel/route (Q2: A). |
-| Payload discovery | Hover/click popover on event node + composer autocomplete on `{{event.payload.X}}` inputs (Q3: E). |
-| Cross-step refs | Distinct edge style (dashed/orange) + listener-node badge "← Step N" (Q4: E). |
-| Reverse-index promotion | Field-node badge ("N listeners react") + click-to-expand inline list reusing existing inspector data (Q5: E). |
-| ApplyParametersDialog | Defer pending user signal (Q6: A). |
-| BranchActionCard / condition editor | Defer pending user signal (Q7: B). |
-| Orphan-prop cleanup on ActionEditor | Include — mechanical hygiene (Q7: B). |
+| Topic                               | Decision                                                                                                             |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Scope shape                         | Discovery-first feature: payload schema + cross-step refs + reverse-index promotion in one coherent surface (Q1: D). |
+| Discovery surface                   | Extend existing graph view with layered features. No new tab/panel/route (Q2: A).                                    |
+| Payload discovery                   | Hover/click popover on event node + composer autocomplete on `{{event.payload.X}}` inputs (Q3: E).                   |
+| Cross-step refs                     | Distinct edge style (dashed/orange) + listener-node badge "← Step N" (Q4: E).                                        |
+| Reverse-index promotion             | Field-node badge ("N listeners react") + click-to-expand inline list reusing existing inspector data (Q5: E).        |
+| ApplyParametersDialog               | Defer pending user signal (Q6: A).                                                                                   |
+| BranchActionCard / condition editor | Defer pending user signal (Q7: B).                                                                                   |
+| Orphan-prop cleanup on ActionEditor | Include — mechanical hygiene (Q7: B).                                                                                |
 
 ## Architecture
 
@@ -87,25 +87,25 @@ apps/web/src/App.tsx (modified)
 
 ### New files
 
-| File | Responsibility |
-|---|---|
-| `apps/web/src/lib/payload-schema-helpers.ts` | Pure helpers: `listPayloadFieldsForEventType`, `isCrossStepReference`, `collectCrossStepRefsForListener`. |
-| `apps/web/src/lib/payload-schema-helpers.test.ts` | TDD tests for the helpers (≥6 tests). |
-| `apps/web/src/features/behavior/cards/PayloadFieldsPopover.tsx` | Popover content: list of payload fields (name, type, description, required marker). Used by event-node hover and composer hint. |
-| `apps/web/src/features/behavior/cards/CrossStepRefBadge.tsx` | Pill: arrow + source step title. Click handler navigates / focuses the source node in graph. |
-| `apps/web/src/features/behavior/cards/ReverseIndexBadge.tsx` | Pill: "N listeners react" + click-to-expand inline list reusing existing reverse-index data. |
-| `apps/web/src/features/behavior/composer/PayloadFieldAutocomplete.tsx` | Input wrapper. On `{{event.payload.` substring match, shows `<datalist>` of available fields per current event type. Otherwise behaves as plain `<input>`. |
-| `apps/web/src/features/behavior/composer/PayloadFieldAutocomplete.test.ts` | TDD tests for the prefix-match + field-list derivation logic (~3 tests). |
+| File                                                                       | Responsibility                                                                                                                                             |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web/src/lib/payload-schema-helpers.ts`                               | Pure helpers: `listPayloadFieldsForEventType`, `isCrossStepReference`, `collectCrossStepRefsForListener`.                                                  |
+| `apps/web/src/lib/payload-schema-helpers.test.ts`                          | TDD tests for the helpers (≥6 tests).                                                                                                                      |
+| `apps/web/src/features/behavior/cards/PayloadFieldsPopover.tsx`            | Popover content: list of payload fields (name, type, description, required marker). Used by event-node hover and composer hint.                            |
+| `apps/web/src/features/behavior/cards/CrossStepRefBadge.tsx`               | Pill: arrow + source step title. Click handler navigates / focuses the source node in graph.                                                               |
+| `apps/web/src/features/behavior/cards/ReverseIndexBadge.tsx`               | Pill: "N listeners react" + click-to-expand inline list reusing existing reverse-index data.                                                               |
+| `apps/web/src/features/behavior/composer/PayloadFieldAutocomplete.tsx`     | Input wrapper. On `{{event.payload.` substring match, shows `<datalist>` of available fields per current event type. Otherwise behaves as plain `<input>`. |
+| `apps/web/src/features/behavior/composer/PayloadFieldAutocomplete.test.ts` | TDD tests for the prefix-match + field-list derivation logic (~3 tests).                                                                                   |
 
 ### Modified files
 
-| File | Change |
-|---|---|
-| `apps/web/src/features/behavior/cards/BehaviorGraphNode.tsx` | Add badge slots: payload-count chip on event nodes; cross-step pill on listener nodes; reverse-index pill on field nodes. Wire hover/click → popover. |
-| `apps/web/src/features/behavior/manager/BehaviorGraph.tsx` (or wherever edges render) | Extend edge renderer to apply distinct style when source step ≠ target step. Pass document-aware props down to graph nodes so they can resolve cross-step refs. |
-| `apps/web/src/features/behavior/composer/ActionEditor.tsx` | Drop orphaned `builderStepOptions`, `builderFieldOptions`, `builderNodeOptions` props (Phase 11 leftovers post-SourcePicker swap). Use `PayloadFieldAutocomplete` in payload-ref inputs. |
-| `apps/web/src/features/behavior/composer/BehaviorComposer.tsx` | Drop the same orphan props from the prop interface + pass-through. |
-| `apps/web/src/App.tsx` | Drop the orphan-prop pass-through at the BehaviorComposer mount. |
+| File                                                                                  | Change                                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web/src/features/behavior/cards/BehaviorGraphNode.tsx`                          | Add badge slots: payload-count chip on event nodes; cross-step pill on listener nodes; reverse-index pill on field nodes. Wire hover/click → popover.                                    |
+| `apps/web/src/features/behavior/manager/BehaviorGraph.tsx` (or wherever edges render) | Extend edge renderer to apply distinct style when source step ≠ target step. Pass document-aware props down to graph nodes so they can resolve cross-step refs.                          |
+| `apps/web/src/features/behavior/composer/ActionEditor.tsx`                            | Drop orphaned `builderStepOptions`, `builderFieldOptions`, `builderNodeOptions` props (Phase 11 leftovers post-SourcePicker swap). Use `PayloadFieldAutocomplete` in payload-ref inputs. |
+| `apps/web/src/features/behavior/composer/BehaviorComposer.tsx`                        | Drop the same orphan props from the prop interface + pass-through.                                                                                                                       |
+| `apps/web/src/App.tsx`                                                                | Drop the orphan-prop pass-through at the BehaviorComposer mount.                                                                                                                         |
 
 ### Reuse
 
@@ -223,20 +223,20 @@ collectCrossStepRefsForListener(doc, listener)
 
 ## Error Handling & Edge Cases
 
-| Case | Behavior |
-|---|---|
-| Unknown event type passed to `listPayloadFieldsForEventType` | Returns `[]`. Popover renders "No payload fields known for `<eventType>`." (informational, not an error). |
-| Event has zero payload fields | Popover renders "This event carries no payload." Badge omitted from event node when 0 fields. |
-| Cross-step ref where source node was deleted | Edge styling skipped (no source); listener badge shows "← (deleted)" with broken-target chip. Doesn't throw. |
-| Cross-step ref to form-level event (no enclosing step) | Treated as same-step. No badge rendered. |
-| Reverse-index returns empty array | Badge omitted from field node. |
-| Reverse-index returns ≥10 entries | Badge shows "10+"; popover paginates or limits to first 20 with "Show all" link to existing inspector panel. |
-| Composer autocomplete: input doesn't match `{{event.payload.` prefix | Behaves as plain `<input>`. No datalist rendered. |
-| Composer autocomplete: current event type unknown / not selected | Datalist empty; input remains free-text. |
-| ActionEditor orphan-prop deletion: stale call site somewhere passes them | TypeScript catches at compile time (props removed from interface). Fix or revert. |
-| Graph node hover popover overlaps with edges / other nodes | Popover positioned via simple absolute placement with auto-flip when near edge. |
-| Performance: large doc (50+ steps × 20 fields × 5 listeners) | Helpers run once per render; memoize `collectCrossStepRefsForListener` per listener id; reverse-index cache invalidated on doc edits (existing pattern). |
-| User clicks badge while editing in composer | Inspector / graph navigation does not unmount the composer form (composer state preserved). |
+| Case                                                                     | Behavior                                                                                                                                                 |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unknown event type passed to `listPayloadFieldsForEventType`             | Returns `[]`. Popover renders "No payload fields known for `<eventType>`." (informational, not an error).                                                |
+| Event has zero payload fields                                            | Popover renders "This event carries no payload." Badge omitted from event node when 0 fields.                                                            |
+| Cross-step ref where source node was deleted                             | Edge styling skipped (no source); listener badge shows "← (deleted)" with broken-target chip. Doesn't throw.                                             |
+| Cross-step ref to form-level event (no enclosing step)                   | Treated as same-step. No badge rendered.                                                                                                                 |
+| Reverse-index returns empty array                                        | Badge omitted from field node.                                                                                                                           |
+| Reverse-index returns ≥10 entries                                        | Badge shows "10+"; popover paginates or limits to first 20 with "Show all" link to existing inspector panel.                                             |
+| Composer autocomplete: input doesn't match `{{event.payload.` prefix     | Behaves as plain `<input>`. No datalist rendered.                                                                                                        |
+| Composer autocomplete: current event type unknown / not selected         | Datalist empty; input remains free-text.                                                                                                                 |
+| ActionEditor orphan-prop deletion: stale call site somewhere passes them | TypeScript catches at compile time (props removed from interface). Fix or revert.                                                                        |
+| Graph node hover popover overlaps with edges / other nodes               | Popover positioned via simple absolute placement with auto-flip when near edge.                                                                          |
+| Performance: large doc (50+ steps × 20 fields × 5 listeners)             | Helpers run once per render; memoize `collectCrossStepRefsForListener` per listener id; reverse-index cache invalidated on doc edits (existing pattern). |
+| User clicks badge while editing in composer                              | Inspector / graph navigation does not unmount the composer form (composer state preserved).                                                              |
 
 ## Testing
 
@@ -249,6 +249,7 @@ collectCrossStepRefsForListener(doc, listener)
 ### New unit tests (pure logic via `tsx --test`)
 
 `apps/web/src/lib/payload-schema-helpers.test.ts` (~6 tests):
+
 - `listPayloadFieldsForEventType returns core fields for "field.change"`
 - `listPayloadFieldsForEventType returns empty array for unknown type`
 - `listPayloadFieldsForEventType resolves project event payload from doc`
@@ -257,6 +258,7 @@ collectCrossStepRefsForListener(doc, listener)
 - `collectCrossStepRefsForListener returns empty array for self-step listener`
 
 `apps/web/src/features/behavior/composer/PayloadFieldAutocomplete.test.ts` (~3 tests):
+
 - `detects {{event.payload. prefix and returns matching options`
 - `returns empty options when no event type`
 - `returns empty options when input has no token prefix`
@@ -268,9 +270,11 @@ Skip — Area 2 is graph-view + composer work; pure-logic tests cover the deriva
 ### Removal verification
 
 After orphan-prop cleanup:
+
 ```
 grep -rn "builderStepOptions\|builderFieldOptions\|builderNodeOptions" apps/web/src
 ```
+
 Expected: empty (excluding spec/plan docs).
 
 ### Gates
