@@ -50,6 +50,8 @@ import { ReverseIndexBadge } from "../cards/ReverseIndexBadge";
 import { collectCrossStepRefsForListener } from "../../../lib/payload-schema-helpers";
 import { countListenersReferencingNode } from "../stack/runtime-stack-helpers";
 import { actionButtonClass, formatLabel } from "../../../lib/ui-utils";
+import type { FieldRule } from "../../../lib/field-rule-helpers";
+import { FieldRulesTriggers } from "../field-rules/FieldRulesTriggers";
 
 function runtimeNodeTypeForAuthoringField(field: AuthoringField | null | undefined): RuntimeNodeType {
   if (field?.rendererHints.component === "button" || field?.semanticType === "statement") {
@@ -263,6 +265,10 @@ export interface BehaviorWorkspaceProps {
   onSetSelectedBehaviorNode: (node: BehaviorGraphSelection | null) => void;
   onSetEditingRuleIndex: (index: number | null) => void;
   onSetInspectorTab: (tab: InspectorTab) => void;
+  onOpenFieldRuleWizardForTrigger?: (fieldId: string) => void;
+  onOpenFieldRuleWizardForEdit?: (rule: FieldRule) => void;
+  onDeleteFieldRule?: (rule: FieldRule) => void;
+  fieldRuleLabelOf?: (id: string) => string;
 }
 
 export function BehaviorWorkspace({
@@ -343,6 +349,10 @@ export function BehaviorWorkspace({
   onSetSelectedBehaviorNode: setSelectedBehaviorNode,
   onSetEditingRuleIndex: setEditingRuleIndex,
   onSetInspectorTab: setInspectorTab,
+  onOpenFieldRuleWizardForTrigger,
+  onOpenFieldRuleWizardForEdit,
+  onDeleteFieldRule,
+  fieldRuleLabelOf,
 }: BehaviorWorkspaceProps) {
   const selectedRuleIndex =
     selectedBehaviorNode?.kind === "rule" && selectedAuthoring?.kind === "field" && activeBuilderField
@@ -3562,6 +3572,17 @@ export function BehaviorWorkspace({
 
       {behaviorWorkspaceMode !== "document_graph" ? (
         <div className="space-y-4">
+          {selectedAuthoring?.kind === "field" && onOpenFieldRuleWizardForTrigger ? (
+            <FieldRulesTriggers
+              doc={activeDocument}
+              fieldId={selectedAuthoring.fieldId}
+              fieldOptionLabel={fieldRuleLabelOf ?? ((id) => id)}
+              onAdd={() => onOpenFieldRuleWizardForTrigger(selectedAuthoring.fieldId)}
+              onEdit={(rule) => onOpenFieldRuleWizardForEdit?.(rule)}
+              onDelete={(rule) => onDeleteFieldRule?.(rule)}
+            />
+          ) : null}
+
           <div className="rounded-[1.15rem] border border-soft bg-white p-4">
             <div className="flex items-start justify-between gap-3">
               <div>

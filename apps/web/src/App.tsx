@@ -10233,6 +10233,10 @@ export default function App() {
                         onSetSelectedBehaviorNode={setSelectedBehaviorNode}
                         onSetEditingRuleIndex={setEditingRuleIndex}
                         onSetInspectorTab={setInspectorTab}
+                        onOpenFieldRuleWizardForTrigger={openFieldRuleWizardForTrigger}
+                        onOpenFieldRuleWizardForEdit={openFieldRuleWizardForEdit}
+                        onDeleteFieldRule={handleFieldRuleDelete}
+                        fieldRuleLabelOf={fieldRuleLabelOf}
                       />
                     )
                   }
