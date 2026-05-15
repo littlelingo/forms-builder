@@ -30,7 +30,8 @@
     "e2e:phase3": "npm run build:web && node apps/web/e2e/orchestrate.mjs",
     "e2e:test-panel": "npm run build:web && node apps/web/e2e/orchestrate.mjs ./test-panel.run.mjs",
     "e2e:walkthrough": "npm run build:web && node apps/web/e2e/orchestrate.mjs ./walkthrough.run.mjs",
-    "e2e:library-modal": "npm run build:web && node apps/web/e2e/orchestrate.mjs ./library-modal.run.mjs"
+    "e2e:library-modal": "npm run build:web && node apps/web/e2e/orchestrate.mjs ./library-modal.run.mjs",
+    "e2e:field-rules": "npm run build:web && node apps/web/e2e/orchestrate.mjs ./field-rules.run.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.11.3",
