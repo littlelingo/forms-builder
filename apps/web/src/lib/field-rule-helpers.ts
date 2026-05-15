@@ -120,11 +120,7 @@ function collectAllListeners(doc: AuthoringDocument): RuntimeListenerDefinition[
       fields?: unknown[];
     };
     for (const l of candidate.runtime?.listeners ?? []) out.push(l);
-    for (const child of [
-      ...(candidate.sections ?? []),
-      ...(candidate.groups ?? []),
-      ...(candidate.fields ?? []),
-    ]) {
+    for (const child of [...(candidate.sections ?? []), ...(candidate.groups ?? []), ...(candidate.fields ?? [])]) {
       walk(child);
     }
   }

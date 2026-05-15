@@ -9,17 +9,9 @@ export interface FieldRuleValuePickerProps {
   className?: string;
 }
 
-export function FieldRuleValuePicker({
-  operator,
-  value,
-  onChange,
-  field,
-  className,
-}: FieldRuleValuePickerProps) {
+export function FieldRuleValuePicker({ operator, value, onChange, field, className }: FieldRuleValuePickerProps) {
   if (operator === "exists") {
-    return (
-      <p className={`text-sm text-slate-500 ${className ?? ""}`}>No value needed for "exists".</p>
-    );
+    return <p className={`text-sm text-slate-500 ${className ?? ""}`}>No value needed for "exists".</p>;
   }
   const options = field?.options ?? null;
   if (options && options.length > 0) {

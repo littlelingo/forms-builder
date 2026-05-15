@@ -112,16 +112,41 @@ async function main() {
     const radioOptionValue = await affectedSelect.locator("option").nth(2).getAttribute("value");
     if (!radioOptionValue) throw new Error("could not find an affected field option at index 2");
     await affectedSelect.selectOption(radioOptionValue);
-    // Trigger field (nth 2) should be pre-filled with field-benefit-type; skip
+    // Trigger field (nth 2) should be pre-filled with field-benefit-type via initialTriggerFieldId,
+    // but the useEffect that applies it runs after the first render. Wait until the wizard has
+    // 5 selects (effect + affected + trigger + operator + value-picker) before grabbing the last
+    // one, so we don't accidentally target the operator select when value-picker isn't yet mounted.
+    await page.waitForFunction(
+      () => {
+        const dlg = document.querySelector('[role="dialog"][aria-labelledby="field-rule-wizard-title"]');
+        return dlg ? dlg.querySelectorAll("select").length >= 5 : false;
+      },
+      undefined,
+      { timeout: 5_000 },
+    );
     // Operator (nth 3) defaults to "equals"; skip
     // Value picker — trigger is field-benefit-type (checkbox-group with options),
-    // so a <select> appears with "Disability" / "Education" options (last select)
+    // so a <select> appears with "Disability" / "Education" options (now safely the last select)
     const valueSelect = dialog.locator("select").last();
     const valueOption = await valueSelect.locator("option").nth(1).getAttribute("value");
     if (!valueOption) throw new Error("could not find a value option");
     await valueSelect.selectOption(valueOption);
 
-    await dialog.getByRole("button", { name: /Add rule/i }).click();
+    const addRuleBtn = dialog.getByRole("button", { name: /Add rule/i });
+    await addRuleBtn.waitFor({ timeout: 5_000 });
+    // Wait for React state to settle so the button is no longer disabled
+    await page.waitForFunction(
+      () => {
+        const dlg = document.querySelector('[role="dialog"][aria-labelledby="field-rule-wizard-title"]');
+        if (!dlg) return false;
+        const buttons = Array.from(dlg.querySelectorAll("button"));
+        const btn = buttons.find((b) => b.textContent?.trim() === "Add rule");
+        return Boolean(btn && !btn.disabled);
+      },
+      undefined,
+      { timeout: 5_000 },
+    );
+    await addRuleBtn.click();
 
     console.log("[e2e] asserting rule row appears in FieldRulesTriggers");
     await behaviorStudio.getByText(/Hide.+when this field equals/i).waitFor({ timeout: 5_000 });

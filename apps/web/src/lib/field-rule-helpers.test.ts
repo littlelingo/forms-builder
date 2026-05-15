@@ -212,10 +212,7 @@ test("findRulesAffectingField returns rules from both form-level and node-level 
   });
   const rules = findRulesAffectingField(doc, "f-target");
   assert.equal(rules.length, 2);
-  assert.deepEqual(
-    rules.map((r) => r.effect).sort(),
-    ["hide", "show"],
-  );
+  assert.deepEqual(rules.map((r) => r.effect).sort(), ["hide", "show"]);
 });
 
 test("findRulesAffectingField excludes listeners whose target differs", () => {

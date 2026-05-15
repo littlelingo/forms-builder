@@ -1,9 +1,5 @@
 import type { AuthoringDocument } from "@form-builder/schema";
-import {
-  detectFieldRuleConflicts,
-  findRulesAffectingField,
-  type FieldRule,
-} from "../../../lib/field-rule-helpers";
+import { detectFieldRuleConflicts, findRulesAffectingField, type FieldRule } from "../../../lib/field-rule-helpers";
 import { actionButtonClass } from "../../../lib/ui-utils";
 
 export interface FieldRulesListProps {
@@ -15,19 +11,10 @@ export interface FieldRulesListProps {
   onDelete: (rule: FieldRule) => void;
 }
 
-export function FieldRulesList({
-  doc,
-  fieldId,
-  fieldOptionLabel,
-  onAdd,
-  onEdit,
-  onDelete,
-}: FieldRulesListProps) {
+export function FieldRulesList({ doc, fieldId, fieldOptionLabel, onAdd, onEdit, onDelete }: FieldRulesListProps) {
   const rules = doc && fieldId ? findRulesAffectingField(doc, fieldId) : [];
   const conflicts = detectFieldRuleConflicts(rules);
-  const conflictByListenerId = new Set(
-    conflicts.flatMap((c) => c.rules.map((r) => r.listenerId)),
-  );
+  const conflictByListenerId = new Set(conflicts.flatMap((c) => c.rules.map((r) => r.listenerId)));
   return (
     <section className="rounded-[1rem] border border-soft bg-white p-4">
       <header className="flex items-center justify-between gap-3">
@@ -35,9 +22,7 @@ export function FieldRulesList({
           <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
             Rules affecting this field
           </p>
-          <p className="mt-1 text-xs text-slate-500">
-            Visibility and required-state rules triggered by other fields.
-          </p>
+          <p className="mt-1 text-xs text-slate-500">Visibility and required-state rules triggered by other fields.</p>
         </div>
         <button type="button" onClick={onAdd} className={actionButtonClass("secondary")}>
           + Add rule
@@ -66,8 +51,7 @@ export function FieldRulesList({
                         ? "Mark required"
                         : "Mark optional"}
                 </strong>{" "}
-                this field when{" "}
-                <strong>{fieldOptionLabel(rule.triggerFieldId)}</strong>{" "}
+                this field when <strong>{fieldOptionLabel(rule.triggerFieldId)}</strong>{" "}
                 {rule.operator === "exists" ? "exists" : `${rule.operator.replace("_", " ")} "${rule.expectedValue}"`}
               </span>
               <div className="flex items-center gap-1">
