@@ -112,8 +112,16 @@ This file is the living project tracker for the Form Builder platform. Phase 1 e
 
 # Next Steps
 
-- Add project autosave and unsaved-change recovery.
-- Surface imported-draft provenance and linked issues more directly in the authoring inspector.
-- Add the first behavior-authoring slice for required/visibility rules and simple path branching.
-- Decide whether the authoring document can remain the runtime handoff artifact or whether a dedicated export adapter model is needed.
+Status of the original Next Steps list:
+
+- ~~Add the first behavior-authoring slice for required/visibility rules and simple path branching.~~ — Field-rules half (visibility / required) shipped 2026-05-14 (see Progress Log). Path-branching half (`branch` action wizard around `go_to_step` arms) is still open as a follow-up slice.
+
+Open lanes (pick one when next active):
+
+1. **Path-branching authoring slice (B in the A/B decomposition).** Brainstormed conceptually but no spec/plan committed yet. Goal: wrap the existing runtime `branch` action with a guided "If condition then go to step X else step Y" wizard. Spec needs to decide: navigation-only vs generic conditional arms, single-condition vs multi-arm chains, where the wizard mounts (step properties? listener composer?).
+2. **Field-rules follow-ups deferred in the field-rules spec.** AND/OR/NONE condition groups in the wizard; cross-trigger conflict detection (today's `detectFieldRuleConflicts` only flags same-trigger pairs); optional prompt-on-delete for fields with active rules.
+3. **Project autosave + unsaved-change recovery.** Older item, broad user-facing win. No spec yet.
+4. **Surface imported-draft provenance and linked issues more directly in the authoring inspector.**
+5. **Decide whether the authoring document can remain the runtime handoff artifact or whether a dedicated export adapter model is needed.**
+
 - Revisit storage only after the project-editing workflow is proven locally end to end.
