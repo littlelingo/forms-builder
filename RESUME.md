@@ -25,7 +25,37 @@
 
 ## What Was Just Completed
 
-- **Behavior graph discovery** (this run, on `main`):
+- **Field-rules authoring** (this run, on `main`):
+  - First author-side UX slice for visibility/required rules. New
+    `FieldRuleWizard` (modal, 5-input wizard: effect / affected / trigger /
+    operator / value) creates runtime listeners under a constrained "field
+    rule" shape (`field.change` event + single atom condition + single
+    `show_node`/`hide_node`/`mark_required`/`mark_optional` action).
+  - Two entry points feed the same wizard:
+    - `FieldRulesList` (inside field inspector, "Rules affecting this field")
+      shows + edits + deletes rules where the selected field is the target.
+    - `FieldRulesTriggers` (inside BehaviorWorkspace, "Rules this field
+      triggers") shows rules where the selected field is the trigger.
+  - Pure helpers in `apps/web/src/lib/field-rule-helpers.ts`: encode /
+    decode / find-affecting / find-triggered / conflict-detect with 15
+    unit tests.
+  - No schema change. No engine change. The rule shape is a structural
+    convention over `RuntimeListenerDefinition`. Existing engine path
+    handles the listeners with no modification.
+  - Path-branching authoring deferred to next slice.
+  - `value-picker` adapts to trigger field semantic type: options select
+    for choice fields, boolean select for checkboxes, number/text input
+    for plain inputs, hint text for `exists` operator.
+  - Conflict surfacing: `FieldRulesList` flags pairs of rules with same
+    trigger/operator/value but opposing effects (show↔hide,
+    require↔optional). Informational only — saves still allowed.
+  - New E2E suite `e2e:field-rules` (wizard + listener round-trip via
+    TestPanel firing).
+  - Gates: typecheck/builds clean, runtime 110/110, API 99/99,
+    E2E 5/5 (phase3 + test-panel + walkthrough + library-modal + field-rules),
+    field-rule-helpers 15/15, format clean.
+
+- **Behavior graph discovery** (prior run, on `main`):
   - Layered three discovery features onto the existing BehaviorWorkspace
     graph view: payload-fields popover on event nodes (hover chip in card top-right),
     cross-step ref badges + distinct edge tone (amber `graph-edge-cross-step`
