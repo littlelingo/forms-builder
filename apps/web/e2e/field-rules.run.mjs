@@ -73,7 +73,10 @@ async function main() {
   try {
     await installApiMocks(page);
     await page.goto(BASE_URL, { waitUntil: "networkidle" });
-    await page.getByRole("button", { name: /Checkbox to Radio E2E/i }).first().click();
+    await page
+      .getByRole("button", { name: /Checkbox to Radio E2E/i })
+      .first()
+      .click();
     await page.getByRole("toolbar", { name: /Builder stage toolbar/i }).waitFor({ timeout: 5_000 });
 
     // Navigate to Map tab → Summary list → Open in graph for the existing
@@ -88,8 +91,14 @@ async function main() {
     await page.getByRole("button", { name: /Summary list/i }).click();
 
     console.log("[e2e] clicking Open in graph for the existing listener");
-    await page.getByRole("button", { name: /Open in graph/i }).first().waitFor({ timeout: 5_000 });
-    await page.getByRole("button", { name: /Open in graph/i }).first().click();
+    await page
+      .getByRole("button", { name: /Open in graph/i })
+      .first()
+      .waitFor({ timeout: 5_000 });
+    await page
+      .getByRole("button", { name: /Open in graph/i })
+      .first()
+      .click();
 
     // BehaviorWorkspace is now open in the behavior studio modal (graph mode)
     // with field-benefit-type selected. FieldRulesTriggers renders below the graph.
